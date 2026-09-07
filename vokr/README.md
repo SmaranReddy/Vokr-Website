@@ -32,13 +32,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Available scripts
 
-| Command             | Purpose                              |
-| -------------------- | ------------------------------------- |
-| `npm run dev`         | Start the development server          |
-| `npm run lint`        | Run ESLint                            |
-| `npm run typecheck`   | Generate route types, then run `tsc --noEmit` |
-| `npm run build`       | Production build                      |
-| `npm run start`       | Serve the production build            |
+| Command             | Purpose                                       |
+| ------------------- | --------------------------------------------- |
+| `npm run dev`       | Start the development server                  |
+| `npm run lint`      | Run ESLint                                    |
+| `npm run typecheck` | Generate route types, then run `tsc --noEmit` |
+| `npm run build`     | Production build                              |
+| `npm run start`     | Serve the production build                    |
 
 Run `npm run lint && npm run typecheck && npm run build` before opening a
 pull request.

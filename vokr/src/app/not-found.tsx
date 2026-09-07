@@ -8,7 +8,10 @@ export default function NotFound() {
       <p className="text-foreground/70">
         The page you&apos;re looking for doesn&apos;t exist.
       </p>
-      <Link href="/" className="text-sm font-medium underline underline-offset-4">
+      <Link
+        href="/"
+        className="text-sm font-medium underline underline-offset-4"
+      >
         Return home
       </Link>
     </Container>

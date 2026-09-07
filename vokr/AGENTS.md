@@ -21,24 +21,28 @@ These are not preferences. Each one maps to a defect the codebase review
 already found, or to a free-tier limit the stack depends on.
 
 **Money**
+
 - The client never sends a price. Prices resolve server-side from a
   variant ID, always.
 - GST is computed per variant, never a global constant. ₹295 laces and
   ₹9,995 shoes are not in the same slab.
 
 **Payments**
+
 - Order state is driven by the verified Razorpay webhook, never by the
   browser callback.
 - Verify the webhook signature on every request. Handle redelivery.
 - Idempotency keys on every order-creation and payment endpoint.
 
 **Inventory**
+
 - Reserve inside a database transaction with `SELECT … FOR UPDATE`, plus
   a `CHECK (quantity_available >= 0)` constraint as the backstop.
   Application logic alone is not sufficient.
 - The Razorpay network call stays **outside** the row lock.
 
 **Database**
+
 - Never `SELECT *`. Every returned column is Supabase egress against a
   5 GB/month cliff that ends in HTTP 402 across all services.
 - No images and no logs in Postgres. Images go to R2; logs go to Cloud
@@ -48,6 +52,7 @@ already found, or to a free-tier limit the stack depends on.
 - Stable identifiers only. A product display name is never a key.
 
 **Security & privacy**
+
 - The Supabase service-role key never reaches the browser.
 - Guest order lookup is unauthenticated by design ("no login required"
   is a published promise) and must therefore be rate-limited and
@@ -56,6 +61,7 @@ already found, or to a free-tier limit the stack depends on.
 - Never publish fabricated reviews, ratings or review counts.
 
 **Operations**
+
 - `max-instances` is always set. Billing budget alerts are always live.
 - Secrets load once at process boot, never per request. Never exceed 6
   active Secret Manager versions — disable the old one when rotating.
