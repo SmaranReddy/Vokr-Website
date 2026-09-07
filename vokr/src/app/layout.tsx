@@ -29,8 +29,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col font-sans">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-foreground focus:px-5 focus:py-2.5 focus:text-sm focus:font-medium focus:text-background"
+        >
+          Skip to content
+        </a>
         <SiteHeader />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <main id="main" className="flex flex-1 flex-col">
+          {children}
+        </main>
         <SiteFooter />
       </body>
     </html>

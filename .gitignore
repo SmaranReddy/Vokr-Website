@@ -1,0 +1,36 @@
+# Repository root.
+#
+# The deployable application lives in `vokr/` and has its own .gitignore.
+# This file governs the reference material kept alongside it.
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Never commit an environment file anywhere in the tree.
+.env
+.env.*
+!.env.example
+
+# --- Legacy reference material -------------------------------------------
+#
+# `vokr-production.zip` (the 27-page static site), the backend scope
+# document and the architecture PDF ARE tracked — Phase 4 migrates from
+# them and the plan cites them, so a fresh clone must be self-sufficient.
+#
+# These two are deliberately excluded:
+#
+#  * "index (7).html" — a 19.9 MB homepage variant with ten inlined base64
+#    images. It is the exact artefact R21 exists to eliminate; putting it
+#    in git history would permanently bloat every clone for no benefit.
+#    The finding it evidences is recorded in the implementation plan.
+#
+#  * "vokr-production (1).zip" — byte-identical to vokr-production.zip
+#    apart from one CSS hex value (.footer-bottom a:hover #000 -> #fff).
+#    One canonical copy of the legacy site is enough.
+#
+index (7).html
+vokr-production (1).zip

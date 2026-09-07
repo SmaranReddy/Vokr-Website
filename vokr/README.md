@@ -10,6 +10,10 @@ Production Readiness Checklist** PDF at the root of the workspace. That
 document is the source of truth for every infrastructure decision — this
 README only covers what exists in this codebase today.
 
+Day-to-day engineering reference: **`../Vokr-Implementation-Plan.md`**
+(the phased plan and its status) and **`AGENTS.md`** (the non-negotiable
+architecture and security rules).
+
 This codebase is currently at **Stage 1: foundation**. It establishes the
 application structure, styling, environment-variable conventions, and
 tooling that later stages (database, auth, payments, checkout, admin) build
@@ -32,12 +36,17 @@ Open [http://localhost:3000](http://localhost:3000).
 | -------------------- | ------------------------------------- |
 | `npm run dev`         | Start the development server          |
 | `npm run lint`        | Run ESLint                            |
-| `npm run typecheck`   | Run the TypeScript compiler (no emit) |
+| `npm run typecheck`   | Generate route types, then run `tsc --noEmit` |
 | `npm run build`       | Production build                      |
 | `npm run start`       | Serve the production build            |
 
 Run `npm run lint && npm run typecheck && npm run build` before opening a
 pull request.
+
+`typecheck` runs `next typegen` first because the App Router's
+route-aware globals (`LayoutProps`, `PageProps`, `RouteContext`) are
+generated into the git-ignored `.next/types`. Without it, `tsc` fails on
+a clean checkout.
 
 ## Project structure
 
@@ -49,7 +58,6 @@ src/
     layout/      App-wide chrome (header, footer)
   config/        Static app configuration (site metadata, etc.)
   lib/           Framework-agnostic helpers (class-name merging, metadata builder)
-  types/         Shared TypeScript types
   styles/        Global stylesheet (Tailwind entry point)
 ```
 
