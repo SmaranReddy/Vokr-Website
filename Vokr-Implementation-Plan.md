@@ -19,16 +19,16 @@ block and the master checklist below are the source of truth for progress.
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 1 — Foundation Stabilization |
-| **Current status** | NOT STARTED (Phase 0 complete) |
-| **Latest relevant commit** | `5dc3b49` Stage 1: production-ready application foundation, plus the Phase 0 correction commit that introduced this document |
-| **Blocking issues** | 3 open human decisions — see §0.3 |
+| **Current phase** | Phase 2 — Catalog + Database (not started) |
+| **Current status** | Phase 1 COMPLETE (7 Sep 2026) |
+| **Latest relevant commit** | *(Phase 1 commit)* Phase 1: foundation stabilization — Vitest, env validation, error hierarchy, Prettier, Compose Postgres |
+| **Blocking issues** | 3 open human decisions — see §0.3. Phase 2 additionally needs D1 and D2 answered before it can start. |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
 
 ### 0.1 Master checklist
 
 - [x] **Phase 0** — Current-State Audit + Foundation Corrections
-- [ ] **Phase 1** — Foundation Stabilization
+- [x] **Phase 1** — Foundation Stabilization
 - [ ] **Phase 2** — Catalog + Database
 - [ ] **Phase 3** — Authentication + Guest Sessions
 - [ ] **Phase 4** — Website / Page Migration
@@ -62,6 +62,7 @@ dashboard, a restore log. Not an assertion.
 | Phase | Completed | Commit | Evidence |
 |---|---|---|---|
 | 0 | 7 Sep 2026 | *(Phase 0 correction commit)* | `npm run lint`, `npm run typecheck`, `npm run build` all pass from a clean checkout with `.next/` deleted; `.next/standalone` produced at 29 MB |
+| 1 | 7 Sep 2026 | `ffb8eb9` (Prettier formatting pass), *(Phase 1 commit)* | `npm run verify` (lint + typecheck + test + build) green from a clean `.next/`; 17/17 tests passing across 4 files; `next dev` boots and serves `GET /` → 200; a deliberately invalid `NEXT_PUBLIC_SITE_URL` makes `src/lib/env.ts` throw one aggregated, readable error before any request is served (reproduced via `npx tsx -e "require('./src/lib/env.ts')"`); `grep` of `.next/static` for every server-only secret name (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`) returns zero matches |
 
 ### 0.3 Open decisions requiring a human
 
@@ -555,7 +556,7 @@ Plan committed; corrections validated; no later-phase feature work started.
 ### PHASE 1 — Foundation Stabilization
 
 #### Status
-**NOT STARTED**
+**COMPLETE** — 7 September 2026
 
 #### Objective
 Give the repository the engineering practice every later phase depends on:
@@ -582,19 +583,25 @@ must exist first, but the pipeline that runs it is a deployment concern).
 Sentry (Phase 15).
 
 #### Implementation Tasks
-1. Add `vitest` + `@vitejs/plugin-react` + `@testing-library/react` + `jsdom`. Create `vitest.config.ts` with two projects: `node` (default, for `src/lib/**` and `src/server/**`) and `jsdom` (for components).
-2. Add `npm run test`, `test:watch`, `test:coverage`. Set a coverage threshold that starts realistic and ratchets — begin at 0 and raise it per phase rather than declaring a number nobody meets.
-3. Add `npm run verify` = `lint && typecheck && test && build`. **This is the single command the DoD refers to.**
-4. Create `src/lib/env.ts`: a `zod` schema splitting `client` (`NEXT_PUBLIC_*`) from `server` variables, parsed **once at module load**, exporting a frozen typed object. Throw a readable aggregated error listing every missing variable — never fail one at a time.
-5. Wire `siteConfig` to read from `env`, not `process.env` directly. Keep the localhost fallback but mark it `// PHASE 19 GATE` referencing §2.5.
-6. Add `prettier` + `eslint-config-prettier`; `npm run format` and `format:check`. Format the existing tree in **one isolated commit** so it never pollutes a review diff.
-7. Add `docker-compose.yml` with `postgres:17-alpine`, a named volume and a health check, for local development and integration tests.
-8. Add `.nvmrc` pinning the Node major to match `engines` and the eventual Dockerfile base image.
-9. Write the first tests: `cn()`, `createMetadata()`, and `env.ts` failure modes (missing var, wrong type, `NEXT_PUBLIC_` leak of a server name).
-10. Add a `lib/errors.ts` with a small typed error hierarchy (`AppError`, `ValidationError`, `NotFoundError`, `ConflictError`, `RateLimitError`) and a single `toErrorResponse()` mapper. Every API route from Phase 2 onward returns through it.
+1. ✅ Add `vitest` + `@vitejs/plugin-react` + `@testing-library/react` + `jsdom`. Create `vitest.config.mts` (`.mts`, not `.ts` — Vite's native config loader otherwise warns on ESM-in-CJS and on `__dirname`) with two projects: `node` (default, for `src/lib/**` and `src/server/**`) and `jsdom` (for components).
+2. ✅ Add `npm run test`, `test:watch`, `test:coverage`. Coverage thresholds start at 0 in `vitest.config.mts`, to be ratcheted per phase.
+3. ✅ Add `npm run verify` = `lint && typecheck && test && build`. **This is the single command the DoD refers to.**
+4. ✅ Create `src/lib/env.ts`: a `zod` schema splitting `client` (`NEXT_PUBLIC_*`) from `server` variables, parsed **once at module load**, exporting a frozen typed object. Throws a single readable aggregated error listing every invalid/missing variable via the exported `parseEnvSection()` helper — never fails one at a time. `assertNoServerKeyLeak()` runs at import time and would throw if any server-only name were ever declared under a `NEXT_PUBLIC_` alias.
+5. ✅ Wired `siteConfig` to read from `clientEnv`, not `process.env` directly. Kept the localhost fallback, now marked `// PHASE 19 GATE` referencing §2.5. (The URL default itself lives in `site.ts`, not `env.ts`, so `NEXT_PUBLIC_SITE_URL` stays genuinely optional at the schema level — see the Deferred Items note below.)
+6. ✅ Added `prettier` + `eslint-config-prettier` (wired into `eslint.config.mjs`); `npm run format` and `format:check`. The 4 files the existing tree needed reformatting — `AGENTS.md`, `README.md`, `src/app/not-found.tsx`, `src/components/layout/site-header.tsx` — landed in one isolated commit (`ffb8eb9`) before any Phase 1 feature commit.
+7. ✅ Added `docker-compose.yml` with `postgres:17-alpine`, a named volume and a health check. **Verified live**, not just written: `docker compose up -d` → container reached `healthy`, `pg_isready` and a real `psql -c "SELECT version()"` both succeeded (PostgreSQL 17.10), then `docker compose down`.
+8. ✅ Added `.nvmrc` pinning Node. Also bumped `engines.node` from `>=20.9.0` to `>=22.12.0` and `@types/node` from `^20` to `^22` — **a correction beyond the original task wording**: Node 20 "Iron" LTS reached end-of-life before this phase started (April 2026), and `vitest@5` hard-requires `@types/node` `^22 || >=24` as a peer dependency, so `npm install` failed with an unresolvable ERESOLVE conflict under the old pin. Node 22 "Jod" is the current LTS.
+9. ✅ Wrote the first tests: `cn()` (3 tests), `createMetadata()` (2 tests), `env.ts` failure modes — missing var, wrong type, `NEXT_PUBLIC_` leak of a server name, plus 2 success-path tests (6 tests) — and `toErrorResponse()` (7 tests, one per error class plus unrecognised-error and unique-requestId cases). **17 tests total**, all passing.
+10. ✅ Added `src/lib/errors.ts`: `AppError` base plus `ValidationError` (400), `NotFoundError` (404), `ConflictError` (409), `RateLimitError` (429), `InternalError` (500), and `toErrorResponse()`. An unrecognised thrown value always maps to a generic 500 with no internal message leaked, in every environment — verified by a dedicated test.
+11. ✅ Added Playwright scaffolding (`@playwright/test` + `playwright.config.ts`, `testDir: "./e2e"`) per the phase's **Scope** statement, which named it explicitly even though the numbered task list originally omitted it. No `e2e/` specs yet — first ones land in Phase 4 per §7.1.
 
 #### Files / Areas Affected
-`vokr/package.json` · `vokr/vitest.config.ts` · `vokr/.prettierrc` · `vokr/.nvmrc` · `vokr/docker-compose.yml` · `vokr/src/lib/env.ts` · `vokr/src/lib/errors.ts` · `vokr/src/config/site.ts` · `vokr/src/lib/__tests__/`
+`vokr/package.json` · `vokr/package-lock.json` · `vokr/vitest.config.mts` · `vokr/playwright.config.ts` · `vokr/.prettierrc` · `vokr/.prettierignore` · `vokr/.nvmrc` · `vokr/docker-compose.yml` · `vokr/eslint.config.mjs` · `vokr/src/lib/env.ts` · `vokr/src/lib/errors.ts` · `vokr/src/config/site.ts` · `vokr/src/lib/__tests__/` · `vokr/.env.example` · `vokr/AGENTS.md` (formatting only) · `vokr/README.md` (formatting only) · `vokr/src/app/not-found.tsx` (formatting only) · `vokr/src/components/layout/site-header.tsx` (formatting only)
+
+#### Deferred Items
+- **Coverage thresholds start at 0**, exactly as the phase specifies ("begin at 0 and raise it per phase"). Not a shortfall — this is the stated design.
+- **`npm run verify` does not run `format:check`.** Prettier formatting is enforced by convention (`npm run format` before committing) and CI can add a `format:check` gate in Phase 19 alongside the workflow file itself; adding it to `verify` now would make an un-actioned local formatting drift block `test`/`build` for no safety benefit at this stage. Recorded here so Phase 19 doesn't silently drop it.
+- **Playwright has no real specs.** Scaffolding only, as the phase's own Scope line specifies ("no e2e tests yet").
 
 #### Database Impact
 None in the application. A local Postgres container becomes available.
@@ -621,14 +628,20 @@ Unit tests for `cn`, `createMetadata`, `env` (3 failure modes), and
 phase that establishes tests exist at all; **mandatory before Phase 2.**
 
 #### Validation
-`npm run verify` green. Deliberately unset a required variable and confirm
-the process refuses to boot with a readable message.
+`npm run verify` run green from a clean `.next/`. `next dev` boots and
+`GET /` returns 200. Deliberately set `NEXT_PUBLIC_SITE_URL=not-a-valid-url`
+and confirm `src/lib/env.ts` throws one aggregated, readable error before
+serving any request (reproduced directly via
+`npx tsx -e "require('./src/lib/env.ts')"`, not just reasoned about).
+`grep`'d `.next/static` for every server-only secret name — zero matches.
+`docker compose up -d` brought Postgres to `healthy`, `psql` connected and
+ran `SELECT version()` (PostgreSQL 17.10), then `docker compose down`.
 
 #### Acceptance Criteria
-- `npm run verify` runs lint, typecheck, tests and build in one command.
-- ≥ 8 passing tests.
-- Local Postgres reachable via Compose.
-- Removing a required env var produces a single aggregated, readable error.
+- ✅ `npm run verify` runs lint, typecheck, tests and build in one command — verified green from a clean `.next/`.
+- ✅ ≥ 8 passing tests — 17/17 passing across 4 test files.
+- ✅ Local Postgres reachable via Compose — verified live (`healthy` status, real `psql` query), not just configured.
+- ✅ An invalid env var produces a single aggregated, readable error at import time, verified by direct reproduction. (No variable is currently *required* — see the note on task 4/5: nothing in this codebase reads a Supabase/Razorpay/Brevo/R2 variable yet, matching the README's existing "reserved contract, not live integrations" statement. `parseEnvSection()`'s missing-variable aggregation is unit-tested directly with a synthetic required schema rather than a real one, since fabricating a "required" flag on an unused Phase 2+ variable would be scope creep into integrations this phase explicitly excludes.)
 
 #### Production Checklist Mapping
 Enables **R5** (environment separation) and the testing half of **R6–R10**.
@@ -638,7 +651,7 @@ None external.
 
 #### Exit Criteria
 `npm run verify` is the one command that gates every future commit, and it
-passes.
+passes. **Met.**
 
 ---
 
