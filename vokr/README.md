@@ -14,13 +14,18 @@ Day-to-day engineering reference: **`../Vokr-Implementation-Plan.md`**
 (the phased plan and its status) and **`AGENTS.md`** (the non-negotiable
 architecture and security rules).
 
-This codebase has completed **Phase 2: catalog + database**. Phase 1
-established the application structure, styling, environment-variable
+This codebase has completed **Phase 2: catalog + database** and the
+engineering half of **Phase 3: authentication + guest sessions** — the
+part that does not require a live Brevo/Google Cloud account (see
+"Authentication" below for exactly what is and isn't verified yet). Phase
+1 established the application structure, styling, environment-variable
 conventions and tooling; Phase 2 adds Postgres (via Prisma), the launch
 catalog schema, a deterministic seed of the five launch SKUs, and two
-read-only catalog API routes. Auth, cart, checkout, payments and admin
-still build on top of this. See `../Vokr-Implementation-Plan.md` for the
-phase-by-phase status.
+read-only catalog API routes; Phase 3 adds Supabase Auth (email/password +
+Google), guest sessions, the guest-to-user identity transition, and
+Postgres-backed rate limiting on every auth endpoint. Cart, checkout,
+payments and admin still build on top of this. See
+`../Vokr-Implementation-Plan.md` for the phase-by-phase status.
 
 ## Getting started
 
@@ -117,7 +122,8 @@ meantime (`GET /api/catalog/products`).
 
 ```
 prisma/
-  schema.prisma  Database schema (products, product_variants, inventory)
+  schema.prisma  Database schema (products, product_variants, inventory,
+                 app_users, guest_sessions, rate_limit_counters)
   migrations/    Hand-reviewed SQL migrations (CHECK constraints, the GST
                  trigger and RLS live here — Prisma's schema language has
                  no primitive for them)
@@ -126,22 +132,76 @@ prisma/
 src/
   app/          Routes only — pages, layouts, loading/error/not-found states,
                  and `api/` route handlers
+    (auth)/      Sign-in, sign-up, forgot-password, reset-password pages
+    api/auth/    signup, signin, signout, reset, callback (OAuth) route handlers
   components/
     ui/          Small, generic UI primitives (Button, Container, ...)
     layout/      App-wide chrome (header, footer)
+    auth/        Sign-in/up/reset forms, the Google button (all client components)
   config/        Static app configuration (site metadata, etc.)
   generated/     `prisma generate` output — git-ignored, regenerate with
                  `npm run db:generate`
-  lib/           Framework-agnostic helpers (class-name merging, metadata builder)
+  lib/           Framework-agnostic helpers (class-name merging, metadata
+                 builder); `env.ts` / `env-client.ts` (see below);
+                 `supabase-browser.ts` (the browser-only Supabase client)
   server/
     db/          The Prisma client singleton
     catalog/     Catalog read service, in-process TTL cache, DTOs
+    auth/        Session/identity resolution, guest tokens, the Supabase
+                 server client, the guest-upgrade handler registry
+    rate-limit/  Postgres-backed fixed-window rate limiting
+    net/         Request-level helpers (real client IP resolution)
   styles/        Global stylesheet (Tailwind entry point)
+proxy.ts         Next.js 16's `middleware.ts` replacement — refreshes the
+                 Supabase session cookie on every request
 ```
 
 `app/` is kept purely for routing, per Next.js's own recommendation —
 anything that isn't a route file lives in one of the top-level `src/`
 folders above.
+
+`env.ts` is split into two modules: `env-client.ts` holds only the
+`NEXT_PUBLIC_*` schema and `clientEnv`, and `env.ts` builds the
+server-only schema on top of it. Browser-only code must import
+`clientEnv` from `env-client.ts` directly, not from `env.ts` — importing
+the combined module from client code pulls the server schema's *variable
+names* (not values, but still a needless disclosure) into the client
+bundle, which is exactly what a `.next/static` grep for
+`SUPABASE_SERVICE_ROLE_KEY` and friends is meant to catch.
+
+## Authentication (Phase 3)
+
+Email/password and Google sign-in, guest sessions, and the guest → user
+identity transition are implemented and unit/integration tested. **What is
+not yet verified — and cannot be, without a real Brevo account and a real
+Google Cloud OAuth client, neither of which exist in this environment —
+is R12 and R13**, the two riskiest items in the whole plan:
+
+- **R12**: Supabase's built-in mailer sends 2 emails/hour and only to the
+  project's own team. A signup confirmation email must actually arrive in
+  an external inbox via Brevo custom SMTP before this phase's exit
+  criterion is met. Configuring this is a Supabase dashboard action, not
+  code.
+- **R13**: the email-send rate limit needs raising from its 30/hour
+  default, and Google OAuth needs a real client ID/secret entered into the
+  Supabase dashboard's provider settings.
+
+Until those two dashboard actions happen and a real signup is completed
+against them, `NEXT_PUBLIC_SUPABASE_ANON_KEY` stays unset locally and
+every `/api/auth/*` route correctly fails closed with a generic 500 (via
+`toErrorResponse()`, never a raw crash — verified live with `next dev` +
+curl). See `../Vokr-Implementation-Plan.md` Phase 3 for the full status
+and the human checklist.
+
+To develop against a real Supabase Auth instance once it's configured,
+add to `.env.local`:
+
+```
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<from the Supabase dashboard, Settings → API>
+```
+
+(`NEXT_PUBLIC_SUPABASE_URL` is already set — see "Database — real
+Supabase project" above.)
 
 ## Environment variables
 
@@ -161,18 +221,20 @@ cp .env.example .env.local
   secrets are never read from a file — they load once at process boot
   from Google Secret Manager (see the PDF, section 7).
 - `DATABASE_URL` and `DIRECT_URL` are read as of Phase 2 (Prisma, the
-  catalog service). Everything else in `.env.example` still documents a
-  naming convention for services later phases wire up: Supabase Auth,
+  catalog service). `NEXT_PUBLIC_SUPABASE_URL` /
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` are read as of Phase 3 (Supabase Auth) —
+  see "Authentication" above. Everything else in `.env.example` still
+  documents a naming convention for services later phases wire up:
   Razorpay, Brevo, Sentry, Cloudflare R2.
 
 ## What's not here yet
 
 By design. See `../Vokr-Implementation-Plan.md` for the full phase
-breakdown. Not yet implemented: Supabase Auth, guest sessions, cart,
-checkout, Razorpay, inventory _reservation_ (the schema and its
-constraints exist; the Phase 8 locking transaction does not), order
-management, search, admin panel, and any Cloud Run/GCP deployment
-configuration. These land in later phases on top of this foundation.
+breakdown. Not yet implemented: cart, checkout, Razorpay, inventory
+_reservation_ (the schema and its constraints exist; the Phase 8 locking
+transaction does not), order management, search, admin panel, and any
+Cloud Run/GCP deployment configuration. These land in later phases on top
+of this foundation.
 
 Gift cards are not a "not yet" item — they are deferred from launch
 entirely (decision D1, 8 Sep 2026). No gift-card page, purchasing,

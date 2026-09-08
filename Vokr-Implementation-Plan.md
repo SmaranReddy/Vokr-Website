@@ -19,10 +19,10 @@ block and the master checklist below are the source of truth for progress.
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 3 — Authentication + Guest Sessions (not started) |
-| **Current status** | Phase 2 COMPLETE (8 Sep 2026) |
-| **Latest relevant commit** | `733eb4f` Phase 2: catalog + database — Prisma, schema, migration, seed, catalog service, API routes |
-| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. |
+| **Current phase** | Phase 3 — Authentication + Guest Sessions (**code complete, 8 Sep 2026 — blocked on manual verification of R12/R13**, see Phase 3 Status) |
+| **Current status** | Phase 3 engineering complete; exit criteria not met pending a human completing the Brevo/Google OAuth dashboard setup and a real external-inbox signup test |
+| **Latest relevant commit** | *(this phase's commit — see Phase 3 Status)* |
+| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. **New: Phase 3's exit criterion (R12 — a confirmation email delivered to an external inbox via Brevo) requires a Brevo account, a verified sending domain, and Google OAuth credentials, none of which exist in this environment — see Phase 3 Status for the exact human checklist.** |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
 
 ### 0.1 Master checklist
@@ -30,7 +30,7 @@ block and the master checklist below are the source of truth for progress.
 - [x] **Phase 0** — Current-State Audit + Foundation Corrections
 - [x] **Phase 1** — Foundation Stabilization
 - [x] **Phase 2** — Catalog + Database (real Supabase project now linked and seeded — see Phase 2 Status)
-- [ ] **Phase 3** — Authentication + Guest Sessions
+- [ ] **Phase 3** — Authentication + Guest Sessions (code complete; blocked on human Brevo/Google OAuth setup + external-inbox verification — see Phase 3 Status)
 - [ ] **Phase 4** — Website / Page Migration
 - [ ] **Phase 5** — Server-Side Cart
 - [ ] **Phase 6** — Address + Checkout Foundation
@@ -64,6 +64,7 @@ dashboard, a restore log. Not an assertion.
 | 0 | 7 Sep 2026 | *(Phase 0 correction commit)* | `npm run lint`, `npm run typecheck`, `npm run build` all pass from a clean checkout with `.next/` deleted; `.next/standalone` produced at 29 MB |
 | 1 | 7 Sep 2026 | `ffb8eb9` (Prettier formatting pass), *(Phase 1 commit)* | `npm run verify` (lint + typecheck + test + build) green from a clean `.next/`; 17/17 tests passing across 4 files; `next dev` boots and serves `GET /` → 200; a deliberately invalid `NEXT_PUBLIC_SITE_URL` makes `src/lib/env.ts` throw one aggregated, readable error before any request is served (reproduced via `npx tsx -e "require('./src/lib/env.ts')"`); `grep` of `.next/static` for every server-only secret name (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`) returns zero matches |
 | 2 | 8 Sep 2026 | `733eb4f` | `npm run verify` green from a clean `.next/` (37/37 unit tests, 7 files); `npm run test:integration` green against Compose Postgres (8/8 tests: idempotent seed at 5/27/27 rows twice, all three `inventory` CHECK constraints, duplicate-`sku` rejection, GST-trigger reject/allow round-trip, RLS enabled on all three tables); manual `psql` reproduction of every constraint and the trigger, independent of the test suite; `next dev` + `curl` against both live catalog routes (200 with exact selected fields, 404 with the typed error contract for an unknown slug); `grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` returns zero matches |
+| 3 (engineering only — see Phase 3 Status) | 8 Sep 2026 | *(this phase's commit)* | `npm run verify` green from a clean `.next/` (75/75 unit tests, 13 files); `npm run test:integration` green against Compose Postgres, run 4× consecutively for flake-check (31/31 tests, 5 files: guest-session create/reuse/expiry/UNIQUE/CHECK/RLS, `app_users` idempotent-upsert-under-concurrency/UNIQUE-email/RLS, `rate_limit_counters` limit-and-block/window-reset/20-way-concurrent-race/independent-buckets/CHECK/RLS, `completeSignIn` guest-upgrade-handler/cookie-rotation/idempotent-retry); `next dev` + `curl`/`Invoke-WebRequest` against all five live auth routes plus all four auth pages — every route returns a well-formed `toErrorResponse()` JSON body (or, for the OAuth callback, a 307 redirect) rather than an unhandled crash, confirmed against the actual "Supabase not configured" failure this environment is in; dev-server log inspected for stray stack traces (none); `grep` of a clean `.next/static` production build for `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`, `DATABASE_URL`, `DIRECT_URL` returns zero matches (a regression was found and fixed mid-phase — see Phase 3 Status). **Not evidenced, and cannot be from this environment: R12 (external-inbox email delivery), R13's Google OAuth half (needs a real Google Cloud OAuth client) — these require a human with Brevo/Google Cloud dashboard access.** |
 
 ### 0.3 Open decisions requiring a human
 
@@ -823,7 +824,15 @@ exporting anything price-shaped.
 ### PHASE 3 — Authentication + Guest Sessions
 
 #### Status
-**NOT STARTED**
+**CODE COMPLETE — 8 Sep 2026. Exit criteria NOT met.** Every task that is
+pure engineering (schema, session/identity resolution, guest tokens, the
+guest→user transition, Postgres-backed rate limiting, the five API
+routes, four auth pages, real Google button) is implemented, tested and
+validated live. Tasks 1–3 are Supabase-dashboard and Google-Cloud-console
+actions that require a Brevo account and Google OAuth credentials — **no
+such credentials exist in this environment**, so R12 (the phase's actual
+exit criterion) cannot be closed here. See "Human checklist to close this
+phase" below the Implementation Tasks.
 
 #### Objective
 Real authentication via Supabase Auth (email/password + Google), real guest
@@ -854,21 +863,56 @@ transition). Saved addresses (Phase 6). Order history (Phase 9). SMS/phone
 OTP (**deferred**, §10).
 
 #### Implementation Tasks
-1. Enable email/password and Google providers in Supabase. Configure the OAuth consent screen and redirect URLs for dev, staging and production.
-2. **Configure Brevo as custom SMTP in Supabase Auth before creating any real account.** Then raise the email rate limit from its 30/hour default (R13).
-3. Send a real signup confirmation to an address **outside** the project team and confirm delivery. Until that email lands in an external inbox, R12 is not done.
-4. Add `app_users` and `guest_sessions` migrations. `app_users.id` = the Supabase `auth.users.id`.
-5. Build `src/server/auth/session.ts`: `getSession()`, `requireUser()`, `getOrCreateGuestSession()`. Guest tokens are 256-bit random, stored **hashed**, set as `HttpOnly; Secure; SameSite=Lax; Path=/` with a 90-day expiry.
-6. Ensure **every** request resolves to exactly one identity — an `app_user` or a `guest_session`, never both, never neither.
-7. Implement the guest → authenticated transition: on sign-in, look up the guest session, run the registered upgrade handlers (Phase 5 registers the cart merge here), then invalidate the guest token and rotate the cookie. **Session fixation is prevented by rotating on every privilege change.**
-8. Create the `app_users` row on first authenticated request, idempotently, so a Supabase user without a profile is impossible.
-9. Password reset and email-change flows, both through Brevo.
-10. **Forward the real client IP** to Supabase Auth, or call Auth from the browser (R13). Without this every customer shares Cloud Run's egress IP and one 30-per-5-minute token bucket — an effective global cap of ~6 sign-ins/minute. Decide explicitly and record it in the ADR log.
-11. Application-layer rate limiting on sign-in, sign-up and password reset using `rate_limit_counters`.
-12. Delete every trace of the cosmetic auth pattern; ensure nothing resembling `signIn('you@vokr.shop')` can exist.
+1. ⛔ **BLOCKED — human required.** Enable email/password and Google providers in Supabase. Configure the OAuth consent screen and redirect URLs for dev, staging and production. Needs Supabase dashboard access and a Google Cloud OAuth client — neither available here.
+2. ⛔ **BLOCKED — human required.** **Configure Brevo as custom SMTP in Supabase Auth before creating any real account.** Then raise the email rate limit from its 30/hour default (R13). Needs a Brevo account with a verified sending domain.
+3. ⛔ **BLOCKED — human required.** Send a real signup confirmation to an address **outside** the project team and confirm delivery. Until that email lands in an external inbox, R12 is not done. Depends on tasks 1–2.
+4. ✅ Added `app_users`, `guest_sessions` and `rate_limit_counters` migrations (`prisma/migrations/20260908102243_auth_guest_sessions/`). `app_users.id` = the Supabase `auth.users.id`, stored with no DB-level FK (cross-schema — `auth` is not Prisma-modelled) but only ever written from a verified Supabase session. Hand-added CHECK constraints (`rate_limit_counters.count >= 0`, `guest_sessions.expires_at > created_at`) and RLS enabled on all three tables, same convention as the Phase 2 migration.
+5. ✅ Built `src/server/auth/session.ts` (`getSession()`, `requireUser()`) and `src/server/auth/guest.ts` (`getOrCreateGuestSession()`, `invalidateGuestSession()`, `clearGuestCookie()`). Guest tokens are 256-bit random (`src/server/auth/tokens.ts`, `crypto.randomBytes(32)`), stored as a SHA-256 hash only, cookie set `HttpOnly; Secure; SameSite=Lax; Path=/`, 90-day expiry.
+6. ✅ `getSession()` always resolves to exactly one identity: an authenticated user (verified via `supabase.auth.getUser()`, never a decoded-but-unverified JWT) or a guest session, and proactively clears a stale guest cookie found alongside a valid user session rather than trusting it. Integration-tested.
+7. ✅ Guest → authenticated transition built as `src/server/auth/upgrade.ts` (a handler registry — `registerGuestUpgradeHandler()` / `runGuestUpgradeHandlers()`) plus `src/server/auth/complete-sign-in.ts`, which runs the registered handlers and the guest-session deletion in one Postgres transaction, then clears the guest cookie on the response. Phase 5 registers the actual cart-merge handler here, per this phase's own Explicitly-Out-of-Scope line — Phase 3 ships the mechanism and proves it with a no-op test handler. Integration-tested for the idempotent-retry case (task 7's own requirement: "a double-fired sign-in must not double" the handler's effect).
+8. ✅ `src/server/auth/app-user.ts` (`getOrCreateAppUser()`) — a single `upsert` on the primary key, called from both the sign-in route and the OAuth callback. Integration-tested under 10-way concurrent duplicate calls: exactly one row results.
+9. ◑ **Partially done.** Password reset is fully implemented end-to-end: `POST /api/auth/reset` → Supabase → Brevo (once task 2 is done) → `/reset-password` page (`src/components/auth/reset-password-form.tsx`) exchanges the recovery code and calls `auth.updateUser({ password })` client-side. **Email-change is deferred**, not built: it has no UI entry point yet, because the account/profile area it would live in is Phase 4's "account affordances" (SiteHeader) and doesn't exist. Building an isolated email-change route with nowhere in the app to reach it would be scope invented ahead of its owning phase. Revisit when Phase 4 adds an account page.
+10. ✅ **Decided explicitly — ADR-025 (§11).** Every server-to-Supabase-Auth call carries the real client IP as `X-Forwarded-For` (best-effort; hosted GoTrue's trust of the header is unverifiable from here), but this app's own IP-and-email-keyed `rate_limit_counters` limiting (task 11) is the limiting this project actually relies on, not Supabase's.
+11. ✅ `src/server/rate-limit/index.ts` (`consumeRateLimit()`, `assertWithinRateLimit()`) — a single `INSERT ... ON CONFLICT` fixed-window counter, atomic under concurrency (integration-tested with 20 simultaneous requests against one key: exactly `limit` succeed). Wired into all three of `/api/auth/signup`, `/signin` and `/reset`, each keyed by IP *and* by the submitted email independently.
+12. ✅ Verified by `grep` — the Next.js application (`vokr/src/`) has never contained the legacy cosmetic-auth pattern; it exists only in the reference `vokr-production.zip`, which Phase 4 replaces rather than migrates.
 
 #### Files / Areas Affected
-`vokr/prisma/schema.prisma` · `vokr/src/server/auth/*` · `vokr/src/app/api/auth/**` · `vokr/src/app/(auth)/**` · `vokr/src/middleware.ts`
+`vokr/prisma/schema.prisma` · `vokr/prisma/migrations/20260908102243_auth_guest_sessions/` · `vokr/src/server/auth/*` · `vokr/src/server/rate-limit/*` · `vokr/src/server/net/*` · `vokr/src/app/api/auth/**` · `vokr/src/app/(auth)/**` · `vokr/src/components/auth/**` · `vokr/src/lib/env.ts` (split into `vokr/src/lib/env.ts` + `vokr/src/lib/env-client.ts` — see "A regression found and fixed mid-phase" below) · `vokr/src/lib/supabase-browser.ts` · `vokr/src/lib/errors.ts` (added `UnauthorizedError`, 401) · `vokr/src/proxy.ts` (Next.js 16 renamed `middleware.ts` → `proxy.ts`; see below)
+
+##### A regression found and fixed mid-phase
+Two defects surfaced by the phase's own tests, not by inspection —
+recorded here because the plan's own principle (§12 DoD item 2) is that a
+bug found during a phase gets a regression test, not a quiet fix:
+- **`src/lib/env.ts` leaking server variable *names* into the client
+  bundle.** Adding the first browser-side Supabase code
+  (`supabase-browser.ts`, used by the Google button and the
+  reset-password page) pulled the *entire* `env.ts` module — including
+  the server schema's key list (`SUPABASE_SERVICE_ROLE_KEY` etc., not
+  values) — into `.next/static`, breaking the zero-server-secret-names
+  bundle check every phase since Phase 1 has relied on. Fixed by
+  splitting the client schema into its own module (`env-client.ts`);
+  `supabase-browser.ts` imports only that. Re-verified with a clean
+  production build: zero matches.
+- **Two integration test files racing each other's cleanup.** `guest`,
+  `app-user`, `complete-sign-in` and `rate-limit`'s integration suites
+  share the `guest_sessions` and `app_users` tables and run in parallel;
+  each file's `afterEach` originally did a table-wide `deleteMany({})`,
+  which — run concurrently — could delete another file's row before that
+  file's own assertion read it back (reproduced: `complete-sign-in`
+  failed intermittently depending on run order). Fixed by scoping every
+  file's cleanup to the exact row IDs it created. Re-run 4× consecutively
+  with zero failures after the fix.
+- **A Route Handler crash path.** In every `/api/auth/*` route,
+  `createRouteSupabaseClient(request)` was originally called *before* the
+  `try` block — meaning a missing `NEXT_PUBLIC_SUPABASE_ANON_KEY` (this
+  environment's actual state) threw an unhandled error instead of
+  returning through `toErrorResponse()`, violating DoD item 4. Fixed by
+  moving construction inside `try`, with `cookiesToSet` initialised
+  before it so the `catch` block can still apply any cookies queued
+  before the failure. Verified live: every JSON route now returns a
+  well-formed 500 body under exactly this condition instead of Next.js's
+  raw error page; the OAuth callback (a redirect, not JSON) degrades to a
+  307 to `/sign-in?error=oauth` instead.
 
 #### Database Impact
 Adds `app_users`, `guest_sessions`, `rate_limit_counters`.
@@ -883,42 +927,77 @@ Real sign-in / sign-up / reset forms with actual password fields, validation
 and error states. A real Google button.
 
 #### Security Requirements
-- Service-role key never reaches the browser — asserted by a bundle test.
-- Guest tokens: cryptographically random, stored hashed, HttpOnly, Secure, SameSite.
-- Session identifier rotates on every privilege change.
-- Rate limits on all three auth endpoints.
-- Sign-in and password-reset responses must not reveal whether an address is registered.
-- Password minimum length and a breach-list check if available; no arbitrary composition rules.
+- ✅ Service-role key never reaches the browser — `grep` of a clean `.next/static` production build for every server secret name returns zero matches (re-verified after the mid-phase `env.ts` regression, see above). No dedicated automated bundle test was added — Phase 1 and 2 both verify this the same way (manual `grep` after a clean build, recorded as evidence), and this phase follows that established convention rather than inventing a different mechanism.
+- ✅ Guest tokens: cryptographically random (`crypto.randomBytes(32)`), stored as a SHA-256 hash, `HttpOnly; Secure; SameSite=Lax; Path=/`. Unit-tested (entropy/format/never-equals-raw) and integration-tested (hash round-trips correctly against the persisted row).
+- ✅ Session identifier rotates on every privilege change: Supabase issues a fresh access/refresh token pair on sign-in (inherent to `signInWithPassword`), and the guest cookie is explicitly cleared on the same response.
+- ✅ Rate limits on sign-up, sign-in and reset (the task list's "all three auth endpoints" — sign-out needs none, it has no enumerable target).
+- ✅ Sign-in and reset responses are identical regardless of whether the address is registered — Supabase's own anti-enumeration behaviour (empty-`identities`-array on duplicate signup, generic "Invalid login credentials") is relied on rather than re-implemented; documented in the route files' own comments rather than asserted by a test that would need real Supabase responses to be meaningful.
+- ✅ `MIN_PASSWORD_LENGTH = 8`, no composition rules, plus a real Have I Been Pwned k-anonymity breach check (`src/server/auth/password.ts`) — free, no API key, fails open on any network/timeout error (unit-tested for both the true/false and fail-open cases).
 
 #### Testing Requirements
-- Unit: guest token generation, hashing, cookie attributes.
-- Integration: signup → `app_users` row created exactly once, even on concurrent duplicate requests.
-- Integration: guest session created, upgraded on sign-in, old token invalidated.
-- Integration: rate limiter returns 429 at the threshold and recovers after the window.
-- Security: no user enumeration through timing or message differences.
-- **Manual, mandatory: a confirmation email delivered to an external address via Brevo, screenshotted.**
+- ✅ Unit: guest token generation, hashing, cookie attributes (`src/server/auth/__tests__/tokens.test.ts`, `guest.test.ts`).
+- ✅ Integration: `app_users` row created exactly once under 10-way concurrent duplicate calls (`app-user.integration.test.ts`).
+- ✅ Integration: guest session created, upgraded on sign-in via the handler registry, old token invalidated and cookie cleared, retried sign-in does not re-run the handler (`complete-sign-in.integration.test.ts`).
+- ✅ Integration: rate limiter blocks at the threshold, recovers after the window elapses, and serializes 20 concurrent requests against one key to exactly `limit` successes (`rate-limit/__tests__/index.integration.test.ts`).
+- ◑ Security: no user enumeration through message differences is true by construction (see Security Requirements above) but not covered by an automated test, because a meaningful test would need to exercise real Supabase Auth responses this environment cannot reach.
+- ⛔ **Manual, mandatory, NOT DONE: a confirmation email delivered to an external address via Brevo, screenshotted.** Blocked on the human checklist below.
 
 #### Validation
 Sign up with a personal address unconnected to the Supabase project.
 Receive the email. Reset the password. Sign in with Google. Confirm the
 service-role key appears in zero client chunks (`grep` the build output).
 
+**Performed here:** the `grep` step (zero matches, see evidence log). **Not
+performed here** (needs the human checklist below first): signup with a
+real external address, receiving the email, Google sign-in.
+
 #### Acceptance Criteria
-- A real customer can create an account and **receive the email**.
-- Guest browsing works with no account.
-- Guest → authenticated transition preserves identity and rotates the token.
-- Auth endpoints are rate limited.
+- ⛔ A real customer can create an account and **receive the email** — blocked, see Exit Criteria.
+- ✅ Guest browsing works with no account — `getSession()` mints a guest session lazily on first use, integration-tested.
+- ✅ Guest → authenticated transition preserves identity and rotates the token — integration-tested end-to-end through `completeSignIn()`.
+- ✅ Auth endpoints are rate limited — integration-tested against real Postgres, including the concurrent-request race.
 
 #### Production Checklist Mapping
-**R12** (Brevo custom SMTP — the highest-risk item), **R13** (auth rate
-limit + client IP), part of **R19** (rate limiting).
+**R12** (Brevo custom SMTP — the highest-risk item) — **not closed**.
+**R13** (auth rate limit + client IP) — this app's own rate limiting is
+built and tested; the Supabase-side email rate limit still needs raising
+in the dashboard (task 2). Part of **R19** (rate limiting) — closed for
+the auth surface.
 
 #### Dependencies
-Brevo account, verified domain, Google OAuth credentials.
+Brevo account, verified domain, Google OAuth credentials — **none
+present in this environment.**
 
 #### Exit Criteria
 **A signup confirmation email has arrived in an inbox that is not on the
-Supabase project team.** Nothing less closes R12.
+Supabase project team.** Nothing less closes R12. **NOT MET.** Per this
+plan's own Definition of Done (§12): "A phase whose exit criteria depend
+on a manual verification is not complete until that verification has been
+performed." This phase's code is complete and tested to the limit of what
+this environment can verify; the phase itself is not.
+
+##### Human checklist to close this phase
+In order, each blocking the next:
+1. Create (or use an existing) Brevo account; verify a sending domain and
+   publish its SPF/DKIM/DMARC records on `vokr.shop`.
+2. In the Supabase dashboard (Authentication → Providers): enable
+   Email/Password. In Authentication → Emails / SMTP settings: configure
+   Brevo as the custom SMTP provider. Raise the email-send rate limit from
+   its 30/hour default.
+3. Create a Google Cloud OAuth 2.0 client (consent screen + credentials);
+   enter the client ID/secret into the Supabase dashboard's Google
+   provider settings; add the dev/staging/production redirect URLs
+   (`<site-url>/api/auth/callback`).
+4. Add `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local` (from the Supabase
+   dashboard, Settings → API) — everything else needed is already in
+   place.
+5. Sign up with a personal email address that is **not** on the Supabase
+   project team, via `/sign-up`. Confirm the email arrives, screenshot it.
+   Sign in with Google via the same form's button. Both together close R12
+   and the Google half of the Acceptance Criteria.
+6. Only then: update this section's Status to **COMPLETE**, check the
+   Phase 3 box in §0.1, and append the manual-verification evidence
+   (screenshot reference, date) to §0.2.
 
 ---
 
@@ -1704,7 +1783,7 @@ is a reasonable way to change it).
 10. `audit_log` writes on every admin mutation: actor, entity, action, before, after.
 
 #### Files / Areas Affected
-`vokr/src/app/admin/**` · `vokr/src/server/admin/*` · `vokr/src/server/audit/*` · `vokr/src/middleware.ts`
+`vokr/src/app/admin/**` · `vokr/src/server/admin/*` · `vokr/src/server/audit/*` · `vokr/src/proxy.ts`
 
 #### Database Impact
 Adds `audit_log`; adds the admin role column.
@@ -1962,7 +2041,7 @@ set.
 10. **Weekly Cloud Logging export to R2** — DPDP Rules impose a one-year minimum on personal data, traffic data and processing logs; Cloud Logging's default retention is 30 days.
 
 #### Files / Areas Affected
-`vokr/sentry.*.config.ts` · `vokr/src/lib/logger.ts` · `vokr/src/middleware.ts` · `vokr/src/app/api/health/**` · `vokr/src/instrumentation.ts`
+`vokr/sentry.*.config.ts` · `vokr/src/lib/logger.ts` · `vokr/src/proxy.ts` · `vokr/src/app/api/health/**` · `vokr/src/instrumentation.ts`
 
 #### Database Impact
 None. **Logs never go to Postgres.**
@@ -2067,7 +2146,7 @@ Anything that adds complexity without a named threat.
 10. **Bundle secret test**: build, then grep every client chunk for each server-only variable name and known secret prefixes. Fail the build on any hit.
 
 #### Files / Areas Affected
-`vokr/src/middleware.ts` · `vokr/src/server/security/*` · `vokr/src/server/rate-limit/*` · `vokr/docs/security/waf-rules.md` · `.github/workflows/`
+`vokr/src/proxy.ts` · `vokr/src/server/security/*` · `vokr/src/server/rate-limit/*` · `vokr/docs/security/waf-rules.md` · `.github/workflows/`
 
 #### Database Impact
 None beyond `rate_limit_counters` from Phase 3.
@@ -2758,8 +2837,8 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R9** | Inventory reservation in a DB transaction | `SELECT … FOR UPDATE` with `CHECK (quantity_available >= 0)`; **Razorpay outside the lock** | 2, 8 | Concurrency test; constraint proven to fire; injected-latency test shows lock time unaffected | Test output; architecture test; latency chart | NOT STARTED |
 | **R10** | Load test concurrent checkout on one variant | **10 / 25 / 50** concurrent buyers of one variant | 21 | Executed at all three levels; zero oversell, zero duplicates, zero deadlocks, zero 5xx | k6 output for all three; results doc | NOT STARTED |
 | **R11** | GST per variant + compliant invoice | Per-variant rate and HSN; sequential numbering; CGST/SGST vs IGST | 2, 6, 9 | Mixed-slab cart computed correctly; invoice reviewed by the CA | Test output; a CA-reviewed sample invoice | **BLOCKED on D2** |
-| **R12** | Brevo as Supabase Auth custom SMTP | Configured **before any real signup**; rate limit raised | 3 | **A confirmation email delivered to an address outside the project team** | Screenshot of the received email with headers | NOT STARTED |
-| **R13** | Raise Auth email rate limit; forward client IP | Limit raised; real client IP forwarded, or Auth called from the browser | 3 | Dashboard setting; a test showing per-IP not per-instance limiting | Screenshot; test output; ADR entry | NOT STARTED |
+| **R12** | Brevo as Supabase Auth custom SMTP | Configured **before any real signup**; rate limit raised | 3 | **A confirmation email delivered to an address outside the project team** | Screenshot of the received email with headers | **BLOCKED — needs a human with Brevo + Supabase dashboard access; no Brevo account exists in this environment.** See Phase 3 Status, "Human checklist to close this phase" |
+| **R13** | Raise Auth email rate limit; forward client IP | Limit raised; real client IP forwarded, or Auth called from the browser | 3 | Dashboard setting; a test showing per-IP not per-instance limiting | Screenshot; test output; ADR entry | IN PROGRESS — client IP is forwarded on every `/api/auth/*` call (ADR-025); this app's own `rate_limit_counters` limiting is built, integration-tested and is the defence actually relied on. **Not VERIFIED**: the Supabase-side rate limit still needs raising in the dashboard (a human action) and there is no test against real Supabase confirming per-IP (not per-instance) behaviour |
 | **R14** | Amend terms: "email/SMS" → "email" | Copy change plus a full consistency audit | 4, 22 | Grep the built output for "SMS" in the confirmation context | Diff; content audit doc | NOT STARTED |
 | **R15** | Courier operational | Shiprocket live, COD enabled, PIN serviceability available; manual panel acceptable | 6, 10 | A real order shipped and tracked through the panel | Account screenshot; a real AWB; runbook | NOT STARTED |
 | **R16** | Razorpay live-mode KYC | Entity, PAN, GST, bank account | 7, 23 | Live mode active; a real payment captured | Dashboard status; a real transaction ID | **BLOCKED on D3** |
@@ -3004,6 +3083,9 @@ way to reverse one of these** — not a commit that quietly does it.
 | **ADR-022** | *(new, Phase 0)* **Money is stored as integer paise** | No float, no decimal-string ambiguity, no rounding drift across the pricing → payment → invoice chain. Int32 tops out around ₹21.4M, far above any Vokr line item. | An order line could exceed ₹21.4M, or multi-currency arrives |
 | **ADR-023** | *(new, Phase 0)* **Deterministic lock ordering (`ORDER BY variant_id`) in the reservation transaction** | Without it, two carts holding the same two variants in opposite order deadlock under concurrency — and Phase 21 at 25 buyers will find it. | Never |
 | **ADR-024** | *(new, Phase 0)* **Erasure anonymises PII in place and retains the financial record** | DPDP erasure and the 8-year Indian tax retention obligation genuinely conflict. Deleting the order is not lawful; keeping the PII is not either. The resolution is stated in the privacy policy rather than hidden. | Legal advice says otherwise |
+| **ADR-025** | *(new, Phase 3)* **This app's own `rate_limit_counters`-backed limiting, not Supabase's per-IP limit, is the authoritative defence against auth abuse** — Cloud Run's shared egress IP is still forwarded to Supabase as `X-Forwarded-For` on every `/api/auth/*` call as a best-effort second layer | R13: server-side calls to Supabase Auth all originate from Cloud Run's one egress IP, so Supabase's hosted per-IP rate limiter would otherwise cap *every* customer's sign-in attempts combined at ~6/minute. Whether hosted GoTrue trusts a forwarded header from an arbitrary caller is undocumented and outside this project's control, so the header is sent but not relied on — the IP-and-email-keyed Postgres counter this app owns and can verify is what's actually load-bearing. | Supabase documents and supports trusting `X-Forwarded-For` on hosted projects, and it is confirmed working end-to-end |
+| **ADR-026** | *(new, Phase 3)* **`env.ts` split into `env.ts` (server) and `env-client.ts` (client-only)** | A Phase 3 client component importing the combined `env.ts` for `clientEnv` pulled the server schema's variable *names* into the client bundle — a real regression this phase's own bundle grep caught. Browser code now imports `clientEnv` from `env-client.ts` only, which contains nothing server-only. | Never — this is a correctness fix, not a preference |
+| **ADR-027** | *(new, Phase 3)* **`src/middleware.ts` renamed to `src/proxy.ts`** | Next.js 16.0.0 deprecated the `middleware` file convention in favour of `proxy` (same location, same `config`/matcher shape, function renamed `proxy`) — confirmed against `node_modules/next/dist/docs/.../file-conventions/proxy.md`, not assumed from training data, per this repo's own "this is NOT the Next.js you know" warning. | Never, while Next 16's naming stands |
 
 ---
 

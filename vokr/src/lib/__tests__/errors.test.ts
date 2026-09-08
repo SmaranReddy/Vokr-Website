@@ -4,6 +4,7 @@ import {
   InternalError,
   NotFoundError,
   RateLimitError,
+  UnauthorizedError,
   ValidationError,
   toErrorResponse,
 } from "@/lib/errors";
@@ -11,6 +12,7 @@ import {
 describe("toErrorResponse", () => {
   it.each([
     [ValidationError, 400, "VALIDATION_ERROR"],
+    [UnauthorizedError, 401, "UNAUTHORIZED"],
     [NotFoundError, 404, "NOT_FOUND"],
     [ConflictError, 409, "CONFLICT"],
     [RateLimitError, 429, "RATE_LIMITED"],
