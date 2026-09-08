@@ -84,13 +84,23 @@ safety, docs, and a clean commit.
 ## Commands
 
 ```bash
-npm run dev        # development server
-npm run lint       # eslint
-npm run typecheck  # next typegen && tsc --noEmit
-npm run build      # production build
+npm run dev              # development server
+npm run lint              # eslint
+npm run typecheck         # next typegen && tsc --noEmit
+npm run test               # unit tests — no external services required
+npm run test:integration   # integration tests — requires Postgres, see below
+npm run build              # prisma generate && production build
+npm run verify              # lint + typecheck + test + build (the CI gate)
+npm run db:migrate           # create/apply a migration in development
+npm run db:seed              # idempotent seed of the five launch SKUs
 ```
 
-Run `npm run lint && npm run typecheck && npm run build` before committing.
+Run `npm run verify` before committing.
+
+`npm run test` and `npm run verify` never require a database — that stays
+true by design (Phase 1). Only `test:integration` and the `db:*` scripts
+need Postgres: `docker compose up -d` (see `docker-compose.yml` for why
+it's port 55432, not 5432).
 
 ---
 

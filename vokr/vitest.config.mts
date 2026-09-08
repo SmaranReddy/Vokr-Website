@@ -32,6 +32,11 @@ export default defineConfig({
             "src/server/**/*.test.ts",
             "src/config/**/*.test.ts",
           ],
+          // Integration tests need a live Postgres (docker-compose.yml)
+          // and run only via `npm run test:integration` — never as part
+          // of `npm run test` / `npm run verify`, which stay
+          // dependency-free per Phase 1.
+          exclude: ["**/*.integration.test.ts"],
         },
       },
       {
@@ -41,6 +46,18 @@ export default defineConfig({
           name: "jsdom",
           environment: "jsdom",
           include: ["src/components/**/*.test.tsx", "src/app/**/*.test.tsx"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "integration",
+          environment: "node",
+          include: [
+            "src/server/**/*.integration.test.ts",
+            "prisma/**/*.integration.test.ts",
+          ],
+          setupFiles: ["./vitest.integration.setup.ts"],
         },
       },
     ],

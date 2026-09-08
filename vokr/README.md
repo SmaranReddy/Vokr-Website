@@ -14,10 +14,13 @@ Day-to-day engineering reference: **`../Vokr-Implementation-Plan.md`**
 (the phased plan and its status) and **`AGENTS.md`** (the non-negotiable
 architecture and security rules).
 
-This codebase is currently at **Stage 1: foundation**. It establishes the
-application structure, styling, environment-variable conventions, and
-tooling that later stages (database, auth, payments, checkout, admin) build
-on. No business logic, database, or third-party integrations exist yet.
+This codebase has completed **Phase 2: catalog + database**. Phase 1
+established the application structure, styling, environment-variable
+conventions and tooling; Phase 2 adds Postgres (via Prisma), the launch
+catalog schema, a deterministic seed of the five launch SKUs, and two
+read-only catalog API routes. Auth, cart, checkout, payments and admin
+still build on top of this. See `../Vokr-Implementation-Plan.md` for the
+phase-by-phase status.
 
 ## Getting started
 
@@ -32,32 +35,76 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Available scripts
 
-| Command             | Purpose                                       |
-| ------------------- | --------------------------------------------- |
-| `npm run dev`       | Start the development server                  |
-| `npm run lint`      | Run ESLint                                    |
-| `npm run typecheck` | Generate route types, then run `tsc --noEmit` |
-| `npm run build`     | Production build                              |
-| `npm run start`     | Serve the production build                    |
+| Command                     | Purpose                                       |
+| --------------------------- | --------------------------------------------- |
+| `npm run dev`               | Start the development server                  |
+| `npm run lint`              | Run ESLint                                    |
+| `npm run typecheck`         | Generate route types, then run `tsc --noEmit` |
+| `npm run test`              | Unit tests (no external services required)    |
+| `npm run test:integration`  | Integration tests against a live Postgres     |
+| `npm run build`             | `prisma generate`, then production build      |
+| `npm run start`             | Serve the production build                    |
+| `npm run verify`            | lint + typecheck + `test` + build (CI gate)   |
+| `npm run db:migrate`        | Create/apply a migration in development       |
+| `npm run db:migrate:deploy` | Apply pending migrations (production/CI)      |
+| `npm run db:seed`           | Seed the five launch SKUs (idempotent)        |
+| `npm run db:studio`         | Prisma Studio                                 |
 
-Run `npm run lint && npm run typecheck && npm run build` before opening a
-pull request.
+Run `npm run verify` before opening a pull request.
 
 `typecheck` runs `next typegen` first because the App Router's
 route-aware globals (`LayoutProps`, `PageProps`, `RouteContext`) are
 generated into the git-ignored `.next/types`. Without it, `tsc` fails on
 a clean checkout.
 
+## Database — local development
+
+```bash
+docker compose up -d          # Postgres on localhost:55432 (not 5432 —
+                               # some machines already run a native
+                               # Postgres service on 5432; see
+                               # docker-compose.yml)
+cp .env.example .env.local    # then fill in DATABASE_URL / DIRECT_URL
+npm run db:migrate            # first run: creates + applies migrations
+npm run db:seed               # idempotent — safe to re-run
+npm run test:integration      # exercises the schema against a real DB
+```
+
+`npm run test` and `npm run verify` never require Postgres — they stay
+dependency-free by design (Phase 1). Only `test:integration` and the
+`db:*` scripts touch a live database.
+
+Every seeded variant starts `status: "draft"` and every seeded product
+starts with `gst_rate_bps: NULL`. This is intentional, not a bug: decision
+D2 (GST rate + HSN per SKU — see `../Vokr-Implementation-Plan.md` §0.3) is
+still open, and a database trigger refuses to let any variant reach
+`"active"` status while its product has no confirmed GST rate. Nothing is
+purchasable until D2 is answered; the catalog is fully browsable in the
+meantime (`GET /api/catalog/products`).
+
 ## Project structure
 
 ```
+prisma/
+  schema.prisma  Database schema (products, product_variants, inventory)
+  migrations/    Hand-reviewed SQL migrations (CHECK constraints, the GST
+                 trigger and RLS live here — Prisma's schema language has
+                 no primitive for them)
+  seed-data.ts   The five launch SKUs + the upsert logic (shared by...)
+  seed.ts        ...the CLI entrypoint `prisma db seed` runs
 src/
-  app/          Routes only — pages, layouts, loading/error/not-found states
+  app/          Routes only — pages, layouts, loading/error/not-found states,
+                 and `api/` route handlers
   components/
     ui/          Small, generic UI primitives (Button, Container, ...)
     layout/      App-wide chrome (header, footer)
   config/        Static app configuration (site metadata, etc.)
+  generated/     `prisma generate` output — git-ignored, regenerate with
+                 `npm run db:generate`
   lib/           Framework-agnostic helpers (class-name merging, metadata builder)
+  server/
+    db/          The Prisma client singleton
+    catalog/     Catalog read service, in-process TTL cache, DTOs
   styles/        Global stylesheet (Tailwind entry point)
 ```
 
@@ -82,14 +129,21 @@ cp .env.example .env.local
 - **No `.env*` file is committed except `.env.example`.** In production,
   secrets are never read from a file — they load once at process boot
   from Google Secret Manager (see the PDF, section 7).
-- Nothing in this codebase currently reads these variables beyond
-  `NEXT_PUBLIC_SITE_URL` — they exist as a reserved contract, not live
-  integrations.
+- `DATABASE_URL` and `DIRECT_URL` are read as of Phase 2 (Prisma, the
+  catalog service). Everything else in `.env.example` still documents a
+  naming convention for services later phases wire up: Supabase Auth,
+  Razorpay, Brevo, Sentry, Cloudflare R2.
 
 ## What's not here yet
 
-By design. See the PDF for the full breakdown and build order. Not yet
-implemented: database/Prisma, Supabase Auth, Razorpay checkout, cart,
-inventory, order management, search, admin panel, and any Cloud Run/GCP
-deployment configuration. These land in later stages on top of this
-foundation.
+By design. See `../Vokr-Implementation-Plan.md` for the full phase
+breakdown. Not yet implemented: Supabase Auth, guest sessions, cart,
+checkout, Razorpay, inventory _reservation_ (the schema and its
+constraints exist; the Phase 8 locking transaction does not), order
+management, search, admin panel, and any Cloud Run/GCP deployment
+configuration. These land in later phases on top of this foundation.
+
+Gift cards are not a "not yet" item — they are deferred from launch
+entirely (decision D1, 8 Sep 2026). No gift-card page, purchasing,
+redemption or ledger functionality will be built unless a future decision
+reverses D1.

@@ -7,7 +7,11 @@ services:
       POSTGRES_PASSWORD: vokr_local_dev
       POSTGRES_DB: vokr
     ports:
-      - "5432:5432"
+      # Host port 55432, not 5432: several dev machines already run a
+      # native Postgres service on 5432, which silently wins the port and
+      # produces a confusing "authentication failed" against the wrong
+      # server. 55432 avoids the collision unconditionally.
+      - "55432:5432"
     volumes:
       - vokr_postgres_data:/var/lib/postgresql/data
     healthcheck:

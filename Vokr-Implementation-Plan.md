@@ -19,17 +19,17 @@ block and the master checklist below are the source of truth for progress.
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 2 — Catalog + Database (not started) |
-| **Current status** | Phase 1 COMPLETE (7 Sep 2026) |
-| **Latest relevant commit** | *(Phase 1 commit)* Phase 1: foundation stabilization — Vitest, env validation, error hierarchy, Prettier, Compose Postgres |
-| **Blocking issues** | 3 open human decisions — see §0.3. Phase 2 additionally needs D1 and D2 answered before it can start. |
+| **Current phase** | Phase 3 — Authentication + Guest Sessions (not started) |
+| **Current status** | Phase 2 COMPLETE (8 Sep 2026) |
+| **Latest relevant commit** | *(Phase 2 commit)* Phase 2: catalog + database — Prisma, schema, migration, seed, catalog service, API routes |
+| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3), plus one open human *task*: the real Supabase project (Phase 2 used local Postgres instead — see Phase 2 Status). **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
 
 ### 0.1 Master checklist
 
 - [x] **Phase 0** — Current-State Audit + Foundation Corrections
 - [x] **Phase 1** — Foundation Stabilization
-- [ ] **Phase 2** — Catalog + Database
+- [x] **Phase 2** — Catalog + Database (real Supabase project still open — see Phase 2 Status)
 - [ ] **Phase 3** — Authentication + Guest Sessions
 - [ ] **Phase 4** — Website / Page Migration
 - [ ] **Phase 5** — Server-Side Cart
@@ -63,6 +63,7 @@ dashboard, a restore log. Not an assertion.
 |---|---|---|---|
 | 0 | 7 Sep 2026 | *(Phase 0 correction commit)* | `npm run lint`, `npm run typecheck`, `npm run build` all pass from a clean checkout with `.next/` deleted; `.next/standalone` produced at 29 MB |
 | 1 | 7 Sep 2026 | `ffb8eb9` (Prettier formatting pass), *(Phase 1 commit)* | `npm run verify` (lint + typecheck + test + build) green from a clean `.next/`; 17/17 tests passing across 4 files; `next dev` boots and serves `GET /` → 200; a deliberately invalid `NEXT_PUBLIC_SITE_URL` makes `src/lib/env.ts` throw one aggregated, readable error before any request is served (reproduced via `npx tsx -e "require('./src/lib/env.ts')"`); `grep` of `.next/static` for every server-only secret name (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`) returns zero matches |
+| 2 | 8 Sep 2026 | *(Phase 2 commit)* | `npm run verify` green from a clean `.next/` (37/37 unit tests, 7 files); `npm run test:integration` green against Compose Postgres (8/8 tests: idempotent seed at 5/27/27 rows twice, all three `inventory` CHECK constraints, duplicate-`sku` rejection, GST-trigger reject/allow round-trip, RLS enabled on all three tables); manual `psql` reproduction of every constraint and the trigger, independent of the test suite; `next dev` + `curl` against both live catalog routes (200 with exact selected fields, 404 with the typed error contract for an unknown slug); `grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` returns zero matches |
 
 ### 0.3 Open decisions requiring a human
 
@@ -71,8 +72,8 @@ than engineering ones, and this plan deliberately does not guess.
 
 | # | Decision | Blocks | Why it cannot be decided here |
 |---|---|---|---|
-| **D1** | Are **gift cards sold at launch?** Selling one creates a redeemable liability, which requires the store-credit ledger the PDF defers (§8, §9). | Phase 2 catalog seed, Phase 9 | Commercial choice. Options: **(a)** launch 5 purchasable SKUs with the gift-card page reachable but not purchasable; **(b)** build the ledger inside Phase 9 and launch 6. Recommendation: **(a)** — it removes an entire subsystem from the launch critical path. |
-| **D2** | **GST rate and HSN code per SKU.** ₹295 laces, ₹495 socks and ₹9,995 shoes are not necessarily in one slab. | Phase 2 schema seed, Phase 6 | R11 explicitly says "confirm current footwear slabs with your CA". Inventing a rate is a tax error, not a bug. |
+| **D1** | ~~Are gift cards sold at launch?~~ **RESOLVED (8 Sep 2026): NO.** Gift cards are deferred from launch entirely. The gift-card feature is not displayed anywhere on the website — no page, no nav/footer link, no PDP — and no purchasing, redemption or store-credit-ledger functionality is implemented. The launch catalog is **five** SKUs, not six. See §3.6 and §10A. | *(resolved — no longer blocks anything)* | Commercial decision made by the business owner. Stronger than the plan's original recommendation (a): the page itself is withheld, not merely made unpurchasable. |
+| **D2** | **GST rate and HSN code per SKU.** ₹295 laces, ₹495 socks and ₹9,995 shoes are not necessarily in one slab. | R11 (compliant invoicing), and therefore live sales | R11 explicitly says "confirm current footwear slabs with your CA". Inventing a rate is a tax error, not a bug. **Does not block Phase 2** — the schema (§3.5, §3.6) stores `gst_rate_bps` as nullable per product with a `CHECK`/seed-time assertion that refuses an active variant with no rate, so catalog and database work proceeds now and an unanswered D2 fails loudly rather than shipping an invented rate. |
 | **D3** | **Legal entity, PAN, GST registration and bank account** for Razorpay live-mode KYC (R16), plus the registered address printed on tax invoices (R11). | Phase 7 live mode, Phase 23 | Requires the business owner. Test mode works immediately; live mode does not. **Longest lead time in the programme — start now.** |
 
 ---
@@ -333,7 +334,7 @@ Postgres via Prisma. Principles first, because they decide the shape:
 | `consent_records` | DPDP | `id` PK, `subject_id`, `subject_type`, `purpose`, `granted`, `policy_version`, `source`, `ip_hash`, `created_at` | Append-only. Never updated — a withdrawal is a *new row*, so the history is provable. |
 | `data_subject_requests` | DPDP export/erasure | `id` PK, `subject_id`, `type`, `state`, `requested_at`, `completed_at`, `artifact_url` | Index on `state` |
 | `audit_log` | Who changed what | `id` PK, `actor_type`, `actor_id`, `entity_type`, `entity_id`, `action`, `before` JSONB, `after` JSONB, `created_at` | Index on `(entity_type, entity_id, created_at)`. Orders and payments only at launch. |
-| `store_credit_ledger` | Append-only, double-entry | `id` PK, `user_id` FK, `entry_type`, `amount_paise`, `balance_after_paise`, `reference_type`, `reference_id`, `created_at` | **Only built if D1 = (b), or when COD refunds to store credit go live.** Never a mutable balance column. |
+| `store_credit_ledger` | Append-only, double-entry | `id` PK, `user_id` FK, `entry_type`, `amount_paise`, `balance_after_paise`, `reference_type`, `reference_id`, `created_at` | **Not built at launch.** D1 (8 Sep 2026) deferred gift cards, which were this table's only launch-relevant trigger. Build only when COD refunds to store credit or referrals go live. Never a mutable balance column. |
 
 #### Transaction boundaries
 
@@ -372,11 +373,15 @@ deadlock under concurrency, and Phase 21 will find it.
 | Consent records | Life of the account + 1 year | Append-only |
 | Processing / traffic logs | **1 year minimum** (DPDP Rules) | Cloud Logging default retention is 30 days → weekly export to R2 |
 
-### 3.6 Catalog plan — the real six SKUs
+### 3.6 Catalog plan — the real five SKUs at launch
 
 Derived by inspecting the legacy pages directly, and corroborated by
-`vokr-backend-scope.docx` §3, which names them: *"Serves the 6 shop pages
-already built (Model x, Model 001, Kids, Socks, Laces, Gift Cards)"*.
+`vokr-backend-scope.docx` §3, which names 6 shop pages: *"Serves the 6 shop
+pages already built (Model x, Model 001, Kids, Socks, Laces, Gift Cards)"*.
+**Decision D1 (8 Sep 2026) deferred the sixth — gift cards — from launch.**
+The launch catalog is five SKUs. The gift-card page is not migrated, not
+linked, and not reachable anywhere on the site (see Phase 4); no
+gift-card purchasing, redemption or ledger functionality is built.
 
 | # | Product | Proposed slug | Legacy `data-name` | PDP `<h1>` | Price | Variant axis |
 |---|---|---|---|---|---|---|
@@ -385,7 +390,10 @@ already built (Model x, Model 001, Kids, Socks, Laces, Gift Cards)"*.
 | 3 | Kids Model 123 | `kids-model-123` | `Kids Model 123` | Kids Model 123 | ₹5,995 | IN 10, 11, 12, 13, 1, 2, 3 (7 sizes) |
 | 4 | Vokr Socks | `socks` | `Socks (3-pack)` | Vokr Socks | ₹495 | S/M, M/L, L/XL (3) |
 | 5 | Stretch Laces | `stretch-laces` | `Stretch Laces` | Stretch Laces | ₹295 | One Size (1) |
-| 6 | Gift Card | `gift-card` | `Gift Card` | Vokr Gift Card | ₹1,000 / 2,000 / 5,000 / 10,000 | 4 denominations |
+
+~~Gift Card (`gift-card`, ₹1,000/2,000/5,000/10,000, 4 denominations)~~ —
+**deferred, D1.** Not seeded, not displayed. Do not add it to the seed or
+the catalog service. Revisit only per the trigger in §10A.
 
 **SKU format.** `VK-<PRODUCT>-<COLORWAY>-<SIZE>`, e.g.
 `VK-MX-WHTBLK-IN09`. Uppercase, no spaces, unique across the catalog,
@@ -400,7 +408,7 @@ display name.**
 | Socks are named three different things | `<h1>` says "Vokr Socks", the cart button says "Socks (3-pack)", the search index says "Socks" | Canonical product name **"Vokr Socks"**; "3-pack" belongs in the description, not the name. Exactly the drift that display-name keys cause. |
 | **Two phantom products in the search index** | 4 of 27 pages carry a 15-entry index; the other 23 carry 13. The extras are **"Model 251 Low" (₹9,495)** and **"Masks"** — *neither has a page*. | Both are excluded from the catalog. Do not seed them. The PDF names only Model 251 Low; **"Masks" is a second phantom found in this audit and is recorded here as a new finding.** |
 | `Model x — White & Black` appears as its own search entry but has no page | Legacy `index.html` markets it as a colorway: *"White & Black. Available now in limited quantities."* | It is a **colorway of Model x**, not a product. This is why `product_variants` carries a `colorway` axis rather than size alone. Confirm the full colorway list against real inventory before seeding. |
-| Gift card price is a live defect | `gift-cards.html` offers ₹1000/2000/5000/10000 but the button is hardcoded `data-price="2000"` — choosing ₹10,000 adds ₹2,000 | Fixed structurally by server-side price resolution. Whether the SKU is *sold* at launch is **decision D1**. |
+| Gift card price is a live defect | `gift-cards.html` offers ₹1000/2000/5000/10000 but the button is hardcoded `data-price="2000"` — choosing ₹10,000 adds ₹2,000 | Moot at launch: **D1 (8 Sep 2026)** deferred the gift-card SKU entirely, so the page and its defect are not migrated. Server-side price resolution (Phase 2 + Phase 5) still eliminates this entire *class* of defect for the five SKUs that do launch. |
 | Kids Model 123 vs DPDP | PDF §9 defers it "until parental consent built" but adds that selling as an adult-purchased gift with no child account is fine | **Sellable at launch**, provided no child account, no child profile and no child data are collected. Enforced in Phase 17. |
 | Backend scope says "at two SKUs" in §1 and "6 shop pages" in §3 | Internal inconsistency in a superseded document | **Six.** §3 enumerates them; §1's "two" is stale. |
 
@@ -658,11 +666,29 @@ passes. **Met.**
 ### PHASE 2 — Catalog + Database
 
 #### Status
-**NOT STARTED**
+**COMPLETE** — 8 September 2026, with one non-blocking manual step still
+open (see below).
+
+Everything in this phase's scope is implemented and verified against a
+real Postgres — schema, migrations (including the hand-written CHECK
+constraints, the GST-enforcement trigger and RLS), the idempotent seed,
+the catalog service with its cache, both API routes, and the full test
+suite (unit + integration). What is **not** done is task 1, "create the
+Supabase project in `ap-south-1`" — that requires a human with a cloud
+account and cannot be performed by this agent. Everything was instead
+built and verified against the `docker-compose.yml` Postgres, exactly as
+`.env.example` already anticipated ("For local development against
+`docker-compose.yml`'s Postgres, before Supabase is wired up..."). Moving
+to the real Supabase project later is a `DATABASE_URL`/`DIRECT_URL` swap
+in `.env.local` (Supabase's pooled/direct connection strings), not new
+engineering work — `prisma migrate deploy` and `prisma db seed` run
+unchanged against it. This is recorded as a remaining blocker below and
+should be picked up alongside D3 (also a human/account-creation
+prerequisite with long lead time).
 
 #### Objective
 Stand up Supabase Postgres, Prisma, the launch schema, and a deterministic
-seed of the real six SKUs with server-authoritative prices.
+seed of the real five launch SKUs with server-authoritative prices.
 
 #### Why It Exists
 Everything else reads product data. It is also where the client-controlled
@@ -670,8 +696,17 @@ pricing defect dies structurally: after this phase there is exactly one
 place a price can come from.
 
 #### Prerequisites
-Phase 1. Supabase project created in **Mumbai**. **Decision D2** answered
-(GST rate + HSN per product). **Decision D1** answered (gift card in or out).
+Phase 1 (met). **D1 resolved** (8 Sep 2026: gift cards deferred — launch
+catalog is five SKUs). **D2 does not gate this phase** —
+`gst_rate_bps` is stored nullable per product with a trigger that
+refuses an active variant with no rate, so the schema and seed are built
+now and D2 can be supplied later without a migration.
+
+A Supabase project in Mumbai is **not** a prerequisite for the engineering
+work — it turned out to be a deployment-target detail, not a blocker for
+writing and testing the schema. `docker-compose.yml`'s Postgres (already
+provisioned in Phase 1 for exactly this) stood in for it. Creating the
+real project remains an open, human-only task — see Status above.
 
 #### Scope
 Supabase project; Prisma with dual connection strings; the schema from
@@ -684,65 +719,78 @@ Carts, orders, payments, users — those tables land in the phases that use
 them. Admin CRUD (Phase 12). Images (Phase 14). Search (Phase 13).
 
 #### Implementation Tasks
-1. Create the Supabase project in `ap-south-1` (Mumbai). Record the project ref; **do not** put keys in `.env` beyond local development.
-2. Add `prisma` + `@prisma/client`. Configure **two** URLs: `DATABASE_URL` = transaction-mode pooler with `?pgbouncer=true&connection_limit=1`, `DIRECT_URL` = session/direct connection used by `migrate` and, later, by the checkout transaction.
-3. Write `prisma/schema.prisma` for: `products`, `product_variants`, `inventory`. Money as `Int` paise. IDs as UUID v7 generated in application code.
-4. Add the constraints §3.5 specifies. The three `CHECK`s on `inventory` and `UNIQUE(sku)` go in **the first migration**, not a later hardening pass — they are the backstop R9 depends on.
-5. Add a `CHECK` or seed-time assertion that a product with `gst_rate_bps IS NULL` cannot have an active variant, so an unanswered D2 fails loudly.
-6. Create `src/server/db/client.ts`: a single `PrismaClient` singleton, guarded against hot-reload duplication in dev, with query logging in development only.
-7. Write `prisma/seed.ts` — the six SKUs from §3.6 with fixed UUIDs, upserting by `sku`. Re-running must be a no-op. `inventory` rows created with `quantity_on_hand = 0` (real stock is entered in Phase 12).
-8. Build `src/server/catalog/` with explicit `select` on every query: `listProducts()`, `getProductBySlug()`, `getVariantById()`, `resolvePrices(variantIds)`.
-9. Implement the **in-process catalog cache** (R18): a module-level `Map` with a 60-second TTL and a single-flight guard so a cold instance under load issues one query, not eighty. ~20 lines. Quadruples Supabase egress headroom.
-10. Add `GET /api/catalog/products` and `GET /api/catalog/products/[slug]` returning explicitly selected fields.
-11. Write the egress discipline test: assert that no Prisma call site in `src/server/` omits `select`.
+1. ⬜ Create the Supabase project in `ap-south-1` (Mumbai). **Not done — requires a human with a cloud account.** Built and verified against `docker-compose.yml` Postgres instead (see Status).
+2. ✅ Added `prisma` + `@prisma/client` (7.10.0, pinned — `latest` was an `8.0.0-rc` at install time). Configured `DATABASE_URL` and `DIRECT_URL`; Prisma 7 dropped the schema-level `directUrl` field (confirmed against installed `@prisma/config` types), so the pooled/direct split for the Phase 8 checkout transaction is now an application-level concern (a second driver-adapter instance from `DIRECT_URL`), not a config-file setting — `DIRECT_URL` instead feeds `shadowDatabaseUrl` for `migrate dev`, conditionally (only when it actually differs from `DATABASE_URL`, or Prisma errors on an identical shadow/main pair — which is what local dev has today).
+3. ✅ `prisma/schema.prisma` written for `products`, `product_variants`, `inventory`. Money as `Int` paise. IDs via Prisma's client-side `@default(uuid(7))`.
+4. ✅ The three `inventory` `CHECK`s and `UNIQUE(sku)` are in the first migration (`prisma/migrations/20260908055107_init_catalog/`). Prisma's schema language has no CHECK primitive, so they're hand-added SQL in the generated migration file, verified against the real schema (`\d inventory` confirms all three).
+5. ✅ Implemented as a **database trigger** (`enforce_variant_gst_rate`, BEFORE INSERT OR UPDATE on `product_variants`), not a plain CHECK — a bare CHECK cannot reference the parent product's `gst_rate_bps` across tables. Verified live: activating a variant on a product with `gst_rate_bps IS NULL` raises `product_variants: cannot set variant ... to active — its product (...) has no gst_rate_bps yet`; setting a rate and retrying succeeds.
+6. ✅ `src/server/db/client.ts` — singleton guarded via `globalThis`, `PrismaPg` driver adapter (required for SQL providers in Prisma 7), query logging (`query`/`warn`/`error`) in development only, `error`-only in production.
+7. ✅ `prisma/seed.ts` (thin CLI entrypoint) + `prisma/seed-data.ts` (the actual five-SKU data and upsert logic, shared with the integration test so both exercise the same code). Fixed UUIDv7s, upsert by `sku`/`slug`. Re-seeding verified idempotent (5 products / 27 variants / 27 inventory rows, twice). No gift-card SKU (D1). **Deviation from the task text:** products seed as `status: "active"` (a product *family* is real and browsable), variants seed as `status: "draft"` (the GST trigger would reject `"active"` anyway while D2 is open) — see the catalog-service note under task 8.
+8. ✅ `src/server/catalog/service.ts` — `listProducts()`, `getProductBySlug()`, `getVariantById()`, `resolvePrices()`, all through one explicitly-`select`ed query. **Extended beyond the literal task list:** each variant carries an `isPurchasable` flag (`status === "active"`); `getVariantById()` and `resolvePrices()` treat a not-yet-purchasable variant identically to a nonexistent one (both throw `NotFoundError`) so a variant gated on D2 can never leak a price. This is why the "known variant ID" unit test in Testing Requirements uses a fixture, not the real (currently all-`draft`) seed — see Testing Requirements below.
+9. ✅ `src/server/catalog/cache.ts` — `TtlCache`, a keyed `Map` (not a single value, so it can serve more than one entry if a later phase needs it) with a 60s TTL and a single-flight guard (concurrent misses collapse into one in-flight fetch). ~50 lines with comments, under 30 without.
+10. ✅ `GET /api/catalog/products` and `GET /api/catalog/products/[slug]`. Manually exercised against a running `next dev` — see Validation.
+11. ✅ `src/server/catalog/__tests__/no-select-star.test.ts` — scans every non-test `.ts` file under `src/server/` for `prisma.*.(findMany|findFirst|...)` calls and fails if any lacks `select:` or uses `include:`. A static-source scan, not full AST analysis — proportionate to the ask, not a general-purpose linter.
 
 #### Files / Areas Affected
-`vokr/prisma/schema.prisma` · `vokr/prisma/migrations/` · `vokr/prisma/seed.ts` · `vokr/src/server/db/client.ts` · `vokr/src/server/catalog/*` · `vokr/src/app/api/catalog/**` · `vokr/.env.example`
+`vokr/prisma/schema.prisma` · `vokr/prisma/migrations/20260908055107_init_catalog/migration.sql` · `vokr/prisma/seed.ts` · `vokr/prisma/seed-data.ts` · `vokr/prisma/__tests__/catalog.integration.test.ts` · `vokr/prisma7.config.ts` · `vokr/src/server/db/client.ts` · `vokr/src/server/catalog/*` · `vokr/src/app/api/catalog/**` · `vokr/vitest.config.mts` · `vokr/vitest.integration.setup.ts` · `vokr/docker-compose.yml` (port 5432 → 55432 — see below) · `vokr/.env.example` · `vokr/.env.local` (git-ignored) · `vokr/.gitignore` · `vokr/package.json` · `vokr/README.md` · `vokr/AGENTS.md`
+
+**Unplanned fix, discovered during this phase:** `docker-compose.yml` mapped Postgres to host port 5432, which silently collided with a native Postgres service already running on this machine (`postgres.exe`) — connections routed to the wrong server and failed authentication with a confusing error. Remapped to `55432`. Documented in the compose file, `.env.example`, and README so the next person doesn't lose time to it.
 
 #### Database Impact
 First migration. Creates `products`, `product_variants`, `inventory` with
-their constraints and indexes.
+their constraints, indexes, the GST-enforcement trigger, and RLS enabled
+on all three tables (no policies yet — see Security Requirements).
 
 #### API Impact
-Two read-only routes. No mutations. No authentication yet — the catalog is
+Two read-only routes, confirmed live: `GET /api/catalog/products` (200,
+all 5 products/27 variants) and `GET /api/catalog/products/[slug]` (200
+for a real slug, 404 with the typed `NotFoundError` contract for an
+unknown one). No mutations. No authentication yet — the catalog is
 public.
 
 #### UI Impact
 None (Phase 4 consumes these).
 
 #### Security Requirements
-- `SUPABASE_SERVICE_ROLE_KEY` and both connection strings are **server-only**. A test asserts neither appears in any client bundle.
-- Row Level Security enabled on every table from the first migration, even though launch access is via Prisma with the service role — RLS-off is a footgun that is hard to notice and easy to exploit later.
-- No `SELECT *` anywhere.
+- `SUPABASE_SERVICE_ROLE_KEY` and both connection strings are **server-only**. Verified by hand this phase (`grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` after a production build returns zero matches) — same manual-repeat-per-phase practice Phase 1 established, not yet a standing automated test. Good Phase 19 CI candidate.
+- Row Level Security enabled on every table from the first migration. Verified live via `pg_class.relrowsecurity` (integration test) and confirmed the connecting local-dev role still reads/writes normally (it owns the tables, so it bypasses RLS by default — exactly the intended launch-day shape).
+- No `SELECT *` anywhere — enforced by `no-select-star.test.ts` (task 11).
 
 #### Testing Requirements
-- Unit: price resolution returns the seeded price for a known variant ID and **throws** for an unknown one.
-- Unit: cache returns a cached value inside the TTL and refetches after it.
-- Integration (against Compose Postgres): migrate + seed + re-seed is idempotent; row counts identical.
-- Integration: the three `inventory` `CHECK` constraints reject negative values at the database level.
-- Integration: inserting a duplicate `sku` fails.
-- Regression: no query omits `select`.
+- ✅ Unit: price resolution returns the seeded price for a known, purchasable variant and throws `NotFoundError` for both an unknown variant and a known-but-not-yet-purchasable one (`service.test.ts`, fixture-based — decoupled from the real seed's current state, since every real seeded variant is legitimately `draft` until D2 is answered).
+- ✅ Unit: cache returns a cached value inside the TTL, refetches after it, and single-flights concurrent misses into one call (`cache.test.ts`, 6 tests including a rejection-is-not-cached case beyond the literal ask).
+- ✅ Integration (Compose Postgres): migrate + seed + re-seed idempotent, row counts identical (5/27/27, asserted twice).
+- ✅ Integration: all three `inventory` CHECK constraints reject negative/inconsistent values.
+- ✅ Integration: duplicate `sku` insert fails.
+- ✅ Regression: no query omits `select` (static scan, see task 11).
+- **Added beyond the literal list:** an integration test for the GST-enforcement trigger itself (rejects activation with no rate, allows it once a rate is set, restores the D2-unresolved state afterward) and for RLS being enabled on all three tables.
 
 #### Validation
-Seed twice; diff `pg_dump --data-only`. Query the API and confirm the JSON
-carries no column that was not explicitly selected.
+Seeded twice; row counts identical (5/27/27) both times. Booted `next dev`
+and queried both live routes with `curl` — response JSON carries exactly
+the selected fields, `isPurchasable: false` on every variant (expected:
+D2 is unresolved), and no `gift-card` slug anywhere in the catalog.
 
 #### Acceptance Criteria
-- Six products, their variants and one `inventory` row per variant exist.
-- Prices come **only** from `product_variants.price_paise`.
-- `resolvePrices()` is the only exported path to a price.
-- Attempting to store a negative quantity fails at the database.
+- ✅ Five products (D1: no gift card), their variants (27) and one `inventory` row per variant (27) exist.
+- ✅ Prices come **only** from `product_variants.price_paise` — confirmed structurally (no other column/table stores a price) and behaviourally (`resolvePrices()` is `catalog`'s only price-shaped export).
+- ✅ `resolvePrices()` is the only exported path to a price from `src/server/catalog`.
+- ✅ Attempting to store a negative quantity fails at the database (three separate CHECK constraints, each independently verified).
 
 #### Production Checklist Mapping
-**R6** (server-side price resolution — structural half), **R18** (catalog
-cache).
+**R6** (server-side price resolution — structural half: IMPLEMENTED, not
+yet VERIFIED at the launch-gate level — that needs Phase 5's behavioural
+half too), **R18** (catalog cache: IMPLEMENTED).
 
 #### Dependencies
-Supabase account. D1, D2.
+D1 (resolved). D2 not required — see Prerequisites. Supabase account:
+**still open**, tracked as a remaining blocker (see Status).
 
 #### Exit Criteria
-A price cannot be obtained anywhere in the codebase except by passing a
-variant ID to the server.
+✅ A price cannot be obtained anywhere in the codebase except by passing a
+variant ID to the server — verified: the only `price_paise` reads in
+`src/server/` are inside `catalog/service.ts`, and it is the sole module
+exporting anything price-shaped.
 
 ---
 
@@ -869,20 +917,23 @@ exposure before it is engineering.
 Phase 2 (catalog data), Phase 3 (auth UI has somewhere to live).
 
 #### Scope
-All 27 pages: marketing, product, support and legal. One design system
-extracted from the legacy CSS. Real forms bound to real endpoints or
-honestly removed. `robots.txt`, `sitemap.xml`, per-route metadata.
+26 of the 27 legacy pages: marketing, product, support and legal. One
+design system extracted from the legacy CSS. Real forms bound to real
+endpoints or honestly removed. `robots.txt`, `sitemap.xml`, per-route
+metadata.
 
 #### Explicitly Out of Scope
 Cart and checkout UI (Phases 5–7). Image migration (Phase 14 — keep the
 Shopify URLs temporarily and remove them there). Search behaviour (Phase 13).
+**`gift-cards.html` — deferred by D1 (8 Sep 2026).** Not migrated, not
+linked from `SiteHeader`/`SiteFooter`/anywhere, not reachable by any route.
 
 #### Implementation Tasks
-1. Inventory all 27 pages; classify as marketing / product / support / legal; map each to a route.
+1. Inventory the 27 legacy pages; classify as marketing / product / support / legal; map each to a route. Exclude `gift-cards.html` (D1) — 26 pages migrate.
 2. Extract the shared CSS into the Tailwind theme in `globals.css`. One source of truth for colour, type scale and spacing.
 3. Build the real `SiteHeader` (navigation, search entry point, account and cart affordances) and `SiteFooter` (five `@vokr.shop` addresses).
 4. Migrate marketing pages as Server Components. Static by default.
-5. Migrate the 6 PDPs to a single dynamic `app/shop/[slug]/page.tsx` driven by the Phase 2 catalog. **One template, six products** — replacing six near-identical HTML files.
+5. Migrate the 5 launch PDPs to a single dynamic `app/shop/[slug]/page.tsx` driven by the Phase 2 catalog. **One template, five products** — replacing five near-identical HTML files. `gift-cards.html` is not one of them (D1).
 6. Migrate the support and legal pages, preserving the legal text verbatim except where §4 of this plan requires an amendment.
 7. **R14: amend `terms.html`'s "order confirmation email/SMS" to "email".** SMS is deferred; leaving the copy is a contractual mismatch on day one.
 8. **R20: delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description.** Replace with an honest empty state. Real reviews land only after real orders, gated on `order_item_id`.
@@ -923,7 +974,8 @@ Grep the production build for fabricated content and for `cdn.shopify.com`
 (expected to still be present — Phase 14 removes it).
 
 #### Acceptance Criteria
-- All 27 pages reachable, no duplicated CSS/JS.
+- 26 pages reachable, no duplicated CSS/JS. `gift-cards.html` is not
+  migrated and is not reachable by any route, nav link or sitemap entry.
 - Zero dead forms.
 - Zero fabricated reviews, ratings or review counts.
 - `terms` says "email", not "email/SMS".
@@ -952,9 +1004,11 @@ are resolved server-side on every read.
 
 #### Why It Exists
 The legacy cart is an in-memory array keyed by display-name concatenation
-that resets on navigation. **The gift-card pricing defect dies in this
-phase**: once the cart stores only `variant_id` and `quantity`, there is no
-mechanism by which a client can influence a price.
+that resets on navigation. **The class of pricing defect the legacy
+gift-card page demonstrated dies in this phase** (the gift-card SKU itself
+is deferred — D1 — but the underlying bug pattern, a client-controlled
+price, applies to every SKU): once the cart stores only `variant_id` and
+`quantity`, there is no mechanism by which a client can influence a price.
 
 #### Prerequisites
 Phases 2, 3.
@@ -1004,7 +1058,7 @@ for signed-in users.
 - Integration: add/update/remove; the partial unique index prevents a second open cart.
 - Integration: guest → user merge, including the idempotency case.
 - Integration: another identity's cart returns 404, not 403 (no existence disclosure).
-- **Regression: reproduce the legacy gift-card defect — select the ₹10,000 denomination and assert the cart total is ₹10,000.**
+- **Regression: reproduce the legacy client-controlled-pricing defect (originally observed on the now-deferred gift-card page) generically — POST a request body carrying a client-chosen `price`/`total` for a real variant and assert the stored line price and cart total come only from `product_variants.price_paise`, unaffected by the request body.**
 
 #### Validation
 Add items as a guest, sign in, confirm the cart merged exactly once. Attempt
@@ -1023,8 +1077,8 @@ to POST a price and confirm it changes nothing.
 Phases 2, 3.
 
 #### Exit Criteria
-The legacy gift-card defect is provably impossible, with a regression test
-pinning it.
+The legacy client-controlled-pricing defect is provably impossible for
+every launch SKU, with a regression test pinning it.
 
 ---
 
@@ -1608,8 +1662,8 @@ Shiprocket export; email and webhook exception views; the audit log.
 
 #### Explicitly Out of Scope
 Analytics dashboards. Bulk editing. Anything visual beyond legible. Product
-CRUD beyond price and stock (the catalog is six SKUs — a migration is a
-reasonable way to change it).
+CRUD beyond price and stock (the launch catalog is five SKUs — a migration
+is a reasonable way to change it).
 
 #### Implementation Tasks
 1. Admin role on `app_users` plus an `admin_sessions` concept with a **short idle timeout**. Admin authorisation is checked server-side on every request and every action — never inferred from a client-side route.
@@ -2613,7 +2667,7 @@ Anything deferred in §10. Post-launch features.
 3. **Razorpay live-mode KYC complete (R16)** and live credentials in production Secret Manager only.
 4. Place a **real money order end to end**: real payment, real email, real Shiprocket entry, real tracking, real delivery. Then refund it. This is the only test that exercises every provider simultaneously.
 5. Place a **real COD order** end to end.
-6. Verify the final catalog: six SKUs (or five, per D1), real stock quantities entered, real photography, correct prices, correct GST.
+6. Verify the final catalog: five SKUs (D1 — gift cards deferred), real stock quantities entered, real photography, correct prices, correct GST.
 7. Go/no-go with every blocking item verified. **Any unverified blocking item is a no-go** — there is no partial credit on this list.
 8. Launch: DNS cutover, monitor, watch the alerts.
 9. Post-launch watch: first 24 hours, then the first week. Daily reconciliation of payments to orders.
@@ -2672,7 +2726,7 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R3** | Secrets in Secret Manager, loaded at boot | Exactly 6 versions: DB URL, Razorpay key ID, key secret, webhook secret, Brevo API key, Supabase service-role key | 19 | Version count = 6; a boot-time load with zero per-request fetches | Version listing; access-count metric; rotation drill log | NOT STARTED |
 | **R4** | `max-instances=3` + billing budget alerts | Set at service creation; alerts at $1/$5/$20 | 20 | Service config via API; **an alert observed firing** | Service description; alert screenshot | NOT STARTED |
 | **R5** | Environment separation | Dev/staging/prod; staging on Razorpay **sandbox** | 19 | Boot assertion rejects live keys outside production | Config listing; failing-boot test output | NOT STARTED |
-| **R6** | Server-side price resolution | Prices resolve from variant ID server-side; no endpoint accepts a price | 2, 5, 6 | Automated test: posting a price changes nothing. **Gift-card regression test** | Test run; the regression test | NOT STARTED |
+| **R6** | Server-side price resolution | Prices resolve from variant ID server-side; no endpoint accepts a price | 2, 5, 6 | Automated test: posting a price changes nothing. **Client-controlled-pricing regression test** (generalized from the legacy gift-card defect; the gift-card SKU itself is deferred, D1) | Test run; the regression test | IN PROGRESS — structural half done (Phase 2: `resolvePrices()` is the only price-shaped export, unit-tested); behavioural half (no cart/checkout endpoint accepts a client price) lands in Phase 5 |
 | **R7** | Razorpay webhook signature verification | Constant-time HMAC on the raw body; state driven only by webhooks | 7 | Tampered payload rejected; forged browser callback grants nothing | Security test output | NOT STARTED |
 | **R8** | Idempotency keys | On checkout session, Razorpay order creation and all payment endpoints | 6, 7 | Repeated key produces one order; replayed webhook is inert | Integration test; concurrency run | NOT STARTED |
 | **R9** | Inventory reservation in a DB transaction | `SELECT … FOR UPDATE` with `CHECK (quantity_available >= 0)`; **Razorpay outside the lock** | 2, 8 | Concurrency test; constraint proven to fire; injected-latency test shows lock time unaffected | Test output; architecture test; latency chart | NOT STARTED |
@@ -2684,7 +2738,7 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R15** | Courier operational | Shiprocket live, COD enabled, PIN serviceability available; manual panel acceptable | 6, 10 | A real order shipped and tracked through the panel | Account screenshot; a real AWB; runbook | NOT STARTED |
 | **R16** | Razorpay live-mode KYC | Entity, PAN, GST, bank account | 7, 23 | Live mode active; a real payment captured | Dashboard status; a real transaction ID | **BLOCKED on D3** |
 | **R17** | Backups with a tested restore | 6-hourly `pg_dump` to R2, retention, verification | 18 | **A real restore performed** with the integration suite passing against it | Drill log with date, elapsed RTO, test output | NOT STARTED |
-| **R18** | Catalog cached in Cloud Run memory | In-process cache, short TTL, single-flight | 2, 13 | Concurrent-miss test issues one query; egress measured | Test output; measured bytes/pageview | NOT STARTED |
+| **R18** | Catalog cached in Cloud Run memory | In-process cache, short TTL, single-flight | 2, 13 | Concurrent-miss test issues one query; egress measured | Test output; measured bytes/pageview | IN PROGRESS — `TtlCache` implemented and unit-tested (60s TTL, single-flight verified by concurrent-miss test); not yet VERIFIED at the launch-gate level — that needs Cloud Run and real measured egress (Phase 13/20) |
 | **R19** | HTTPS + HSTS; rate limiting; WAF | Headers; the full rate-limit matrix; 5 WAF rules; bot protection | 16, 20 | Headers verified externally; every limit triggers; WAF verified from the internet | Header scan; rate-limit test output; WAF config | NOT STARTED |
 | **R20** | Remove fabricated reviews | Delete 10 reviews, the 4.7 average, the "4,059 customer reviews" meta | 4 | **Automated check: those strings appear nowhere in the build** | CI check output | NOT STARTED |
 | **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | NOT STARTED |
@@ -2716,7 +2770,7 @@ phases and have long lead times.
 ### 7.2 Gates — where tests block progress
 
 - **Before Phase 2:** a test runner exists and `npm run verify` passes.
-- **Before Phase 6:** cart tests pass, including the gift-card regression.
+- **Before Phase 6:** cart tests pass, including the client-controlled-pricing regression.
 - **Before Phase 7:** the checkout state machine and pricing tests pass.
 - **Before Phase 9:** webhook signature, replay and forged-callback tests pass.
 - **Before Phase 10:** the Phase 8 concurrency suite passes deterministically.
@@ -2726,7 +2780,7 @@ phases and have long lead times.
 ### 7.3 Rules
 
 - A bug fix ships with a regression test that fails before the fix.
-- The three tests that pin known legacy defects — gift-card pricing, search-index drift, fabricated content — **never get deleted.**
+- The three tests that pin known legacy defects — client-controlled pricing (originally found via the gift-card page), search-index drift, fabricated content — **never get deleted.**
 - Concurrency and security tests are never skipped to unblock a deploy.
 - Coverage ratchets: the threshold rises with each phase and never falls.
 - Tests use fixtures, never production data.
@@ -2881,9 +2935,10 @@ fires.
 | **Wishlist** | Currently `href="#"` placeholders. No revenue dependency. | — | Post-launch, on demand |
 | **Saved addresses** | Order flow works without an address book; each order snapshots its address. | Phase 6 | Post-launch, when repeat-purchase rate justifies it |
 | **Order history beyond basic list** | Phase 9 ships the list and detail; richer filtering and re-order are extra. | Phase 9 | Post-launch |
+| **Gift cards** | Selling one creates a redeemable liability requiring the store-credit ledger, which is out of scope for launch. **Decision D1 (8 Sep 2026): deferred from launch entirely** — not displayed anywhere on the site, not purchasable, no redemption or ledger functionality. | Store-credit ledger | Reconsider post-launch only if commercially justified; requires a new D1-reversing decision |
 | **Referral program** | The site promises ₹500 in Vokr credit; that needs the ledger. | Store-credit ledger | After the ledger |
 | **Discount code engine** | Implied by the subscription and discount-program pages, but no launch dependency. | Phase 6 pricing | Post-launch, when marketing needs it |
-| **Store credit / wallet ledger** | Append-only, double-entry, never a mutable balance column. | — | Needed by COD refunds to credit, by gift cards (**D1**), and by referrals |
+| **Store credit / wallet ledger** | Append-only, double-entry, never a mutable balance column. | — | Needed by COD refunds to credit and by referrals (gift cards deferred indefinitely, D1) |
 | **Subscriptions** | `subscription.html` promises a fresh pair every 3/6/12 months at 15% off. Recurring debits in India require Razorpay Subscriptions with e-Mandate / UPI AutoPay, separate onboarding, RBI additional-factor authentication and mandatory 24-hour pre-debit notification. **This is its own project, not a cron job.** | Everything else stable | Last. Treat as a separate programme. |
 | **Kids Model 123 as a child-data product** | DPDP requires verifiable parental consent for under-18 data. | Parental consent architecture | Only if Vokr wants child accounts. Selling as an adult-purchased gift needs nothing. |
 | **Multi-warehouse inventory** | One location at launch. | — | A second fulfilment location |
@@ -2966,7 +3021,7 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] `robots.txt` and `sitemap.xml` generated from real routes
 
 ### 13.2 Catalog
-- [ ] Six SKUs (or five, per **D1**) with stable variant IDs and unique SKUs
+- [ ] Five SKUs (**D1**: gift cards deferred) with stable variant IDs and unique SKUs
 - [ ] Real prices, server-resolved, verified against the price list
 - [ ] Real stock quantities entered
 - [ ] Real product photography, no third-party CDN
@@ -2991,7 +3046,7 @@ item below is verified with evidence.** There is no partial credit.
 
 ### 13.5 Cart & checkout
 - [ ] Server-side cart persisting across sessions; merge on sign-in idempotent
-- [ ] **R6: no endpoint accepts a price; gift-card regression test passing** ✱
+- [ ] **R6: no endpoint accepts a price; client-controlled-pricing regression test passing** ✱
 - [ ] Address capture, PIN serviceability, COD eligibility; unknown PIN fails closed
 - [ ] **R11: per-variant GST with correct CGST/SGST vs IGST split** ✱
 - [ ] One authoritative pricing snapshot per checkout session

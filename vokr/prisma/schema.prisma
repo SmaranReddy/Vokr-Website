@@ -1,0 +1,102 @@
+// Vokr production schema — Phase 2 slice (catalog + inventory only).
+// See Vokr-Implementation-Plan.md §3.5 for the full entity plan and the
+// reasoning behind every constraint below. Carts, orders, users and
+// payments land in later phases.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Shared by products and variants. A row only becomes purchasable in
+/// "active" state; see the `enforce_variant_gst_rate` trigger in the
+/// first migration, which additionally refuses an "active" variant on a
+/// product with no confirmed GST rate (decision D2, still open).
+enum CatalogStatus {
+  draft
+  active
+  archived
+
+  @@map("catalog_status")
+}
+
+/// One row per SKU family (e.g. "Model x"). Never a price source itself —
+/// see ProductVariant.
+model Product {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  slug        String @unique
+  name        String
+  description String
+  category    String
+
+  /// Per-product HSN code. Nullable until decision D2 (GST rate + HSN per
+  /// SKU, Vokr-Implementation-Plan.md §0.3) is answered. Never invented.
+  hsnCode String? @map("hsn_code")
+
+  /// Per-product GST rate in basis points (e.g. 1800 = 18%). Nullable for
+  /// the same reason as `hsnCode`. **Never a global constant** — laces and
+  /// shoes are not necessarily in the same slab.
+  gstRateBps Int? @map("gst_rate_bps")
+
+  status CatalogStatus @default(draft)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  variants ProductVariant[]
+
+  @@map("products")
+}
+
+/// The sellable unit. This is the only entity a price may be resolved
+/// from — see `src/server/catalog/service.ts` `resolvePrices()`.
+model ProductVariant {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  productId String @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id])
+
+  /// Human-readable stable key, e.g. VK-MX-WHTBLK-IN09. Uppercase, unique,
+  /// never reused. The SKU is a key, never a display name.
+  sku String @unique
+
+  sizeLabel String @map("size_label")
+  colorway  String
+
+  /// Integer paise. ₹9,995 is stored as 999500. Never a float.
+  pricePaise Int @map("price_paise")
+
+  weightGrams Int @map("weight_grams")
+
+  /// Display order within a product's variant list.
+  position Int
+
+  status CatalogStatus @default(draft)
+
+  inventory Inventory?
+
+  @@unique([productId, colorway, sizeLabel])
+  @@index([productId, status])
+  @@map("product_variants")
+}
+
+/// Stock per variant. One row per variant, created alongside it. The row
+/// that the Phase 8 reservation transaction locks with
+/// `SELECT ... FOR UPDATE`. The three CHECK constraints are the backstop —
+/// added by hand in the first migration's SQL because Prisma's schema
+/// language has no CHECK-constraint primitive.
+model Inventory {
+  variantId String         @id @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  quantityOnHand   Int @default(0) @map("quantity_on_hand")
+  quantityReserved Int @default(0) @map("quantity_reserved")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("inventory")
+}
