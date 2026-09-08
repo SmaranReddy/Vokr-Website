@@ -24,6 +24,8 @@ block and the master checklist below are the source of truth for progress.
 | **Latest relevant commit** | `7805883` Phase 3: authentication + guest sessions (code complete, R12 verification blocked) |
 | **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. **New: Phase 3's exit criterion (R12 — a confirmation email delivered to an external inbox via Brevo) requires a Brevo account, a verified sending domain, and Google OAuth credentials, none of which exist in this environment — see Phase 3 Status for the exact human checklist.** |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
+| **Standing constraints** | **§2A — Legacy Content Preservation.** The approved legacy structure and content may not be altered during migration without explicit manager approval. Permanent, all phases. Registered exceptions and everything awaiting approval live in §2A.6. |
+| **Domain / DNS** | `vokr.shop`, DNS managed at **Hostinger** (§3.7) — *not* Cloudflare, despite §3.1's target state. Brevo domain authentication is **in progress**: records added in Hostinger, Brevo verification still pending. |
 
 ### 0.1 Master checklist
 
@@ -129,8 +131,9 @@ Vokr Website/                          ← git root
 ├── Vokr-Zero-Cost-...-Checklist.pdf   ← authoritative architecture (tracked)
 ├── vokr-backend-scope.docx            ← legacy scope, superseded (tracked)
 ├── vokr-production.zip                ← the 27-page legacy site (tracked; Phase 4 source)
-├── vokr-production (1).zip            ← git-ignored: identical but one CSS hex value
+├── vokr-production (1).zip            ← git-ignored: a third homepage export (see §2A.8)
 ├── index (7).html                     ← git-ignored: 19.9 MB base64 homepage variant
+│                                        APPROVED LEGACY REFERENCE — never modify (§2A)
 └── vokr/                              ← the deployable Next.js application
     ├── AGENTS.md  CLAUDE.md  README.md  .env.example
     ├── next.config.ts  tsconfig.json  eslint.config.mjs  postcss.config.mjs
@@ -222,6 +225,232 @@ appears in the §13 launch checklist. Do not lose it.
 
 ---
 
+## 2A. Permanent Project Constraints — Legacy Content Preservation
+
+**Issued by the project manager, 8 September 2026. These constraints are
+permanent and binding on every phase — not a Phase 4 suggestion.** Where
+any earlier wording in this plan could be read as licence to redesign the
+approved site, this section governs.
+
+### 2A.1 The approved legacy homepage is a source of truth
+
+The legacy homepage is an **approved source of truth** for the Vokr
+homepage's layout structure and content. It exists in this workspace in
+three forms:
+
+| Artefact | Size | MD5 | Tracked in git? |
+|---|---|---|---|
+| `index (7).html` (repository root) | 19,927,942 B | `82aa900609d7bae122064c87925308b4` | **No** — excluded by `.gitignore:35` |
+| `vokr-production/index.html` inside `vokr-production.zip` | 109,599 B | `12492fb1f48b2808d5e7ae3a3ab9292e` | **Yes** — inside tracked blob `02c5329` |
+| `vokr-production/index.html` inside `vokr-production (1).zip` | 109,599 B | `7617beef803dec0ce45d53e796021c7d` | **No** — that zip is git-ignored |
+
+It is reference material to be reproduced faithfully. It is **not** a draft
+to be improved, tidied, restructured or modernised.
+
+### 2A.2 Provenance verification — what git can and cannot prove
+
+*Verified 8 September 2026 by direct inspection of the working tree and the
+full commit graph. The commands are recorded so this can be re-checked.*
+
+**Established facts:**
+
+1. **No file named exactly `index.html` exists at the repository root.**
+   The root homepage artefact is named `index (7).html`. Statements in this
+   plan about "the root `index.html`" refer to that file.
+
+2. **No homepage HTML file has ever been tracked in this repository.**
+   `git log --all --oneline --name-only --diff-filter=A` filtered for
+   `index*.html` returns **zero** results across all nine commits
+   (`5dc3b49` → `ba535b9`). The only tracked paths matching `index` are
+   three TypeScript files under `vokr/src/`. `git check-ignore -v
+   "index (7).html"` reports `.gitignore:35` — a rule added in Phase 0
+   (`3ca3c21`).
+
+3. **Therefore git history cannot, by itself, prove that `index (7).html`
+   is unmodified.** An untracked file has no recorded history. This plan
+   states that limitation rather than claiming a certainty it does not
+   have.
+
+**Corroborating evidence that it was not modified during this rebuild —
+strong, but not cryptographic proof:**
+
+| Evidence | Finding |
+|---|---|
+| Working tree | `git status --porcelain` is **empty**. Nothing modified, staged, or untracked-but-unignored. |
+| Commit graph | No commit touches any repository-root path other than `.gitignore`, `Vokr-Implementation-Plan.md` and the three tracked reference artefacts. No commit has ever added, moved or deleted a root HTML file. |
+| Filesystem timestamps | `index (7).html` carries mtime **and** ctime of **2026-09-04 11:08:29 +0530** — identical to the two zips beside it, and **three days before the first commit** in this repository (`5dc3b49`, 2026-09-07 17:00:20 +0530). On NTFS a content write updates both. No write has occurred since before the rebuild began. |
+| Content cross-check | See below — the decisive evidence. |
+
+**Content cross-check.** Strip the ten inlined base64 payloads from
+`index (7).html` and diff the result against the **git-tracked**
+`vokr-production/index.html`. The stripped file is 109,046 B against the
+tracked file's 109,599 B, and the two differ in exactly **three** respects,
+none of them structural or editorial:
+
+1. `.footer-bottom a:hover { color: #fff; }` versus `{ color: #000; }`.
+2. `index (7).html` carries one additional CSS rule the tracked copy lacks:
+   `.footer-btm-links { display: flex; gap: 18px; }`.
+3. Ten `<img src>` values are `data:image/…;base64,…` URIs rather than
+   `cdn.shopify.com` URLs (six PNG, four JPEG — the 19.9 MB weight, and the
+   exact artefact **R21** exists to eliminate). Five remote `src` values
+   remain in both.
+
+**Every section, heading, paragraph, navigation item, product block, CTA
+and legal string is identical.** The approved homepage structure and
+content is therefore independently corroborated by an artefact that *is*
+under version control and *is* provably unchanged: `vokr-production.zip`,
+blob `02c532940bc1ad1b886c9ad65bedd397e0252423`, added in `3ca3c21`
+(7 Sep 2026), appearing in exactly one commit, with
+`git diff HEAD -- vokr-production.zip` clean.
+
+**Recorded conclusion.** The legacy homepage was **not modified by us at
+any point during this rebuild**, and it must remain an untouched legacy
+reference. Git cannot prove this *directly*, because the root artefact was
+never tracked; the claim is nonetheless consistent with every piece of
+evidence available — a clean tree, a commit graph that never touches it,
+pre-rebuild timestamps on both mtime and ctime, and a byte-level content
+match against a tracked, provably unchanged copy of the same page.
+
+### 2A.3 The homepage artefact must not be modified
+
+- **Do not modify `index (7).html` now.**
+- **Do not modify it during Phase 4 or any future migration work.**
+- Do not reformat it, re-minify it, strip its base64 payloads in place,
+  "fix" its CSS, or regenerate it from the Next.js build.
+- R21's base64 elimination happens **in the new Next.js implementation**
+  (Phase 14). The legacy artefact keeps its base64 payloads permanently, as
+  the evidence of the finding.
+
+### 2A.4 Design and content preservation — mandatory
+
+During migration of the legacy Vokr website into Next.js, the following are
+**prohibited without explicit manager approval**:
+
+- Changing the layout structure of the legacy pages.
+- Changing content or wording.
+- Changing, merging, splitting, reordering or removing sections.
+- Changing navigation structure.
+- Changing product presentation.
+- Changing legal copy.
+- Changing the information architecture.
+- Removing, rewriting, rearranging or adding visible content **merely to
+  make the implementation cleaner**.
+- Redesigning any page based on personal or engineering preference.
+- "Improving" the approved design.
+
+The goal, stated exactly:
+
+> **ORIGINAL APPROVED LEGACY STRUCTURE + CONTENT**
+> → faithfully reproduced in the new Next.js implementation
+> → with improved engineering, maintainability, performance and backend
+> integration underneath.
+
+**Technical migration is allowed. The visible structure and approved
+content must remain faithful.** Replacing 27 copy-pasted stylesheets with
+one Tailwind theme, five near-identical PDP files with one dynamic route,
+or a dead `onsubmit="return false;"` with a real endpoint are all
+implementation changes — provided the rendered page still shows the same
+sections, in the same order, with the same words.
+
+**Scope.** This constraint applies to the homepage, every other legacy page
+being migrated, navigation and information architecture, and the approved
+legal and content sections.
+
+**When a legacy element appears wrong.** If a legacy element looks
+incorrect, outdated, technically awkward, or conflicts with a production
+requirement:
+
+1. **Do not silently alter it.**
+2. Flag it for explicit approval.
+3. Record the issue and the proposed change in §2A.6 **before** any code
+   changes.
+
+**The legacy files are reference and source material. They are not
+permission to redesign.**
+
+### 2A.5 Legacy source file handling
+
+Preserve the original legacy source files as reference material.
+
+- Do **not** overwrite or "clean up" `index (7).html`, the other legacy
+  HTML files, or the source/reference archives (`vokr-production.zip`,
+  `vokr-production (1).zip`, `vokr-backend-scope.docx`).
+- All migration work occurs inside the new Next.js application (`vokr/`).
+- When recreating a legacy page in Next.js: **inspect the original source
+  first**, preserve the approved structure and content, replace only the
+  underlying implementation, and keep the original legacy file available
+  for comparison and regression checking.
+
+### 2A.6 Registered exceptions and conflict register
+
+Every deviation from the approved legacy content — planned or proposed — is
+registered here. **Nothing marked PENDING may be implemented until a
+manager approves it.**
+
+| Ref | Proposed change to approved legacy content | Why it was raised | Status under §2A |
+|---|---|---|---|
+| **D1** — gift cards | `gift-cards.html` not migrated, not linked from nav/footer/anywhere, unreachable by any route or sitemap entry | Commercial decision: gift cards deferred from launch | **APPROVED** — decided by the business owner, 8 Sep 2026, recorded in §0.3. Currently the only authorised change to the approved information architecture. |
+| **R14** — Phase 4 task 7 | Amend the "order confirmation email/SMS" wording in `terms.html` to "email" | SMS is deferred (TRAI DLT registration, ~₹5,900 and 3–7 days). Leaving the copy publishes a contractual promise the launch cannot honour. | **PENDING APPROVAL.** This is legal copy — §2A.4 forbids changing it unilaterally. Recommended; the alternative is to implement SMS. Do not apply until approved. |
+| **R20** — Phase 4 task 8 | Delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description; replace with an honest empty state | Consumer Protection Act 2019 exposure for fabricated reviews and ratings | **PENDING APPROVAL.** Visible content removal. Strongly recommended — this is legal exposure rather than preference — but it remains a manager's call, not an engineer's. |
+| **Phase 4 task 9** | Audit and correct unverifiable marketing claims ("250,000+ people", review counts, ratings, delivery promises) | Same statute; claims must be substantiable at launch | **PENDING APPROVAL, item by item.** Each proposed change is to be added to this table with its exact before/after text before it is made. |
+| **Phase 4 task 2** | Extract the duplicated legacy CSS into one Tailwind theme | Removes ~2 MB of 27-fold duplication that has already caused a defect | **ALLOWED — implementation only.** No approval needed, subject to the §2A.7 evidence requirement: the rendered page must not change. |
+| **Phase 4 task 5** | Five near-identical PDP HTML files become one dynamic `app/shop/[slug]/page.tsx` | Same page, one template, data-driven | **ALLOWED — implementation only**, subject to §2A.7. |
+| **Phase 4 task 10** | Dead `onsubmit="return false;"` forms bound to real endpoints | A form that silently discards customer input is a defect, not a design | **ALLOWED — implementation only** where the form is preserved and made to work. **Removing** a form is a visible-content change and needs approval. |
+| **R21** — Phase 14 | Replace `cdn.shopify.com` and base64 `data:` image sources with R2-hosted WebP/AVIF | Homepage weight budget under 500 KB | **ALLOWED — implementation only.** Changes how an image is delivered, never which image, what it depicts, or where it sits on the page. |
+
+### 2A.7 Regression evidence requirement
+
+Because "faithful" is otherwise an assertion, each migrated page carries
+comparison evidence proving the approved structure and content did not
+change:
+
+1. **Text-content diff.** Extract the visible text of the legacy page and
+   of the rendered Next.js route, normalise whitespace, and diff. The diff
+   must be empty, or every line in it must trace to an approved row in
+   §2A.6.
+2. **Structural diff.** Compare the ordered list of landmark and heading
+   elements (`header`, `nav`, `main`, `section`, `footer`, and `h1`–`h6`
+   with their text) between legacy and migrated. Section order and heading
+   text must match.
+3. **Snapshot tests** for the legal pages, so an accidental edit fails CI
+   rather than reaching production. Phase 4 already requires this; §2A
+   makes it non-negotiable and extends it to structure.
+4. **Responsive screenshots** at 360/768/1024/1440 px, retained alongside
+   the legacy rendering for visual comparison.
+
+The legacy files stay in place precisely so these checks remain runnable
+after the migration lands.
+
+### 2A.8 Correction to an earlier claim in this plan
+
+§2.1 and **ADR-017** describe `vokr-production (1).zip` as "identical but
+one CSS hex value". Direct comparison on 8 September 2026 shows that is
+**understated** for the homepage. `vokr-production/index.html` differs
+between the two zips in six hunks: the `.footer-bottom a:hover` hex (`#000`
+vs `#fff`), the `.ig-item` aspect ratio (`2/3` vs `1/1`) and its
+flex/padding declarations, `.ig-handle` positioning (`relative` vs
+`absolute` with offsets), one image `src` together with its `alt` text
+("Vokr outsole detail close-up" vs "Vokr lightweight foam midsole side
+profile"), and two Instagram-strip image `src` values. The three artefacts
+are three distinct homepage exports, not two identical ones plus a typo.
+
+`index (7).html` is closest to the **tracked** `vokr-production.zip` copy:
+it matches that copy on every one of those points except the
+`.footer-bottom a:hover` hex and the extra `.footer-btm-links` rule.
+
+**Consequence for Phase 4.** `vokr-production.zip` (tracked, blob
+`02c5329`) remains the canonical migration source for the 26 pages, but
+**for the homepage specifically `index (7).html` is the newest approved
+export**, and is authoritative where the two disagree on those two CSS
+points. Neither file is to be edited. This discrepancy is recorded rather
+than resolved by preference; if the manager wants a different canonical
+homepage source, that is their decision to make.
+
+*(The `.gitignore` comment block carries the same understated wording. It
+is left untouched here because this task is documentation-only; correcting
+it is a one-line follow-up.)*
+
+---
 ## 3. Target Production Architecture
 
 Taken from PDF §1. Every row is a decision already made; §11 records why
@@ -249,7 +478,7 @@ each must not be casually changed.
 | Backups | Self-managed `pg_dump` → R2 | Every 6 hours. Supabase Free has no backups and no PITR. |
 | CI/CD | GitHub Actions → Artifact Registry → Cloud Run | Registry cleanup policy from the first commit |
 | Secrets | Google Secret Manager | Exactly 6 active versions, loaded once at process boot |
-| Domain | Cloudflare Registrar — `vokr.shop` | The only unavoidable fixed recurring cost |
+| Domain | `vokr.shop` — **target**: Cloudflare Registrar. **Actual today: registered and DNS-managed at Hostinger (§3.7).** | The only unavoidable fixed recurring cost. The move to Cloudflare has not happened; until it does, every DNS instruction in this plan means Hostinger. |
 
 ### 3.2 Explicitly rejected at launch
 
@@ -422,6 +651,65 @@ mis-charging tax.
 
 ---
 
+### 3.7 Domain and DNS — permanent infrastructure context
+
+*Recorded 8 September 2026. This section describes the **current
+operational reality**, which is not the same as §3.1's target state.*
+
+| Field | Value |
+|---|---|
+| **Domain** | `vokr.shop` |
+| **DNS management location** | **Hostinger** |
+| **Authority** | Hostinger is where domain records are managed **unless explicitly changed later**. Any task that says "add a DNS record" means "add it in Hostinger". |
+
+**Conflict with §3.1 and Phase 20, recorded rather than resolved.** §3.1's
+stack table names *Cloudflare Registrar* for the domain, and Phase 20
+assumes *Cloudflare managing DNS for `vokr.shop`*. That is a target-state
+decision that **has not happened**. Today the domain and its DNS live at
+Hostinger. Phase 20 must therefore treat "move DNS to Cloudflare" as an
+explicit, planned migration step with its own cutover — not as a
+precondition it can assume is already true. Until that migration is
+executed and verified, **every DNS instruction in this plan resolves to
+Hostinger.**
+
+This is relevant to: domain verification, email authentication, the Brevo
+DNS records, future production DNS configuration, and SSL/domain setup.
+
+#### 3.7.1 Brevo domain authentication — in progress
+
+The intended chain, end to end:
+
+```
+vokr.shop
+  → Hostinger DNS
+    → Brevo domain authentication (SPF / DKIM / DMARC)
+      → Supabase Auth custom SMTP
+        → real external email verification   ← this is what closes R12
+```
+
+**Current state (8 September 2026):**
+
+- The required Brevo DNS records **have been added in Hostinger**.
+- Brevo domain verification is **still pending** propagation and Brevo's
+  own verification check.
+- **Brevo domain authentication is NOT complete, and must not be recorded
+  as complete until Brevo itself reports the domain as verified.** Records
+  existing in a DNS zone is not the same as a provider accepting them.
+  R12 stays open until an email actually arrives in an external inbox.
+
+**Rules attached to this work:**
+
+- Do **not** modify the existing Zoho Mail DNS records unnecessarily. The
+  five `@vokr.shop` inbound mailboxes (`support@`, `grievance@`,
+  `privacy@`, `legal@`, `careers@`) depend on them, and `grievance@` is a
+  statutory requirement under §9.
+- SPF is the one record where inbound (Zoho) and outbound (Brevo) collide:
+  a domain may publish only **one** SPF TXT record. It must be a single
+  merged record covering both senders, never two competing records.
+- No DNS or domain change was made as part of this documentation update.
+
+---
+
 ## 4. Current Gaps
 
 The distance from §2 to §3, grouped by the phase that closes it.
@@ -430,6 +718,15 @@ The distance from §2 to §3, grouped by the phase that closes it.
 
 The 27 static pages are **reference material, not a starting point.** Each
 of these is confirmed present in `vokr-production.zip` by direct inspection:
+
+> **Read this section together with §2A.** "Not a starting point" is a
+> statement about the *implementation* — the copy-pasted CSS, the dead
+> forms, the DOM-attribute pricing. It is **not** licence to change the
+> approved layout, sections, wording, navigation or information
+> architecture. Every row below that touches **visible content or legal
+> copy** (fabricated reviews, the terms wording, unverifiable claims) is
+> registered in §2A.6 and is **pending explicit manager approval**, not
+> pre-authorised by appearing in this table.
 
 | Legacy defect | Measured | Killed by |
 |---|---|---|
@@ -979,7 +1276,13 @@ this environment can verify; the phase itself is not.
 ##### Human checklist to close this phase
 In order, each blocking the next:
 1. Create (or use an existing) Brevo account; verify a sending domain and
-   publish its SPF/DKIM/DMARC records on `vokr.shop`.
+   publish its SPF/DKIM/DMARC records on `vokr.shop`. **IN PROGRESS
+   (8 Sep 2026):** the records have been added in **Hostinger** (§3.7),
+   which is where `vokr.shop` DNS is managed. Brevo's own verification is
+   **still pending** propagation — this step is not complete until Brevo
+   reports the domain verified. Do not disturb the existing Zoho Mail
+   records; SPF must remain a single merged TXT record covering both Zoho
+   and Brevo.
 2. In the Supabase dashboard (Authentication → Providers): enable
    Email/Password. In Authentication → Emails / SMTP settings: configure
    Brevo as the custom SMTP provider. Raise the email-send rate limit from
@@ -1018,8 +1321,27 @@ class of bug and eliminates the CORS and cookie-domain problems a separate
 static frontend would create. It also closes **R20**, which is legal
 exposure before it is engineering.
 
+#### Governing Constraint — §2A applies in full
+**This is the phase §2A was written for.** Before any task below is
+started, re-read §2A.4. In summary:
+
+- The approved legacy **layout structure, sections, wording, navigation,
+  product presentation, legal copy and information architecture must be
+  reproduced faithfully.** Change the implementation underneath, not what
+  the visitor sees.
+- The homepage source of truth is `index (7).html` (§2A.1/§2A.8); the other
+  25 pages come from `vokr-production.zip`. **Inspect the original before
+  writing the route.** Neither file may be edited (§2A.3, §2A.5).
+- Tasks 7, 8 and 9 below change approved visible or legal content. They are
+  registered in §2A.6 as **PENDING MANAGER APPROVAL** and may not be
+  implemented until that approval is given — even though this plan
+  recommends them and R14/R20 depend on them.
+- Each migrated page ships with the §2A.7 comparison evidence (text diff,
+  structural diff, snapshot tests, responsive screenshots).
+
 #### Prerequisites
 Phase 2 (catalog data), Phase 3 (auth UI has somewhere to live).
+**Plus: manager decisions on the §2A.6 pending rows before tasks 7–9 run.**
 
 #### Scope
 26 of the 27 legacy pages: marketing, product, support and legal. One
@@ -1032,20 +1354,28 @@ Cart and checkout UI (Phases 5–7). Image migration (Phase 14 — keep the
 Shopify URLs temporarily and remove them there). Search behaviour (Phase 13).
 **`gift-cards.html` — deferred by D1 (8 Sep 2026).** Not migrated, not
 linked from `SiteHeader`/`SiteFooter`/anywhere, not reachable by any route.
+**Any redesign, restructuring, rewording or "improvement" of the approved
+legacy pages (§2A.4).** **Any modification to the legacy source files
+themselves (§2A.3, §2A.5).**
 
 #### Implementation Tasks
-1. Inventory the 27 legacy pages; classify as marketing / product / support / legal; map each to a route. Exclude `gift-cards.html` (D1) — 26 pages migrate.
-2. Extract the shared CSS into the Tailwind theme in `globals.css`. One source of truth for colour, type scale and spacing.
-3. Build the real `SiteHeader` (navigation, search entry point, account and cart affordances) and `SiteFooter` (five `@vokr.shop` addresses).
-4. Migrate marketing pages as Server Components. Static by default.
-5. Migrate the 5 launch PDPs to a single dynamic `app/shop/[slug]/page.tsx` driven by the Phase 2 catalog. **One template, five products** — replacing five near-identical HTML files. `gift-cards.html` is not one of them (D1).
-6. Migrate the support and legal pages, preserving the legal text verbatim except where §4 of this plan requires an amendment.
-7. **R14: amend `terms.html`'s "order confirmation email/SMS" to "email".** SMS is deferred; leaving the copy is a contractual mismatch on day one.
-8. **R20: delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description.** Replace with an honest empty state. Real reviews land only after real orders, gated on `order_item_id`.
-9. Audit every legacy claim against what will actually exist at launch — "250,000+ people", review counts, ratings, delivery promises. Anything unverifiable is removed or corrected. Record each change.
-10. Every form either posts to a real endpoint or is removed. **Zero `onsubmit="return false;"` equivalents may survive.**
+*Tasks marked 🔒 change approved visible or legal content and are gated on
+manager approval per §2A.6. Every other task is implementation-only and
+must leave the rendered page indistinguishable from the legacy original.*
+
+1. Inventory the 27 legacy pages; classify as marketing / product / support / legal; map each to a route. Exclude `gift-cards.html` (D1) — 26 pages migrate. **Record the section and heading order of each original first — it is the §2A.7 baseline.**
+2. Extract the shared CSS into the Tailwind theme in `globals.css`. One source of truth for colour, type scale and spacing. **The visual result must match the legacy rendering; this is a deduplication, not a restyle.**
+3. Build the real `SiteHeader` (navigation, search entry point, account and cart affordances) and `SiteFooter` (five `@vokr.shop` addresses). **Navigation structure, link order and labels are reproduced from the legacy markup unchanged (§2A.4) — the only permitted difference is D1's removal of the gift-card link.**
+4. Migrate marketing pages as Server Components. Static by default. **Section order, headings and body copy verbatim.**
+5. Migrate the 5 launch PDPs to a single dynamic `app/shop/[slug]/page.tsx` driven by the Phase 2 catalog. **One template, five products** — replacing five near-identical HTML files. `gift-cards.html` is not one of them (D1). **Product presentation — gallery, colourway/size controls, copy blocks, their order — is preserved as approved.**
+6. Migrate the support and legal pages, **preserving the legal text verbatim.** Any amendment is a 🔒 task, not a judgement call made while migrating.
+7. 🔒 **R14 — PENDING APPROVAL (§2A.6): amend the "order confirmation email/SMS" wording in `terms.html` to "email".** SMS is deferred; leaving the copy is a contractual mismatch on day one. **Legal copy — do not apply until a manager approves.**
+8. 🔒 **R20 — PENDING APPROVAL (§2A.6): delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description.** Replace with an honest empty state. Real reviews land only after real orders, gated on `order_item_id`. **Visible content removal — strongly recommended (Consumer Protection Act exposure), but do not apply until a manager approves.**
+9. 🔒 **PENDING APPROVAL, item by item (§2A.6):** audit every legacy claim against what will actually exist at launch — "250,000+ people", review counts, ratings, delivery promises. **Produce the list with exact before/after text and add it to §2A.6 first. Nothing is removed or corrected until each item is approved.**
+10. Every form either posts to a real endpoint or is removed. **Zero `onsubmit="return false;"` equivalents may survive.** Binding a form to a real endpoint is implementation-only; **removing a form is a visible-content change and needs approval (§2A.6).**
 11. Per-route `generateMetadata`, canonical URLs, Open Graph. `app/robots.ts` and `app/sitemap.ts` generated from real routes.
-12. Responsive pass at 360 / 768 / 1024 / 1440 px. Accessibility pass: landmarks, heading order, focus visibility, form labels, colour contrast.
+12. Responsive pass at 360 / 768 / 1024 / 1440 px. Accessibility pass: landmarks, heading order, focus visibility, form labels, colour contrast. **An accessibility fix that would change visible content or section order is a §2A.6 item, not a silent edit.**
+13. **Produce the §2A.7 comparison evidence for every migrated page** — text-content diff, structural/heading diff, legal-page snapshots, responsive screenshots — and retain it alongside the legacy originals.
 
 #### Files / Areas Affected
 `vokr/src/app/(marketing)/**` · `vokr/src/app/shop/[slug]/**` · `vokr/src/app/(support)/**` · `vokr/src/app/(legal)/**` · `vokr/src/components/**` · `vokr/src/app/robots.ts` · `vokr/src/app/sitemap.ts` · `vokr/src/styles/globals.css`
@@ -1069,21 +1399,34 @@ The entire storefront. This is the largest UI phase.
 - Component tests for header, footer, PDP template, size selector.
 - Route tests: all 27 destinations return 200; no route 404s or 500s.
 - Snapshot the legal page text so an accidental edit is caught.
-- **Regression test asserting the strings "4,059", "4.7 average" and the fabricated reviewer names appear nowhere in the built output.**
+- **Regression test asserting the strings "4,059", "4.7 average" and the fabricated reviewer names appear nowhere in the built output** — *applies only once R20 is approved (§2A.6); until then these strings are expected to be present.*
 - Accessibility: automated axe pass on every route, zero serious/critical violations.
 - Responsive screenshots at the four breakpoints.
+- **§2A.7 fidelity regression per page:** normalised visible-text diff and ordered landmark/heading diff, legacy versus migrated. Empty, or every difference traced to an approved §2A.6 row.
 
 #### Validation
 Crawl the built site; compare the route list against the 27-page inventory.
 Grep the production build for fabricated content and for `cdn.shopify.com`
 (expected to still be present — Phase 14 removes it).
+**Run the §2A.7 comparison for all 26 pages and attach the output as phase
+evidence — a migration that cannot show its fidelity has not shown it.**
 
 #### Acceptance Criteria
 - 26 pages reachable, no duplicated CSS/JS. `gift-cards.html` is not
   migrated and is not reachable by any route, nav link or sitemap entry.
 - Zero dead forms.
-- Zero fabricated reviews, ratings or review counts.
-- `terms` says "email", not "email/SMS".
+- **§2A fidelity: every migrated page's visible text, section order and
+  heading structure matches its legacy original, with every difference
+  traced to an approved §2A.6 row. No unapproved content, wording,
+  navigation, product-presentation or IA change anywhere.**
+- **The legacy source files are byte-identical to their pre-Phase-4 state**
+  (`index (7).html` MD5 `82aa9006…`; `vokr-production.zip` blob
+  `02c5329`).
+- Zero fabricated reviews, ratings or review counts — **conditional on R20
+  approval (§2A.6). If approval is withheld, this criterion is waived and
+  R20 remains open with the reason recorded.**
+- `terms` says "email", not "email/SMS" — **conditional on R14 approval
+  (§2A.6), same treatment.**
 - `robots.txt` and `sitemap.xml` generated from real routes.
 
 #### Production Checklist Mapping
@@ -1093,8 +1436,11 @@ Grep the production build for fabricated content and for `cdn.shopify.com`
 Phases 2 and 3.
 
 #### Exit Criteria
-The legacy site is fully represented by one application, with no invented
-content and no inert form.
+The legacy site is **faithfully** represented by one application — same
+sections, same order, same words, same navigation, same product
+presentation — with no inert form, no unapproved change, and the §2A.7
+comparison evidence on file for all 26 pages. The legacy source files are
+untouched.
 
 ---
 
@@ -2104,7 +2450,7 @@ Cloudflare Free allows **5 custom WAF rules**, so the rule set must be
 chosen deliberately rather than accumulated.
 
 #### Prerequisites
-Phases 3, 5, 7, 9, 12. Cloudflare managing DNS for `vokr.shop`.
+Phases 3, 5, 7, 9, 12. Cloudflare managing DNS for `vokr.shop` — **not yet true; DNS is at Hostinger today (§3.7, ADR-030), so the migration to Cloudflare is a task of this phase, not a precondition.**
 
 #### Scope
 Security headers including HSTS; CSP; CSRF; centralised input validation;
@@ -2184,7 +2530,7 @@ Cloudflare. Confirm HSTS in a browser. Run `/security-review` over the diff.
 **R19** (HTTPS + HSTS, rate limiting, WAF enabled).
 
 #### Dependencies
-Cloudflare managing DNS.
+Cloudflare managing DNS — **currently Hostinger (§3.7, ADR-030); treat the move as an explicit cutover step with mail-flow and Brevo re-verification afterwards.**
 
 #### Exit Criteria
 The route-by-route authorisation table is complete with a passing test per
@@ -2482,7 +2828,7 @@ ceiling*. An unbounded instance count under a crawl loop is how free-tier
 accounts generate four-figure bills.
 
 #### Prerequisites
-Phase 19. Domain `vokr.shop` registered. Cloudflare account.
+Phase 19. Domain `vokr.shop` registered (**at Hostinger, which also holds DNS today — §3.7**). Cloudflare account.
 
 #### Scope
 Cloud Run service configuration; Cloud Scheduler's three jobs; Cloudflare
@@ -3086,6 +3432,9 @@ way to reverse one of these** — not a commit that quietly does it.
 | **ADR-025** | *(new, Phase 3)* **This app's own `rate_limit_counters`-backed limiting, not Supabase's per-IP limit, is the authoritative defence against auth abuse** — Cloud Run's shared egress IP is still forwarded to Supabase as `X-Forwarded-For` on every `/api/auth/*` call as a best-effort second layer | R13: server-side calls to Supabase Auth all originate from Cloud Run's one egress IP, so Supabase's hosted per-IP rate limiter would otherwise cap *every* customer's sign-in attempts combined at ~6/minute. Whether hosted GoTrue trusts a forwarded header from an arbitrary caller is undocumented and outside this project's control, so the header is sent but not relied on — the IP-and-email-keyed Postgres counter this app owns and can verify is what's actually load-bearing. | Supabase documents and supports trusting `X-Forwarded-For` on hosted projects, and it is confirmed working end-to-end |
 | **ADR-026** | *(new, Phase 3)* **`env.ts` split into `env.ts` (server) and `env-client.ts` (client-only)** | A Phase 3 client component importing the combined `env.ts` for `clientEnv` pulled the server schema's variable *names* into the client bundle — a real regression this phase's own bundle grep caught. Browser code now imports `clientEnv` from `env-client.ts` only, which contains nothing server-only. | Never — this is a correctness fix, not a preference |
 | **ADR-027** | *(new, Phase 3)* **`src/middleware.ts` renamed to `src/proxy.ts`** | Next.js 16.0.0 deprecated the `middleware` file convention in favour of `proxy` (same location, same `config`/matcher shape, function renamed `proxy`) — confirmed against `node_modules/next/dist/docs/.../file-conventions/proxy.md`, not assumed from training data, per this repo's own "this is NOT the Next.js you know" warning. | Never, while Next 16's naming stands |
+| **ADR-028** | *(new, 8 Sep 2026, manager-issued)* **Legacy fidelity over engineering preference** — the approved legacy layout structure, sections, wording, navigation, product presentation, legal copy and information architecture are reproduced faithfully in Next.js; only the implementation beneath them changes. Deviations require explicit manager approval, registered in §2A.6. | The legacy site is an *approved* design, not a draft. An engineer's judgement that a section is awkward, redundant or improvable is not a mandate to change it, and "it was cleaner to implement it this way" is the failure mode this ADR exists to prevent. Fidelity is also what makes the migration reviewable: a diff against the original is only meaningful if the original is supposed to survive. | The manager approves a redesign. Never by inference, never by an engineer acting alone. |
+| **ADR-029** | *(new, 8 Sep 2026)* **The legacy source artefacts are immutable reference material** — `index (7).html`, `vokr-production.zip`, `vokr-production (1).zip` and `vokr-backend-scope.docx` are never edited, cleaned up, reformatted or regenerated | They are the only baseline the §2A.7 regression checks can compare against. Editing the reference destroys the ability to prove the migration was faithful. The 19.9 MB base64 homepage in particular keeps its payloads permanently — it is the evidence for R21, not a file to fix. | Never. R21 is closed in the new application, not in the legacy artefact. |
+| **ADR-030** | *(new, 8 Sep 2026)* **`vokr.shop` DNS is managed at Hostinger until an explicit, executed migration says otherwise** | Recorded operational fact (§3.7). §3.1 and Phase 20 name Cloudflare as the *target*; that move has not happened, and planning against an assumed state is how DNS cutovers break email. Brevo's authentication records, Zoho's inbound records and the single merged SPF record all live in the Hostinger zone today. | Phase 20 actually executes the Cloudflare migration and verifies mail flow and Brevo authentication afterwards — at which point this row is updated, not deleted. |
 
 ---
 
@@ -3106,6 +3455,7 @@ A phase is not complete because the code compiles. It is complete when
 10. **Git** — a clean, scoped commit with a message explaining *why*. No secret, no generated file, no unrelated formatting churn.
 11. **Regression verification** — `npm run verify` passes, plus the security and (from Phase 8) concurrency suites. Earlier phases' tests still pass.
 12. **Exit criteria** — the phase's stated Exit Criteria are demonstrably met.
+13. **Legacy fidelity (§2A)** — for any phase touching migrated pages: no approved layout structure, section, wording, navigation item, product presentation, legal string or IA element changed without an approved §2A.6 row; the §2A.7 comparison evidence exists; and the legacy source artefacts are byte-identical to their pre-phase state.
 
 **A phase whose exit criteria depend on a manual verification is not
 complete until that verification has been performed.** R12 is not done
@@ -3254,14 +3604,18 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] **R5: staging on Razorpay sandbox, enforced at boot** ✱
 - [ ] `NEXT_PUBLIC_SITE_URL` correct in the production image (§2.5 trap closed)
 - [ ] All three Cloud Scheduler jobs green
-- [ ] Cloudflare DNS, SSL, cache rules correct; no identity-bearing response cached
-- [ ] All five `@vokr.shop` mailboxes receiving
+- [ ] DNS, SSL, cache rules correct; no identity-bearing response cached — **at whichever provider holds the zone at launch. Today that is Hostinger (§3.7), not Cloudflare; if the Cloudflare migration ran, re-verify mail flow and Brevo authentication after cutover**
+- [ ] **Brevo domain authentication reported VERIFIED by Brevo itself** (§3.7.1) — records present in DNS is not verification
+- [ ] All five `@vokr.shop` mailboxes receiving; SPF is a single merged record covering Zoho and Brevo
 - [ ] Rollback performed and timed
 
 ### 13.18 Content & legal
-- [ ] **R14: terms say "email", not "email/SMS"** ✱
-- [ ] **R20: zero fabricated reviews, ratings or review counts, CI-enforced** ✱
-- [ ] Every published claim verified or removed
+- [ ] **§2A fidelity: every migrated page matches its approved legacy original in visible text, section order, heading structure, navigation and product presentation — every difference traced to an approved §2A.6 row**
+- [ ] **§2A.6 contains no row still marked PENDING that was nonetheless implemented**
+- [ ] **Legacy source artefacts unmodified** — `index (7).html` MD5 `82aa900609d7bae122064c87925308b4`; `vokr-production.zip` blob `02c5329`
+- [ ] **R14: terms say "email", not "email/SMS"** ✱ *(requires §2A.6 approval; if withheld, R14 stays open with the reason recorded)*
+- [ ] **R20: zero fabricated reviews, ratings or review counts, CI-enforced** ✱ *(requires §2A.6 approval; same treatment)*
+- [ ] Every published claim verified or removed *(each change approved in §2A.6 first)*
 - [ ] Terms, privacy, returns and shipping copy match the implementation
 - [ ] Legal review completed
 
