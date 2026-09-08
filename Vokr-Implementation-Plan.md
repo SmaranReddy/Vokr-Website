@@ -21,7 +21,7 @@ block and the master checklist below are the source of truth for progress.
 |---|---|
 | **Current phase** | Phase 3 — Authentication + Guest Sessions (not started) |
 | **Current status** | Phase 2 COMPLETE (8 Sep 2026) |
-| **Latest relevant commit** | *(Phase 2 commit)* Phase 2: catalog + database — Prisma, schema, migration, seed, catalog service, API routes |
+| **Latest relevant commit** | `733eb4f` Phase 2: catalog + database — Prisma, schema, migration, seed, catalog service, API routes |
 | **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3), plus one open human *task*: the real Supabase project (Phase 2 used local Postgres instead — see Phase 2 Status). **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
 
@@ -63,7 +63,7 @@ dashboard, a restore log. Not an assertion.
 |---|---|---|---|
 | 0 | 7 Sep 2026 | *(Phase 0 correction commit)* | `npm run lint`, `npm run typecheck`, `npm run build` all pass from a clean checkout with `.next/` deleted; `.next/standalone` produced at 29 MB |
 | 1 | 7 Sep 2026 | `ffb8eb9` (Prettier formatting pass), *(Phase 1 commit)* | `npm run verify` (lint + typecheck + test + build) green from a clean `.next/`; 17/17 tests passing across 4 files; `next dev` boots and serves `GET /` → 200; a deliberately invalid `NEXT_PUBLIC_SITE_URL` makes `src/lib/env.ts` throw one aggregated, readable error before any request is served (reproduced via `npx tsx -e "require('./src/lib/env.ts')"`); `grep` of `.next/static` for every server-only secret name (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`) returns zero matches |
-| 2 | 8 Sep 2026 | *(Phase 2 commit)* | `npm run verify` green from a clean `.next/` (37/37 unit tests, 7 files); `npm run test:integration` green against Compose Postgres (8/8 tests: idempotent seed at 5/27/27 rows twice, all three `inventory` CHECK constraints, duplicate-`sku` rejection, GST-trigger reject/allow round-trip, RLS enabled on all three tables); manual `psql` reproduction of every constraint and the trigger, independent of the test suite; `next dev` + `curl` against both live catalog routes (200 with exact selected fields, 404 with the typed error contract for an unknown slug); `grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` returns zero matches |
+| 2 | 8 Sep 2026 | `733eb4f` | `npm run verify` green from a clean `.next/` (37/37 unit tests, 7 files); `npm run test:integration` green against Compose Postgres (8/8 tests: idempotent seed at 5/27/27 rows twice, all three `inventory` CHECK constraints, duplicate-`sku` rejection, GST-trigger reject/allow round-trip, RLS enabled on all three tables); manual `psql` reproduction of every constraint and the trigger, independent of the test suite; `next dev` + `curl` against both live catalog routes (200 with exact selected fields, 404 with the typed error contract for an unknown slug); `grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` returns zero matches |
 
 ### 0.3 Open decisions requiring a human
 
