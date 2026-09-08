@@ -22,14 +22,14 @@ block and the master checklist below are the source of truth for progress.
 | **Current phase** | Phase 3 — Authentication + Guest Sessions (not started) |
 | **Current status** | Phase 2 COMPLETE (8 Sep 2026) |
 | **Latest relevant commit** | `733eb4f` Phase 2: catalog + database — Prisma, schema, migration, seed, catalog service, API routes |
-| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3), plus one open human *task*: the real Supabase project (Phase 2 used local Postgres instead — see Phase 2 Status). **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. |
+| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
 
 ### 0.1 Master checklist
 
 - [x] **Phase 0** — Current-State Audit + Foundation Corrections
 - [x] **Phase 1** — Foundation Stabilization
-- [x] **Phase 2** — Catalog + Database (real Supabase project still open — see Phase 2 Status)
+- [x] **Phase 2** — Catalog + Database (real Supabase project now linked and seeded — see Phase 2 Status)
 - [ ] **Phase 3** — Authentication + Guest Sessions
 - [ ] **Phase 4** — Website / Page Migration
 - [ ] **Phase 5** — Server-Side Cart
@@ -666,25 +666,49 @@ passes. **Met.**
 ### PHASE 2 — Catalog + Database
 
 #### Status
-**COMPLETE** — 8 September 2026, with one non-blocking manual step still
-open (see below).
+**COMPLETE** — 8 September 2026. The real Supabase project task
+(task 1) is now also resolved.
 
 Everything in this phase's scope is implemented and verified against a
 real Postgres — schema, migrations (including the hand-written CHECK
 constraints, the GST-enforcement trigger and RLS), the idempotent seed,
 the catalog service with its cache, both API routes, and the full test
-suite (unit + integration). What is **not** done is task 1, "create the
-Supabase project in `ap-south-1`" — that requires a human with a cloud
-account and cannot be performed by this agent. Everything was instead
-built and verified against the `docker-compose.yml` Postgres, exactly as
-`.env.example` already anticipated ("For local development against
-`docker-compose.yml`'s Postgres, before Supabase is wired up..."). Moving
-to the real Supabase project later is a `DATABASE_URL`/`DIRECT_URL` swap
-in `.env.local` (Supabase's pooled/direct connection strings), not new
-engineering work — `prisma migrate deploy` and `prisma db seed` run
-unchanged against it. This is recorded as a remaining blocker below and
-should be picked up alongside D3 (also a human/account-creation
-prerequisite with long lead time).
+suite (unit + integration). It was built and verified against the
+`docker-compose.yml` Postgres, exactly as `.env.example` anticipated, and
+that remains the target for local dev and `test:integration`.
+
+**Real Supabase project created (8 Sep 2026):** project `Vokr`,
+`ap-south-1` (Mumbai), ref `fzjuiocvzqaycchwsjef`. Repository linked via
+`supabase link` (`supabase/config.toml`, `.temp/` git-ignored).
+`prisma migrate deploy` applied migration `20260908055107_init_catalog`
+against it; `prisma db seed` run twice, confirming idempotency (5
+products / 27 variants / 27 inventory rows both times, matching the
+local Compose result exactly). Read-only verification against the real
+project confirmed: all three `inventory` CHECK constraints present, the
+`enforce_variant_gst_rate` trigger present, RLS enabled on all three
+tables, no `gift-card` slug. No table was ever hand-created in the
+dashboard — the existing migration is the sole source of the real
+project's schema.
+
+**Deviation discovered during this step:** `prisma migrate deploy` (and
+`prisma db seed`) fail against Supabase's transaction-mode pooler
+(port 6543, `pgbouncer=true`) with `ERROR: prepared statement "s1"
+already exists` — PgBouncer transaction mode doesn't support the
+prepared-statement reuse Prisma's schema engine needs for DDL. Both
+commands must instead run with `DATABASE_URL` pointed at the session
+pooler (port 5432, the same value as `DIRECT_URL`). The running
+application's normal queries still use the transaction-mode pooler
+(6543) as designed — this only affects migration/seed tooling. Recorded
+in `README.md` ("Database — real Supabase project") and `.env.example`.
+
+`.env.local` was deliberately **not** repointed at the real project — it
+is also loaded by `vitest.integration.setup.ts`, and `test:integration`
+runs destructive checks (idempotent re-seed, CHECK-violation inserts, RLS
+toggling) that must never touch production data. Local dev and
+`test:integration` keep using `docker-compose.yml`'s Postgres; the real
+project's `DATABASE_URL`/`DIRECT_URL` are supplied only as ad-hoc shell
+environment variables for one-off `migrate deploy`/`db seed` runs. Only
+the non-secret `NEXT_PUBLIC_SUPABASE_URL` was added to `.env.local`.
 
 #### Objective
 Stand up Supabase Postgres, Prisma, the launch schema, and a deterministic
@@ -702,11 +726,13 @@ catalog is five SKUs). **D2 does not gate this phase** —
 refuses an active variant with no rate, so the schema and seed are built
 now and D2 can be supplied later without a migration.
 
-A Supabase project in Mumbai is **not** a prerequisite for the engineering
+A Supabase project in Mumbai was **not** a prerequisite for the engineering
 work — it turned out to be a deployment-target detail, not a blocker for
 writing and testing the schema. `docker-compose.yml`'s Postgres (already
-provisioned in Phase 1 for exactly this) stood in for it. Creating the
-real project remains an open, human-only task — see Status above.
+provisioned in Phase 1 for exactly this) stood in for it during
+development, and remains the target for local dev and
+`test:integration`. The real project now exists and is linked — see
+Status above.
 
 #### Scope
 Supabase project; Prisma with dual connection strings; the schema from
@@ -719,7 +745,7 @@ Carts, orders, payments, users — those tables land in the phases that use
 them. Admin CRUD (Phase 12). Images (Phase 14). Search (Phase 13).
 
 #### Implementation Tasks
-1. ⬜ Create the Supabase project in `ap-south-1` (Mumbai). **Not done — requires a human with a cloud account.** Built and verified against `docker-compose.yml` Postgres instead (see Status).
+1. ✅ Create the Supabase project in `ap-south-1` (Mumbai). Done 8 Sep 2026 by the human account owner; repository linked via `supabase link` (see Status). Engineering work was built and verified against `docker-compose.yml` Postgres first, then the migration and seed were replayed unchanged against the real project.
 2. ✅ Added `prisma` + `@prisma/client` (7.10.0, pinned — `latest` was an `8.0.0-rc` at install time). Configured `DATABASE_URL` and `DIRECT_URL`; Prisma 7 dropped the schema-level `directUrl` field (confirmed against installed `@prisma/config` types), so the pooled/direct split for the Phase 8 checkout transaction is now an application-level concern (a second driver-adapter instance from `DIRECT_URL`), not a config-file setting — `DIRECT_URL` instead feeds `shadowDatabaseUrl` for `migrate dev`, conditionally (only when it actually differs from `DATABASE_URL`, or Prisma errors on an identical shadow/main pair — which is what local dev has today).
 3. ✅ `prisma/schema.prisma` written for `products`, `product_variants`, `inventory`. Money as `Int` paise. IDs via Prisma's client-side `@default(uuid(7))`.
 4. ✅ The three `inventory` `CHECK`s and `UNIQUE(sku)` are in the first migration (`prisma/migrations/20260908055107_init_catalog/`). Prisma's schema language has no CHECK primitive, so they're hand-added SQL in the generated migration file, verified against the real schema (`\d inventory` confirms all three).
@@ -784,7 +810,7 @@ half too), **R18** (catalog cache: IMPLEMENTED).
 
 #### Dependencies
 D1 (resolved). D2 not required — see Prerequisites. Supabase account:
-**still open**, tracked as a remaining blocker (see Status).
+**resolved** — real project created and linked (see Status).
 
 #### Exit Criteria
 ✅ A price cannot be obtained anywhere in the codebase except by passing a

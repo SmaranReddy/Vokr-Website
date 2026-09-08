@@ -74,6 +74,37 @@ npm run test:integration      # exercises the schema against a real DB
 dependency-free by design (Phase 1). Only `test:integration` and the
 `db:*` scripts touch a live database.
 
+## Database — real Supabase project
+
+The repository is linked to the real Supabase project (`ap-south-1` /
+Mumbai) via `supabase link` — see `supabase/config.toml`. **`.env.local`
+stays pointed at local Compose Postgres deliberately**: it's also loaded
+by `test:integration` (`vitest.integration.setup.ts`), which runs
+destructive checks (idempotent re-seed, CHECK-violation inserts, RLS
+toggling) that must never touch production data.
+
+To run `prisma migrate deploy` / `prisma db seed` against the real
+project, supply `DATABASE_URL` / `DIRECT_URL` as ad-hoc environment
+variables for that one command — never write real Supabase credentials
+into `.env.local`. Get the pooled/direct connection strings from the
+Supabase dashboard (Settings → Database → Connection string):
+
+```
+DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+DIRECT_URL=postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+```
+
+**Migrations and seeding must run against the session pooler (port
+5432, the `DIRECT_URL` value), not the transaction-mode pooler (port
+6543).** `prisma migrate deploy` against the 6543 URL fails with
+`ERROR: prepared statement "s1" already exists` — PgBouncer's
+transaction mode doesn't support the prepared-statement reuse Prisma's
+schema engine relies on for DDL. The transaction-mode pooler (6543) is
+correct for the running application's normal queries; it is not correct
+for `migrate deploy` or `db seed`. In practice this means setting
+`DATABASE_URL` to the *session pooler* URL (i.e. the same value as
+`DIRECT_URL`) for those two commands specifically.
+
 Every seeded variant starts `status: "draft"` and every seeded product
 starts with `gst_rate_bps: NULL`. This is intentional, not a bug: decision
 D2 (GST rate + HSN per SKU — see `../Vokr-Implementation-Plan.md` §0.3) is
