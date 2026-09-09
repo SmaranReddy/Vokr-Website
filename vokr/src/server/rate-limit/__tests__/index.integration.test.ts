@@ -11,8 +11,30 @@ import { prisma } from "@/server/db/client";
  * Run via `npm run test:integration`.
  */
 
+/**
+ * Keys this file created, so cleanup removes only its own rows. The
+ * previous table-wide `deleteMany({})` truncated `rate_limit_counters`
+ * for every suite running in parallel — it reset
+ * `client-ip-bucketing.integration.test.ts`'s counter mid-test, making
+ * that file fail roughly half the time. Same defect class as the two
+ * files that raced each other's cleanup in the phase's round-2 defect
+ * log, and the same fix: scope every file's cleanup to the rows it
+ * created. That fix covered `guest_sessions` and `app_users`; this table
+ * never received it.
+ */
+const createdKeys: string[] = [];
+
+/** A unique counter key, registered for this file's own cleanup. */
+function newKey(): string {
+  const generated = `test:${randomUUID()}`;
+  createdKeys.push(generated);
+  return generated;
+}
+
 afterEach(async () => {
-  await prisma.rateLimitCounter.deleteMany({});
+  await prisma.rateLimitCounter.deleteMany({
+    where: { key: { in: createdKeys } },
+  });
 });
 
 afterAll(async () => {
@@ -21,7 +43,7 @@ afterAll(async () => {
 
 describe("consumeRateLimit (Phase 3, task 11)", () => {
   it("allows requests up to the limit and blocks the one after", async () => {
-    const key = `test:${randomUUID()}`;
+    const key = newKey();
 
     for (let i = 1; i <= 3; i += 1) {
       const result = await consumeRateLimit({
@@ -39,7 +61,7 @@ describe("consumeRateLimit (Phase 3, task 11)", () => {
   });
 
   it("resets the window once it has elapsed and recovers", async () => {
-    const key = `test:${randomUUID()}`;
+    const key = newKey();
 
     await consumeRateLimit({ key, limit: 1, windowMs: 200 });
     const blocked = await consumeRateLimit({ key, limit: 1, windowMs: 200 });
@@ -53,7 +75,7 @@ describe("consumeRateLimit (Phase 3, task 11)", () => {
   });
 
   it("serializes concurrent requests against the same key rather than racing past the limit", async () => {
-    const key = `test:${randomUUID()}`;
+    const key = newKey();
 
     const results = await Promise.all(
       Array.from({ length: 20 }, () =>
@@ -65,8 +87,8 @@ describe("consumeRateLimit (Phase 3, task 11)", () => {
   });
 
   it("keeps independent keys in independent buckets", async () => {
-    const keyA = `test:${randomUUID()}`;
-    const keyB = `test:${randomUUID()}`;
+    const keyA = newKey();
+    const keyB = newKey();
 
     await consumeRateLimit({ key: keyA, limit: 1, windowMs: 60_000 });
     const resultB = await consumeRateLimit({
@@ -81,7 +103,7 @@ describe("consumeRateLimit (Phase 3, task 11)", () => {
 
 describe("assertWithinRateLimit", () => {
   it("throws RateLimitError once the window's limit is exceeded", async () => {
-    const key = `test:${randomUUID()}`;
+    const key = newKey();
 
     await assertWithinRateLimit({ key, limit: 1, windowMs: 60_000 });
     await expect(

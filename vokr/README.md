@@ -14,10 +14,9 @@ Day-to-day engineering reference: **`../Vokr-Implementation-Plan.md`**
 (the phased plan and its status) and **`AGENTS.md`** (the non-negotiable
 architecture and security rules).
 
-This codebase has completed **Phase 2: catalog + database** and the
-engineering half of **Phase 3: authentication + guest sessions** — the
-part that does not require a live Brevo/Google Cloud account (see
-"Authentication" below for exactly what is and isn't verified yet). Phase
+This codebase has completed **Phase 2: catalog + database** and
+**Phase 3: authentication + guest sessions**, which is verified and ready
+to close (see "Authentication" below). Phase
 1 established the application structure, styling, environment-variable
 conventions and tooling; Phase 2 adds Postgres (via Prisma), the launch
 catalog schema, a deterministic seed of the five launch SKUs, and two
@@ -171,37 +170,53 @@ bundle, which is exactly what a `.next/static` grep for
 
 ## Authentication (Phase 3)
 
-Email/password and Google sign-in, guest sessions, and the guest → user
-identity transition are implemented and unit/integration tested. **What is
-not yet verified — and cannot be, without a real Brevo account and a real
-Google Cloud OAuth client, neither of which exist in this environment —
-is R12 and R13**, the two riskiest items in the whole plan:
+Email/password sign-in, guest sessions, the guest → user identity
+transition, email confirmation and password reset are implemented,
+unit/integration tested, and **verified against the real Supabase project
+with real Brevo-delivered email**.
 
-- **R12**: Supabase's built-in mailer sends 2 emails/hour and only to the
-  project's own team. A signup confirmation email must actually arrive in
-  an external inbox via Brevo custom SMTP before this phase's exit
-  criterion is met. Configuring this is a Supabase dashboard action, not
-  code.
-- **R13**: the email-send rate limit needs raising from its 30/hour
-  default, and Google OAuth needs a real client ID/secret entered into the
-  Supabase dashboard's provider settings.
+**R12 is closed.** Brevo is live as Supabase Auth's custom SMTP provider
+(`smtp-relay.brevo.com:587`, read back from the project), and confirmation
+emails have arrived in inboxes **outside** the project team on two
+unrelated domains, been followed, and signed the customer in — with the
+`app_users` row written in the same operation. That was the single most
+dangerous item in the plan; it is evidenced, not assumed.
 
-Until those two dashboard actions happen and a real signup is completed
-against them, `NEXT_PUBLIC_SUPABASE_ANON_KEY` stays unset locally and
-every `/api/auth/*` route correctly fails closed with a generic 500 (via
-`toErrorResponse()`, never a raw crash — verified live with `next dev` +
-curl). See `../Vokr-Implementation-Plan.md` Phase 3 for the full status
-and the human checklist.
+**Password reset works cross-browser.** Both link flows redeem their
+one-time token **server-side** via `verifyOtp()` —
+`/api/auth/confirm?token_hash=…&type=signup` and
+`/api/auth/reset/confirm?token_hash=…&type=recovery`. This matters
+because the earlier PKCE `exchangeCodeForSession()` approach needed a
+verifier cookie held only by the browser that started the flow, so any
+link opened on a phone, in webmail, or in a private window failed. The
+endpoints are deliberately separate and each accepts only its own OTP
+type: a recovery token can never be redeemed into a plain sign-in.
 
-To develop against a real Supabase Auth instance once it's configured,
-add to `.env.local`:
+**Two deliberate positions, both recorded in the plan rather than left
+implicit:**
 
-```
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<from the Supabase dashboard, Settings → API>
-```
+- **`auth.rate_limit.email_sent` stays at 30/hour** (decision D4). Brevo's
+  free tier allows 300 emails/day ≈ 12.5/hour sustained, so 30/hour is
+  already more than double the sustainable rate; raising it would only let
+  one bad hour consume the day's budget. Revisit on a paid Brevo plan.
+- **Google OAuth is deferred to Phase 4.** The provider is not configured
+  (`/auth/v1/settings` reports `google: false`), so the Google button must
+  not ship until it is — Phase 4 task 14 covers the setup and the
+  verification together.
 
-(`NEXT_PUBLIC_SUPABASE_URL` is already set — see "Database — real
-Supabase project" above.)
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` is set in `.env.local` (from the Supabase
+dashboard, Settings → API); `NEXT_PUBLIC_SUPABASE_URL` is too — see
+"Database — real Supabase project" above. Note that `auth.site_url` on the
+project is still `http://localhost:3000` and must become the production
+origin at deploy (Phase 20), which is also where the production OAuth
+redirect URL is registered.
+
+**Start the dev server from a shell with no `DATABASE_URL` exported.**
+Next.js gives a shell-exported value precedence over `.env.local`, so a
+variable left over from a one-off `prisma migrate deploy` silently
+repoints the whole application at production. Use
+`env -u DATABASE_URL -u DIRECT_URL npm run dev` if in doubt. See
+`../Vokr-Implementation-Plan.md` Phase 3 for the full status.
 
 ## Environment variables
 

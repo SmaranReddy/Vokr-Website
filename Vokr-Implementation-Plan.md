@@ -20,9 +20,9 @@ block and the master checklist below are the source of truth for progress.
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 3 — Authentication + Guest Sessions (**code complete, 8 Sep 2026 — blocked on manual verification of R12/R13**, see Phase 3 Status) |
-| **Current status** | Phase 3 engineering complete; exit criteria not met pending a human completing the Brevo/Google OAuth dashboard setup and a real external-inbox signup test |
+| **Current status** | Phase 3 engineering complete; exit criteria not met pending human dashboard steps. **9 Sep 2026 (round 3): the signup confirmation flow is now proven with real Brevo-delivered emails — two accounts were confirmed *and* signed in by `/api/auth/confirm`, with the `app_users` row written in the same operation (12 ms between `email_confirmed_at` and `last_sign_in_at`). Password reset was found genuinely broken in any browser but the one that requested it — `reset-password-form.tsx` exchanged the PKCE code client-side, and the verifier cookie is written only to the requesting browser — and is fixed by a server-side `verifyOtp({type:"recovery"})` route, proven 11/11 redeeming a real token with no cookies at all. Two further defects fixed: `/sign-in` ignored the `?error=confirm` / `?error=oauth` codes its own routes redirect with, so a failed confirmation rendered a bare page. Six code defects fixed across the three rounds. Remaining blockers are dashboard-side: the **Reset Password** email template and the 30/hour email rate limit. See Phase 3 "Defect log round 3".** **10 Sep 2026: Google OAuth deferred to Phase 4 task 14 (§12 item 1) — no longer a Phase 3 blocker. The Phase 3 production migration is DONE — `20260908102243_auth_guest_sessions` is deployed to the real Supabase project and verified object-by-object (open item 5 CLOSED; evidence in §0.2). **10 Sep 2026 (closure): Phase 3 is READY TO CLOSE — the R13 per-IP-not-per-instance test and the anti-enumeration test are both written and passing, D4 resolves `auth.rate_limit.email_sent` at 30/hour as an intentional launch decision (setting unchanged), the mail-scanner prefetch risk is explicitly accepted for launch, and the Exit Criterion (R12) is reconciled as MET on round-3 evidence. `npm run verify` green from a clean `.next` (189 unit / 21 files) plus 37 integration / 6 files; zero server-secret names in `.next/static`. The only unsatisfied DoD item is the scoped commit.** **The Reset Password template step is DONE and verified** — a real Brevo recovery email completed the fixed flow **cross-browser** (requested in one browser, link opened in Incognito, new password set and signed in), closing open item 2; evidence in §0.2. **Phase 3 closure now turns on one dashboard value plus three carried items: `auth.rate_limit.email_sent` is still 30/hour and the plan does NOT specify a target (see §0.3 D4), the R13 per-IP-vs-per-instance test, the anti-enumeration test, and the link-prefetch UX decision.**|
 | **Latest relevant commit** | `7805883` Phase 3: authentication + guest sessions (code complete, R12 verification blocked) |
-| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. **New: Phase 3's exit criterion (R12 — a confirmation email delivered to an external inbox via Brevo) requires a Brevo account, a verified sending domain, and Google OAuth credentials, none of which exist in this environment — see Phase 3 Status for the exact human checklist.** |
+| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. **New: Phase 3's exit criterion (R12 — a confirmation email delivered to an external inbox via Brevo) requires a Brevo account, a verified sending domain, and Google OAuth credentials, none of which exist in this environment — see Phase 3 Status for the exact human checklist.** **Google OAuth is DEFERRED to Phase 4 task 14 (10 Sep 2026, operator instruction, recorded under §12 item 1) and is no longer counted as a Phase 3 blocker — see Phase 3 open item 4.** **D4 RESOLVED (10 Sep 2026): `auth.rate_limit.email_sent` stays at 30/hour by decision. No Phase 3 blocker remains except the scoped commit itself.** |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
 | **Standing constraints** | **§2A — Legacy Content Preservation.** The approved legacy structure and content may not be altered during migration without explicit manager approval. Permanent, all phases. Registered exceptions and everything awaiting approval live in §2A.6. |
 | **Domain / DNS** | `vokr.shop`, DNS managed at **Hostinger** (§3.7) — *not* Cloudflare, despite §3.1's target state. Brevo domain authentication is **in progress**: records added in Hostinger, Brevo verification still pending. |
@@ -32,7 +32,7 @@ block and the master checklist below are the source of truth for progress.
 - [x] **Phase 0** — Current-State Audit + Foundation Corrections
 - [x] **Phase 1** — Foundation Stabilization
 - [x] **Phase 2** — Catalog + Database (real Supabase project now linked and seeded — see Phase 2 Status)
-- [ ] **Phase 3** — Authentication + Guest Sessions (code complete; blocked on human Brevo/Google OAuth setup + external-inbox verification — see Phase 3 Status)
+- [ ] **Phase 3** — Authentication + Guest Sessions (**READY TO CLOSE, 10 Sep 2026** — all acceptance criteria and the Exit Criterion met or deferred under §12 item 1; Google OAuth deferred to Phase 4 task 14. Box stays unticked pending DoD item 10, the scoped commit — see Phase 3 Status)
 - [ ] **Phase 4** — Website / Page Migration
 - [ ] **Phase 5** — Server-Side Cart
 - [ ] **Phase 6** — Address + Checkout Foundation
@@ -67,6 +67,9 @@ dashboard, a restore log. Not an assertion.
 | 1 | 7 Sep 2026 | `ffb8eb9` (Prettier formatting pass), *(Phase 1 commit)* | `npm run verify` (lint + typecheck + test + build) green from a clean `.next/`; 17/17 tests passing across 4 files; `next dev` boots and serves `GET /` → 200; a deliberately invalid `NEXT_PUBLIC_SITE_URL` makes `src/lib/env.ts` throw one aggregated, readable error before any request is served (reproduced via `npx tsx -e "require('./src/lib/env.ts')"`); `grep` of `.next/static` for every server-only secret name (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`) returns zero matches |
 | 2 | 8 Sep 2026 | `733eb4f` | `npm run verify` green from a clean `.next/` (37/37 unit tests, 7 files); `npm run test:integration` green against Compose Postgres (8/8 tests: idempotent seed at 5/27/27 rows twice, all three `inventory` CHECK constraints, duplicate-`sku` rejection, GST-trigger reject/allow round-trip, RLS enabled on all three tables); manual `psql` reproduction of every constraint and the trigger, independent of the test suite; `next dev` + `curl` against both live catalog routes (200 with exact selected fields, 404 with the typed error contract for an unknown slug); `grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` returns zero matches |
 | 3 (engineering only — see Phase 3 Status) | 8 Sep 2026 | `7805883` | `npm run verify` green from a clean `.next/` (75/75 unit tests, 13 files); `npm run test:integration` green against Compose Postgres, run 4× consecutively for flake-check (31/31 tests, 5 files: guest-session create/reuse/expiry/UNIQUE/CHECK/RLS, `app_users` idempotent-upsert-under-concurrency/UNIQUE-email/RLS, `rate_limit_counters` limit-and-block/window-reset/20-way-concurrent-race/independent-buckets/CHECK/RLS, `completeSignIn` guest-upgrade-handler/cookie-rotation/idempotent-retry); `next dev` + `curl`/`Invoke-WebRequest` against all five live auth routes plus all four auth pages — every route returns a well-formed `toErrorResponse()` JSON body (or, for the OAuth callback, a 307 redirect) rather than an unhandled crash, confirmed against the actual "Supabase not configured" failure this environment is in; dev-server log inspected for stray stack traces (none); `grep` of a clean `.next/static` production build for `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`, `DATABASE_URL`, `DIRECT_URL` returns zero matches (a regression was found and fixed mid-phase — see Phase 3 Status). **Not evidenced, and cannot be from this environment: R12 (external-inbox email delivery), R13's Google OAuth half (needs a real Google Cloud OAuth client) — these require a human with Brevo/Google Cloud dashboard access.** |
+| 3 — production migration (`20260908102243_auth_guest_sessions`) | 10 Sep 2026 | *(uncommitted at time of writing — plan + migration deploy)* | **Migration `20260908102243_auth_guest_sessions` deployed to the real Supabase project `fzjuiocvzqaycchwsjef` (ap-south-1).** Procedure: `npx prisma migrate deploy` with `DATABASE_URL`/`DIRECT_URL` both set to the **session pooler, port 5432** as one-off process env vars (README §"Database — real Supabase project"); never written to `.env.local` or any repository file, deleted after use. **`supabase config push` deliberately not used** (it would set `auth.email.enable_confirmations` true→false). No Auth, SMTP, MFA, SMS, pooler or storage setting altered; no seed run. **Pre-flight:** `prisma migrate status` → `init_catalog` already applied, exactly one pending, no drift/failed/modified-after-apply. **Apply:** exit 0, `Applying migration 20260908102243_auth_guest_sessions` → "All migrations have been successfully applied." **`_prisma_migrations` read back:** both rows `applied_steps_count=1`, `rolled_back_at=null`; the new row `finished_at 2026-09-09 19:56:26 UTC` (= 10 Sep 01:26 IST). `prisma migrate status` → **"Database schema is up to date!"** exit 0. **Objects verified by direct `information_schema`/`pg_catalog` query:** `app_users` (6 cols), `guest_sessions` (5 cols), `rate_limit_counters` (3 cols); 3 PKs; 2 unique indexes (`app_users_email_key`, `guest_sessions_token_hash_key`); 2 plain indexes (`guest_sessions_expires_at_idx`, `rate_limit_counters_window_start_idx`); 2 CHECKs (`guest_sessions_expires_after_created`, `rate_limit_counters_count_non_negative`); **RLS enabled on all three, zero policies in `public`**; no FKs (correct — `app_users.id` is cross-schema by design). **Non-destruction verified:** `products` 5 rows, `product_variants` 27, `inventory` 27 — unchanged; all Phase 2 CHECKs, both FKs, the `catalog_status` enum and the `product_variants_require_gst_rate` trigger intact, trigger **enabled** (`tgenabled='O'`). **GST/HSN untouched (D2 still open):** all 5 products `hsn_code=NULL`, `gst_rate_bps=NULL`; all 27 variants `draft`; **0** active variants on a GST-less product — nothing purchasable, exactly the pre-migration state. **No unexpected objects:** `public` holds exactly 7 tables (6 application + `_prisma_migrations`), 1 trigger, 1 function, 1 enum, 0 views, 0 sequences, 0 policies. **PostgREST anon-key survey:** `app_users`, `guest_sessions`, `rate_limit_counters` all moved `PGRST205` → `42501`, and `products`/`product_variants`/`inventory` still `42501` — present with `anon` correctly denied SELECT. **Containment:** credential file deleted; repo-wide scan for `aws-0-ap-south-1.pooler` returns only pre-existing password-free hits (`.env.example` template, `README.md`, git-ignored `supabase/.temp/pooler-url`); `.env.local` still points at local Compose Postgres on 55432. |
+| 3 — password reset (real-world, cross-browser) | 10 Sep 2026 | *(uncommitted at time of writing)* | **One fresh real-world password reset completed end-to-end against `smaranreddy1011@gmail.com`, closing Phase 3 open item 2.** **Send:** `POST /api/auth/reset` at **2026-09-09 20:14:50 UTC** (10 Sep 01:44:50 IST) → **HTTP 200** in 1.674 s. **Send proven genuine, not a swallowed failure:** the route's `classifyResetResult()` splits four ways and logs on three of them — `validation` (400, logged), `operational` (500, logged), `silent-failure` (**200, logged**) and `generic-success` (200, *not* logged). The dev log contains **zero `[auth/reset]` entries**, so the only reachable path is `generic-success`, i.e. `resetPasswordForEmail()` returned `error: null`: Supabase Auth accepted and dispatched via Brevo SMTP with no error. This rules out SMTP failure, provider rejection and the 30/hour cap. **Template confirmed live:** the delivered email's link pointed at `/api/auth/reset/confirm?token_hash=…&type=recovery` — the `{{ .TokenHash }}` template, not the old `{{ .ConfirmationURL }}` PKCE URL. **The decisive step — cross-browser:** the reset was requested in the normal browser and the emailed link **opened in a separate Incognito/private window**, which reached the *Set a new password* form; the new password was set and then signed in successfully. **This is precisely the condition round 3 proved broken** (`AuthPKCECodeVerifierMissingError`, the verifier cookie existing only in the requesting browser), so the server-side `verifyOtp({type:"recovery"})` fix is now confirmed against a genuine PKCE-issued, Brevo-delivered token rather than only an admin-generated one. **`app_users` corroboration (local Compose — the dev server was verified to be on local Postgres, not production):** the sign-in ran `getOrCreateAppUser()` (upsert transaction visible in the dev log, ending `COMMIT`) and produced **no new row** — `b8f70250-0c8b-4d9b-a2ce-280c30bdde8e` / `smaranreddy1011@gmail.com` retains its original `created_at 2026-09-09 09:12:31.342+00`, confirming task 8's idempotent upsert. **`/api/auth/reset/confirm` correctly left no `app_users`/guest trace**, since `completeSignIn()` is deliberately not run on the recovery route (round 3 security property). **Dev-server hygiene verified before the test:** a probe request moved local `rate_limit_counters` 9⇒11 (+2 — independent IP-keyed and email-keyed windows), proving the server was reading **local Compose Postgres, not production**, so the Cause-2 trap was absent. **Not read back:** the project's `auth.users` row (`recovery_sent_at` / `updated_at` / `last_sign_in_at`) — requires the service-role key, which is not present in this environment. The successful sign-in with the *new* password is itself server-side proof the credential changed. |
+| 3 — closure (R13 test, anti-enumeration test, D4, prefetch decision) | 10 Sep 2026 | *(uncommitted at time of writing)* | **The last three Phase 3 open items closed; no production configuration changed.** **R13 per-IP verification (new):** `src/server/rate-limit/__tests__/client-ip-bucketing.integration.test.ts`, **6 cases**. Behavioural, against real Postgres: two different forwarded client IPs occupy independent buckets (one exhausting its allowance leaves the other at full remaining) — the failure R13 names, where server-side Auth calls put every customer in Cloud Run's single egress bucket; `cf-connecting-ip` takes precedence over a spoofed `x-forwarded-for`, so a client cannot borrow another visitor's bucket behind Cloudflare; and a **genuinely separate `PrismaClient`** with its own connection pool, standing in for a second Cloud Run instance, observes the counter the first advanced (`count = 5`) rather than receiving its own fresh allowance — the per-instance failure mode an in-memory limiter would exhibit. Structural, by source assertion (route modules sit outside the Vitest `node` project, so this follows the convention of `env-client-inlining.test.ts`): all three limited routes call `getClientIp(request)` and interpolate it into the key, so a regression to a constant key would fail. **The limiter itself was not modified.** **Anti-enumeration (new):** `src/server/auth/__tests__/anti-enumeration.test.ts`, **9 cases**, closing a gap open since the phase began. Tested at the classifier layer — `classifySignupResult()` / `classifyResetResult()` are what actually select the caller-visible outcome, so the long-standing objection (“a meaningful test needs real Supabase responses”) applies to the routes, not to them. Asserts the **caller-visible projection** (status + message) is identical for registered vs unregistered on both surfaces, rather than `outcome.kind` equality — which would wrongly fail on reset, where `silent-failure` and `generic-success` differ internally but are indistinguishable by design. Covers `user_already_exists`, `email_exists`, the confirmations-on duplicate shape, and GoTrue's recovery cooldown (keyed on `recovery_sent_at`, therefore reachable only for a registered address — the sharpest oracle in the phase). Two counter-tests assert the rule is not over-applied: an SMTP failure on either route must still fail loudly. **D4 resolved:** `auth.rate_limit.email_sent` **kept at 30/hour** as an intentional launch decision; **the Supabase dashboard was not touched and `config push` was not used.** **Mail-scanner prefetch:** risk explicitly accepted for launch with current behaviour retained, re-open conditions recorded (open item 8). **Full gate:** `npm run verify` **exit 0** from a deleted `.next` — lint clean, typecheck clean, **189 unit tests / 21 files**, build clean with 16 static pages; `npm run test:integration` **37 / 6** against Compose Postgres. The running dev server (PID 19668) was stopped first, since it shared `.next`. **Bundle secrets:** `grep` of a clean `.next/static` returns **0 matches** for all eight server-secret names (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`, `DATABASE_URL`, `DIRECT_URL`) and 0 for the local DB password literal, while the three `NEXT_PUBLIC_*` values each appear in exactly 1 chunk — both halves of the round-3 inlining regression still correct. |
 
 ### 0.3 Open decisions requiring a human
 
@@ -78,6 +81,7 @@ than engineering ones, and this plan deliberately does not guess.
 | **D1** | ~~Are gift cards sold at launch?~~ **RESOLVED (8 Sep 2026): NO.** Gift cards are deferred from launch entirely. The gift-card feature is not displayed anywhere on the website — no page, no nav/footer link, no PDP — and no purchasing, redemption or store-credit-ledger functionality is implemented. The launch catalog is **five** SKUs, not six. See §3.6 and §10A. | *(resolved — no longer blocks anything)* | Commercial decision made by the business owner. Stronger than the plan's original recommendation (a): the page itself is withheld, not merely made unpurchasable. |
 | **D2** | **GST rate and HSN code per SKU.** ₹295 laces, ₹495 socks and ₹9,995 shoes are not necessarily in one slab. | R11 (compliant invoicing), and therefore live sales | R11 explicitly says "confirm current footwear slabs with your CA". Inventing a rate is a tax error, not a bug. **Does not block Phase 2** — the schema (§3.5, §3.6) stores `gst_rate_bps` as nullable per product with a `CHECK`/seed-time assertion that refuses an active variant with no rate, so catalog and database work proceeds now and an unanswered D2 fails loudly rather than shipping an invented rate. |
 | **D3** | **Legal entity, PAN, GST registration and bank account** for Razorpay live-mode KYC (R16), plus the registered address printed on tax invoices (R11). | Phase 7 live mode, Phase 23 | Requires the business owner. Test mode works immediately; live mode does not. **Longest lead time in the programme — start now.** |
+| **D4** | ~~**The production value for `auth.rate_limit.email_sent`**~~ **RESOLVED (10 Sep 2026): KEEP AT 30/hour.** Recorded as an intentional launch decision, not an oversight — the setting was deliberately left unchanged and the Supabase dashboard was not touched. **Rationale:** neither this plan nor the PDF ever specified a target above the default, and Brevo’s free allowance of 300 emails/day is ≈**12.5/hour sustained**, so 30/hour already exceeds the sustainable daily rate by more than 2×; raising it would only allow one bad hour to consume a larger share of the day’s budget and silently stop order confirmations. **Revisit if** Brevo is upgraded past the free tier (Phase 11 pre-authorises one month of Starter at $9) or the 200/day alert fires. *Original decision text follows.* — The pre-decision framing: (Supabase Auth email-send cap, per hour). Currently **30**, the post-custom-SMTP default; live-verified 10 Sep 2026. | *(resolved — no longer blocks; R13 verified 10 Sep 2026)* | **Neither this plan nor the PDF specifies a target.** Both say only “raise it from its 30/hour default” (plan Phase 3 task 2 and human-checklist item 2; PDF R13 and the Brevo row, “30/hour and is adjustable in the dashboard”); §6's R13 acceptance is just “Limit raised”. Inventing a number here would be the same class of error as inventing a GST rate (D2). **The envelope the documents do fix:** Brevo free tier is **300 emails/day** shared across transactional *and* marketing; the PDF guardrail alerts at **200/day**; ≈**4 emails/order**, so 300/day binds at roughly **70–75 orders/day**. Supabase's cap is **hourly** while Brevo's is **daily** — 300÷24 ≈ **12.5/hour sustained**, so **30/hour is already above the sustainable daily average** and raising it buys burst headroom at the cost of letting one bad hour consume a large share of the day's Brevo budget (silently stopping order confirmations). That trade-off is a launch-traffic judgement, not an engineering one. **Must be set by hand** in Authentication → Rate Limits → “Rate limit for sending emails”. **`supabase config push` must NOT be used:** `config.toml`'s local value for this key is **`2`**, so a push would *lower* production from 30/hour to 2/hour, on top of flipping `auth.email.enable_confirmations` true→false. |
 
 ---
 
@@ -1128,7 +1132,11 @@ routes, four auth pages, real Google button) is implemented, tested and
 validated live. Tasks 1–3 are Supabase-dashboard and Google-Cloud-console
 actions that require a Brevo account and Google OAuth credentials — **no
 such credentials exist in this environment**, so R12 (the phase's actual
-exit criterion) cannot be closed here. See "Human checklist to close this
+exit criterion) cannot be closed here. **Update 10 Sep 2026: the
+Google-Cloud-console half of task 1 and all of human-checklist item 3 are
+DEFERRED to Phase 4 task 14 by operator instruction, recorded under §12
+item 1 — see Phase 3 open item 4 for the reason, the live evidence
+(`"google": false`) and the resume point.** See "Human checklist to close this
 phase" below the Implementation Tasks.
 
 #### Objective
@@ -1160,7 +1168,11 @@ transition). Saved addresses (Phase 6). Order history (Phase 9). SMS/phone
 OTP (**deferred**, §10).
 
 #### Implementation Tasks
-1. ⛔ **BLOCKED — human required.** Enable email/password and Google providers in Supabase. Configure the OAuth consent screen and redirect URLs for dev, staging and production. Needs Supabase dashboard access and a Google Cloud OAuth client — neither available here.
+1. ◑ **Split — email/password DONE, Google DEFERRED (updated 10 Sep 2026).** The original task bundled two providers; they have diverged and are now tracked separately.
+   - ✅ **Email/password: complete and verified live.** Enabled in Supabase → Authentication → Providers. Read back from the project's own `/auth/v1/settings` on 10 Sep 2026: `"email": true`, `"disable_signup": false`, `"mailer_autoconfirm": false` — i.e. email signup enabled with confirmation required, the intended launch configuration. Proven end-to-end by five real accounts created, confirmed through Brevo-delivered emails and signed in (see "Defect log round 3").
+   - ⏸️ **Google OAuth: DEFERRED to Phase 4 task 14** by operator instruction, recorded under §12 Definition-of-Done item 1. The OAuth consent screen, Google Cloud OAuth 2.0 client, client ID/secret and the dev/staging redirect URLs all move there; the production redirect URL moves to Phase 20 task 12. Still unconfigured — `/auth/v1/settings` reports `"google": false` (re-read live 10 Sep 2026). Full recorded reason, evidence and resume point: Phase 3 open item 4.
+
+   Neither half is a Phase 3 blocker any longer: the email/password half is done, and the Google half is deferred rather than pending.
 2. ⛔ **BLOCKED — human required.** **Configure Brevo as custom SMTP in Supabase Auth before creating any real account.** Then raise the email rate limit from its 30/hour default (R13). Needs a Brevo account with a verified sending domain.
 3. ⛔ **BLOCKED — human required.** Send a real signup confirmation to an address **outside** the project team and confirm delivery. Until that email lands in an external inbox, R12 is not done. Depends on tasks 1–2.
 4. ✅ Added `app_users`, `guest_sessions` and `rate_limit_counters` migrations (`prisma/migrations/20260908102243_auth_guest_sessions/`). `app_users.id` = the Supabase `auth.users.id`, stored with no DB-level FK (cross-schema — `auth` is not Prisma-modelled) but only ever written from a verified Supabase session. Hand-added CHECK constraints (`rate_limit_counters.count >= 0`, `guest_sessions.expires_at > created_at`) and RLS enabled on all three tables, same convention as the Phase 2 migration.
@@ -1168,7 +1180,7 @@ OTP (**deferred**, §10).
 6. ✅ `getSession()` always resolves to exactly one identity: an authenticated user (verified via `supabase.auth.getUser()`, never a decoded-but-unverified JWT) or a guest session, and proactively clears a stale guest cookie found alongside a valid user session rather than trusting it. Integration-tested.
 7. ✅ Guest → authenticated transition built as `src/server/auth/upgrade.ts` (a handler registry — `registerGuestUpgradeHandler()` / `runGuestUpgradeHandlers()`) plus `src/server/auth/complete-sign-in.ts`, which runs the registered handlers and the guest-session deletion in one Postgres transaction, then clears the guest cookie on the response. Phase 5 registers the actual cart-merge handler here, per this phase's own Explicitly-Out-of-Scope line — Phase 3 ships the mechanism and proves it with a no-op test handler. Integration-tested for the idempotent-retry case (task 7's own requirement: "a double-fired sign-in must not double" the handler's effect).
 8. ✅ `src/server/auth/app-user.ts` (`getOrCreateAppUser()`) — a single `upsert` on the primary key, called from both the sign-in route and the OAuth callback. Integration-tested under 10-way concurrent duplicate calls: exactly one row results.
-9. ◑ **Partially done.** Password reset is fully implemented end-to-end: `POST /api/auth/reset` → Supabase → Brevo (once task 2 is done) → `/reset-password` page (`src/components/auth/reset-password-form.tsx`) exchanges the recovery code and calls `auth.updateUser({ password })` client-side. **Email-change is deferred**, not built: it has no UI entry point yet, because the account/profile area it would live in is Phase 4's "account affordances" (SiteHeader) and doesn't exist. Building an isolated email-change route with nowhere in the app to reach it would be scope invented ahead of its owning phase. Revisit when Phase 4 adds an account page.
+9. ◑ **Partially done.** Password reset is fully implemented end-to-end: `POST /api/auth/reset` → Supabase → Brevo → `GET /api/auth/reset/confirm`, which redeems the link's `token_hash` with `verifyOtp({ type: "recovery" })` **on the server** and establishes the recovery session as cookies → `/reset-password` page (`src/components/auth/reset-password-form.tsx`) collects the new password and calls `auth.updateUser({ password })` client-side. **Corrected 9 Sep 2026:** the page used to call `exchangeCodeForSession(code)` in the browser, which needs the PKCE verifier cookie and therefore only ever worked in the browser that requested the reset — see the Phase 3 defect log round 3. **Email-change is deferred**, not built: it has no UI entry point yet, because the account/profile area it would live in is Phase 4's "account affordances" (SiteHeader) and doesn't exist. Building an isolated email-change route with nowhere in the app to reach it would be scope invented ahead of its owning phase. Revisit when Phase 4 adds an account page.
 10. ✅ **Decided explicitly — ADR-025 (§11).** Every server-to-Supabase-Auth call carries the real client IP as `X-Forwarded-For` (best-effort; hosted GoTrue's trust of the header is unverifiable from here), but this app's own IP-and-email-keyed `rate_limit_counters` limiting (task 11) is the limiting this project actually relies on, not Supabase's.
 11. ✅ `src/server/rate-limit/index.ts` (`consumeRateLimit()`, `assertWithinRateLimit()`) — a single `INSERT ... ON CONFLICT` fixed-window counter, atomic under concurrency (integration-tested with 20 simultaneous requests against one key: exactly `limit` succeed). Wired into all three of `/api/auth/signup`, `/signin` and `/reset`, each keyed by IP *and* by the submitted email independently.
 12. ✅ Verified by `grep` — the Next.js application (`vokr/src/`) has never contained the legacy cosmetic-auth pattern; it exists only in the reference `vokr-production.zip`, which Phase 4 replaces rather than migrates.
@@ -1236,8 +1248,827 @@ and error states. A real Google button.
 - ✅ Integration: `app_users` row created exactly once under 10-way concurrent duplicate calls (`app-user.integration.test.ts`).
 - ✅ Integration: guest session created, upgraded on sign-in via the handler registry, old token invalidated and cookie cleared, retried sign-in does not re-run the handler (`complete-sign-in.integration.test.ts`).
 - ✅ Integration: rate limiter blocks at the threshold, recovers after the window elapses, and serializes 20 concurrent requests against one key to exactly `limit` successes (`rate-limit/__tests__/index.integration.test.ts`).
-- ◑ Security: no user enumeration through message differences is true by construction (see Security Requirements above) but not covered by an automated test, because a meaningful test would need to exercise real Supabase Auth responses this environment cannot reach.
-- ⛔ **Manual, mandatory, NOT DONE: a confirmation email delivered to an external address via Brevo, screenshotted.** Blocked on the human checklist below.
+- ✅ Security: no user enumeration through message differences — **now covered by an automated test** (`src/server/auth/__tests__/anti-enumeration.test.ts`, 9 cases), asserting the caller-visible projection is identical for registered and unregistered addresses on both signup and reset, including GoTrue's registered-only recovery cooldown. Closed 10 Sep 2026; see open item 6 for why the classifier layer is the right place to test it.
+- ✅ **Manual, mandatory: DONE.** A confirmation email was delivered via Brevo to inboxes **outside** the Supabase project team, on two unrelated domains (`iiitr.ac.in`, `gmail.com`), and both reached `email_confirmed_at` — which GoTrue sets only when the emailed link is followed (round 3 evidence table, 9 Sep 2026). Five real accounts in total. **This is R12's exit criterion and it is met.** Additionally, a real Brevo-delivered *recovery* email completed the fixed reset flow cross-browser on 10 Sep 2026 (§0.2).
+
+#### Defect log — manual signup returned HTTP 500 (9 Sep 2026)
+
+**Symptom.** A manual signup at `http://localhost:3000/sign-up` with a
+real external address returned the client's generic
+"Something went wrong. Please try again." — the `INTERNAL_ERROR` branch of
+`toErrorResponse()`. Reproduced directly:
+`POST /api/auth/signup` → **HTTP 500**,
+`{"error":{"code":"INTERNAL_ERROR","requestId":"93c67803-…"}}`.
+
+**Root cause 1 of 3 (the one that fired first).** `NEXT_PUBLIC_SUPABASE_ANON_KEY` was present but
+**empty** in `vokr/.env.local` — human checklist item 4 below had not been
+done. The client schema types it `z.string().optional()`, which accepts
+`""`, so boot-time env validation passed and the failure surfaced later:
+`requireSupabasePublicConfig()` (`src/server/auth/supabase.ts`) threw
+inside `createRouteSupabaseClient()` **before any Supabase call was
+made**. Confirmed independently: `GET /auth/v1/settings` against the
+linked project with that value returns `401 {"message":"Invalid API
+key"}`. The request never reached Supabase Auth, so this was **not** an
+Auth-configuration, SMTP, confirmation-requirement or redirect-URL fault.
+
+**Root cause (secondary — why it could not be diagnosed).** *No route
+logged anything.* `errors.ts` documents that "the caller is responsible
+for the actual logging call; this function only assigns the ID", and no
+caller ever made it. The failing request left **zero** entries in
+`.next/dev/logs/next-development.log` — the `requestId` in the response
+body pointed at nothing. This is why the terminal appeared silent.
+
+**Third defect found while fixing (latent, would have hit R12 directly).**
+`src/app/api/auth/signup/route.ts` destructured only `data` from
+`supabase.auth.signUp()` and **discarded `error` entirely**. Every
+Supabase-side failure — including `unexpected_failure /
+"Error sending confirmation email"` when SMTP is not configured — was
+converted into **HTTP 200 "a confirmation link is on its way."** That is
+verbatim the failure signature §6 calls "the single most dangerous item in
+the programme" (`signUp()` succeeds, the email never arrives, no client
+error), reproduced by the application itself regardless of SMTP state.
+
+**Fixes applied.**
+1. `src/lib/log.ts` (new) — `logServerError(scope, requestId, error)`.
+   Expected `AppError`s log one compact `warn`; anything else logs at
+   `error` with the full stack and up to three levels of `cause`. Wired
+   into every `toErrorResponse()` call site (5 auth routes + 2 catalog
+   routes), passing the same `requestId` that reaches the client.
+2. `src/server/auth/signup-error.ts` (new) — `classifySignupResult()`.
+   Anti-enumeration is preserved but narrowed to the one fact it actually
+   requires hiding: `user_already_exists` / `email_exists` still collapse
+   into the generic success message. Everything else is now honest —
+   `over_email_send_rate_limit` → 429, `weak_password` /
+   `email_address_invalid` → 400, and **every other error (SMTP, provider
+   disabled, config, outage) → logged 500, never a fake success.** A null
+   error with no user is also treated as operational.
+3. `src/app/api/auth/signup/route.ts` — consumes the classifier; the
+   Supabase `error` is no longer discarded.
+
+**Evidence.** After the logging fix the same request produces, in
+`.next/dev/logs/next-development.log`:
+`[auth/signup] INTERNAL_ERROR requestId=f7f821fc-… : Error:
+NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set.
+at requireSupabasePublicConfig → createRouteSupabaseClient → POST
+(src/app/api/auth/signup/route.ts)` — the exact underlying cause, where
+previously there was no log line at all.
+
+**Two further causes, found only after the logging fix made them visible.**
+The empty anon key was the *first* of three stacked failures — each one
+masked the next, which is why the single generic 500 was so opaque.
+
+*Cause 2 — the running dev server was connected to the real Supabase
+database, not local Compose Postgres.* With the anon key in place, signup
+and sign-in still returned 500. The new log line gave the reason directly:
+`PrismaClientKnownRequestError … Raw query failed. Code: 42P01. Message:
+relation "rate_limit_counters" does not exist`, thrown from
+`consumeRateLimit → assertWithinRateLimit → POST` — the rate limiter runs
+*before* the Supabase call in both routes, so it gated signup too.
+
+The table was not missing locally: `prisma migrate status` reported
+"Database schema is up to date", `\dt` on the Compose container listed all
+seven tables, and a direct `pg` connection using the app's own
+`DATABASE_URL` ran `select count(*) from rate_limit_counters` successfully.
+The catalog route also worked and returned the expected products — but the
+seed hardcodes product ids (`prisma/seed-data.ts`), so matching ids proved
+nothing about *which* database was answering.
+
+Confirmed against the real project's PostgREST with the anon key:
+
+| Table | Real Supabase project |
+| --- | --- |
+| `products` | exists (HTTP 401 `42501` — table present, `anon` lacks SELECT) |
+| `rate_limit_counters` | **absent** (HTTP 404 `PGRST205`) |
+| `guest_sessions` | **absent** (HTTP 404 `PGRST205`) |
+| `app_users` | **absent** (HTTP 404 `PGRST205`) |
+
+That is exactly the observed behaviour — catalog works, rate limiter
+throws 42P01 — so the dev server was reading a `DATABASE_URL` exported in
+its launching shell, which Next.js gives precedence over `.env.local`.
+This is the documented ad-hoc mechanism for one-off `prisma migrate
+deploy` / `db seed` runs against the real project (README, and the
+`.env.local` comment block); leaving it exported in the shell that then
+runs `npm run dev` silently repoints the whole application at production.
+**Verified fixed:** the same sign-in request against a clean-environment
+production build (`next start -p 3001`, reading only `.env.local`) returns
+`401 UNAUTHORIZED "Invalid email or password."` — the rate limiter,
+Supabase client construction and the Auth round-trip all succeed.
+
+*Cause 3 — the Phase 3 migration was never deployed to the real Supabase
+project.* The table survey above is not only a dev-environment artefact:
+`20260908102243_auth_guest_sessions` has been applied to local Compose
+Postgres but **not** to `fzjuiocvzqaycchwsjef`, which carries only Phase
+2's `init_catalog`. **This is an open production gap, not a local one.**
+Deliberately NOT deployed as part of this bug fix — a schema write to the
+production database is out of scope for a defect investigation and needs
+its own decision. **Action required before Phase 3 can be considered
+deployable:** run `prisma migrate deploy` against the real project per the
+README's session-pooler instructions, then re-run the table survey above
+and confirm all three tables report something other than `PGRST205`.
+
+> **RESOLVED 10 Sep 2026.** That action was carried out exactly as
+> specified: `prisma migrate deploy` against the session pooler on port
+> 5432, and the table survey re-run — all three tables now report `42501`
+> instead of `PGRST205`. The `PGRST205` table immediately above is a
+> record of the 9 Sep state and is retained as the defect evidence; it no
+> longer describes production. See Phase 3 open item 5 and the §0.2
+> evidence log.
+
+**Regression tests.** `src/server/auth/__tests__/signup-error.test.ts`
+(11 cases, incl. "reports a failed confirmation-email send as operational,
+never as a success") and `src/lib/__tests__/log.test.ts` (4 cases).
+`npm run test` **94/94 passed, 15 files** (was 75/75, 13 files).
+`npm run lint`, `npm run typecheck` and `npm run build` all clean.
+
+**Status (9 Sep 2026).** The anon key is now written to `.env.local`
+(208 chars, from the linked project). Live Auth config read back from
+`/auth/v1/settings` on the real project: `email: true`,
+`disable_signup: false`, `mailer_autoconfirm: false` — i.e. email signup
+enabled and **confirmation required**, the intended launch configuration.
+**`google: false` — Google OAuth is still not configured** (human
+checklist item 3, still open). Brevo domain verification and custom SMTP
+(items 1–2) are reported done by the operator as of this date.
+
+**Three defects fixed; end-to-end signup still NOT verified.** The
+remaining blockers are (a) a dev server that must be started from a shell
+with no `DATABASE_URL` exported, and (b) the manual external-inbox test
+itself, which needs a human inbox. **R12 remains open. Phase 3 remains
+incomplete. Phase 4 not started.**
+
+#### Phase 3 verification round 2 — 9 Sep 2026 (post-fix)
+
+With the anon key in place and the dev server started from a shell with no
+`DATABASE_URL` export (`env -u DATABASE_URL -u DIRECT_URL npm run dev`), a
+real signup was performed by the operator against two external addresses.
+The evidence below is read back from the live systems, not inferred.
+
+**1. ✅ Supabase Auth users created and confirmed.** Read from the
+project's admin API (`GET /auth/v1/admin/users`; the service-role key was
+used transiently in memory and never written to disk or printed):
+
+| field | user A | user B |
+| --- | --- | --- |
+| id | `cf9a05dc-8b99-4ba6-9406-5b8a8aa8a116` | `b8f70250-0c8b-4d9b-a2ce-280c30bdde8e` |
+| email | `cs23b1011@iiitr.ac.in` | `smaranreddy1011@gmail.com` |
+| created_at | 09:06:53Z | 09:08:31Z |
+| **email_confirmed_at** | **09:07:12Z** | **09:08:45Z** |
+| last_sign_in_at | **null** | 09:12:31Z |
+| provider | email | email |
+
+**✅ R12 — a confirmation email was delivered to external inboxes via
+Brevo.** Both addresses are outside the Supabase project team, on two
+unrelated domains (`iiitr.ac.in`, `gmail.com`), and both reached
+`email_confirmed_at` — which GoTrue sets only when the emailed link is
+actually followed. The mail therefore left Brevo, was accepted by two
+independent receiving domains, and the link resolved. **This is the first
+real evidence for R12 in the programme.**
+
+**2. ✅ The `app_users` row exists.** From local Postgres:
+`b8f70250-0c8b-4d9b-a2ce-280c30bdde8e | smaranreddy1011@gmail.com |
+2026-09-09 09:12:31.342+00`. User A has **no** `app_users` row, which is
+correct by design rather than a defect: the row is created on the first
+*authenticated* request (task 8), and user A confirmed but never signed in.
+
+**3. ❌ The confirmation callback does NOT establish an authenticated
+session.** This is a real, reproducible defect, and it blocks an
+acceptance criterion.
+
+*Evidence.* User A was confirmed at 09:07:12Z yet still has
+`last_sign_in_at: null` and no `app_users` row — a successful callback
+would have produced both, since `/api/auth/callback` runs
+`completeSignIn()` on success. User B's `app_users` row was written at
+09:12:31.342, matching `last_sign_in_at` 09:12:31.128 (the *password
+sign-in*), not the confirmation at 09:08:45. Neither confirmation created
+a session.
+
+*Root cause.* `/api/auth/callback` calls `exchangeCodeForSession(code)`,
+which requires the PKCE **code-verifier cookie written by the browser that
+started the signup**. Instrumenting the route surfaces the exact error:
+
+`AuthPKCECodeVerifierMissingError: PKCE code verifier not found in
+storage. This can happen if the auth flow was initiated in a different
+browser or device, or if the storage was cleared.`
+
+The cookies themselves are set correctly — a signup response carries
+`sb-<ref>-auth-token-code-verifier` (plus the per-flow and legacy names)
+with `Path=/` and `SameSite=lax` — so the mechanism is sound *within the
+originating browser only*. Confirmation links are routinely opened
+elsewhere: another browser, a phone, or a mail-provider link scanner. Both
+confirmations here landed 19 s and 14 s after signup, which is fast for a
+human and consistent with an automated scanner consuming the one-time
+token.
+
+*Consequence.* Email confirmation marks the address verified but silently
+fails to sign the customer in; they are redirected to
+`/sign-in?error=oauth` and must enter their password. **Not fixed here.**
+The durable fix is Supabase's documented email-confirmation pattern —
+`verifyOtp({ token_hash, type })`, which needs no verifier and works from
+any device — and it requires **both** a code change and a Supabase
+dashboard email-template change (`{{ .TokenHash }}` in place of
+`{{ .ConfirmationURL }}`). Raised as an open item rather than applied
+mid-verification.
+
+**Defect fixed during this round — `NEXT_PUBLIC_*` never reached the
+browser.** `src/lib/env-client.ts` passed `process.env` wholesale to
+`parseEnvSection()`. Next.js inlines a `NEXT_PUBLIC_*` value only where
+the source contains a *static* `process.env.NAME` member expression, so
+nothing was substituted: a clean production build contained the Supabase
+URL and anon key in **zero** `.next/static` files, and the compiled chunk
+read `parseEnvSection(schema, process.env, "Client environment")` against
+the browser's empty `process` shim. Every client variable was `undefined`
+in the browser, so `createSupabaseBrowserClient()` threw
+"NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set",
+breaking the **Google sign-in button** and the **password-reset form** —
+both Phase 3 surfaces. The server half kept working, which is why it went
+unnoticed. Fixed by reading each variable as an explicit member expression
+into `CLIENT_ENV_SOURCE`. **Verified:** the same grep now finds the URL,
+anon key and site URL in the client chunk (1 file each), while all eight
+server-secret *names* still return zero matches. Guarded by
+`src/lib/__tests__/env-client-inlining.test.ts`, which asserts on the
+source text — a runtime test cannot catch this, because under Vitest
+`process.env` is fully populated and both the correct and the broken form
+pass.
+
+**Observability gap closed — `/api/auth/callback` now logs.** Every
+failure path in that route returned a bare redirect to
+`/sign-in?error=oauth` with nothing written anywhere, which is precisely
+why defect 3 was invisible. All three paths (missing `code`, failed
+exchange, unexpected throw) now call `logServerError()` with the cause
+chain.
+
+#### Validation run — 9 Sep 2026
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `npm run test` | **100 passed, 16 files** (was 75 / 13 at phase code-complete) |
+| `npm run test:integration` | **31 passed, 5 files**, against Compose Postgres |
+| `npm run build` | clean, 13 routes |
+| Bundle secret-name grep | 0 matches for all 8 server-secret names |
+| Client public-value inlining | URL / anon key / site URL each present in 1 chunk |
+
+#### Fix — `token_hash` + `verifyOtp` confirmation flow (9 Sep 2026)
+
+Closes the defect recorded in verification round 2: email confirmation
+marked the address verified but never signed the customer in.
+
+**What changed.**
+
+- **`src/app/api/auth/confirm/route.ts` (new).** Supabase's documented
+  server-side confirmation flow. Reads `token_hash` + `type` from the
+  link, calls `supabase.auth.verifyOtp()`, and on success runs the *same*
+  `completeSignIn()` the password sign-in and OAuth callback run — guest
+  upgrade, guest cookie cleared, `app_users` row created — so a confirmed
+  customer arrives with exactly the identity every other authenticated
+  path produces. The existing session architecture is reused, not
+  bypassed.
+- **`src/server/auth/confirm.ts` (new).** `parseConfirmParams()` and
+  `safeNextPath()`, kept out of the route file because the Vitest `node`
+  project covers `src/server/**` and `src/lib/**`, not `src/app/**` — the
+  route itself would otherwise be untestable.
+- **`src/app/api/auth/signup/route.ts`.** `emailRedirectTo` now points at
+  `/api/auth/confirm`, and builds on `siteConfig.url` rather than the raw
+  env var so an unset `NEXT_PUBLIC_SITE_URL` cannot produce a relative
+  redirect target.
+- **`/api/auth/callback` is unchanged** and still owns the OAuth `?code=`
+  exchange, which genuinely is PKCE and genuinely does begin in the same
+  browser.
+
+**Why this fixes it.** `exchangeCodeForSession()` needs the PKCE code
+verifier cookie belonging to the browser that *started* the signup;
+`verifyOtp()` needs nothing from the browser, so confirmation works from a
+phone, from webmail, or from any device that is not the one that signed
+up.
+
+**Security properties, each covered by a test.**
+
+- **`signup` is the only accepted OTP type.** `recovery` is refused
+  specifically: a recovery token legitimately mints a session (that is how
+  `/reset-password` works), so accepting it here would land the visitor at
+  `next` holding a full session having never set a password — turning any
+  reset email into a sign-in. `email_change`, `email`, `magiclink` and
+  `invite` are refused as flows this phase does not offer.
+- **No open redirect.** `next` must be a single-slash-prefixed path;
+  `//evil.example`, `/\evil.example`, absolute URLs and scheme-only values
+  all fall back to `/`. A test asserts every accepted value resolves to
+  our own origin.
+- **No CR/LF** in `next`, so nothing can be injected into the `Location`
+  header.
+- **`token_hash` is charset- and length-constrained** before it reaches
+  Supabase or a log line.
+- **Failures are uniform.** Every rejection returns the same
+  `/sign-in?error=confirm` redirect; the specific reason goes only to the
+  server log, so a forged link learns nothing.
+
+**End-to-end evidence (9 Sep 2026).** Exercised against the running dev
+server and the real Supabase project using an admin-generated
+`token_hash` (`POST /auth/v1/admin/generate_link`), which produces a
+genuine one-time token without sending mail. One throwaway Auth user was
+created and deleted again; cleanup was asserted, and the project is back
+to its two real test users. **14/14 checks passed:**
+
+| Check | Result |
+| --- | --- |
+| `GET /api/auth/confirm?token_hash=…&type=signup` | HTTP 307 → `http://localhost:3000/` |
+| Session cookie issued | `sb-<ref>-auth-token` present on the redirect |
+| `app_users` row created by `completeSignIn()` | yes, matching the Auth user id |
+| `email_confirmed_at` set | yes |
+| **`last_sign_in_at` set by the confirmation** | **yes — this is the defect fixed** |
+| Replay of the same `token_hash` | refused → `?error=confirm` |
+| `type=recovery` / `type=email_change` | both refused |
+| `next=//evil.example` / `next=https://evil.example` | both refused, no external redirect |
+| Missing `type` / malformed `token_hash` | both refused |
+| Cleanup (Auth user + `app_users` row) | verified removed |
+
+The contrast with round 2 is the point: there, a confirmed user had
+`last_sign_in_at: null` and no `app_users` row. Here the confirmation
+alone produces both.
+
+**Validation.** `npm run lint` clean · `npm run typecheck` clean ·
+`npm run test` **132 passed, 17 files** · `npm run test:integration`
+**31 passed, 5 files**, run 4× consecutively for flake-check ·
+`npm run build` clean, and `/api/auth/confirm` registers as a dynamic
+route.
+
+**REMAINING — the dashboard step this depends on.** *(Completed 9 Sep
+2026 — the template below is in place, and round 3 confirms real emails
+now sign the customer in. Retained for the exact markup.)* The endpoint
+is live and proven, but the *email* linked to the old PKCE URL until the
+**Confirm signup** template was changed (Authentication → Emails):
+
+```html
+<h2>Confirm your signup</h2>
+<p>Follow this link to confirm your Vokr account:</p>
+<p><a href="{{ .SiteURL }}/api/auth/confirm?token_hash={{ .TokenHash }}&type=signup">Confirm your email</a></p>
+```
+
+`{{ .SiteURL }}` is used rather than `{{ .RedirectTo }}` because the
+project's `additional_redirect_urls` is empty, so a `RedirectTo` outside
+the allow-list would silently fall back to the site URL. Site URL is
+currently `http://localhost:3000` and must become the production origin
+at deploy.
+
+**`supabase config push` must NOT be used to apply this.** `supabase
+config diff` against the project reports 19 differences, and pushing
+`config.toml` as it stands would **set `auth.email.enable_confirmations`
+from `true` to `false`** — disabling email confirmation in production
+outright — as well as reverting `site_url`, `otp_length` (8→6),
+`max_frequency` (1m→1s), TOTP MFA, Twilio SMS, storage analytics and the
+pooler sizes. The CLI's own help warns that a non-interactive run proceeds
+by default. Apply the template by hand in the dashboard.
+
+**Confirmed by the same diff:** Brevo SMTP is live on the project —
+`auth.email.smtp.enabled: true`, `host: smtp-relay.brevo.com`,
+`port: 587`, `sender_name: Vokr` (credentials masked by the API). That
+closes the configuration half of R12 with direct evidence rather than
+operator report. Note `auth.rate_limit.email_sent` is reported as
+*unmanaged* by the diff and so remains **unverified** — human checklist
+item 2's "raise the email rate limit" step still needs confirming in the
+dashboard.
+
+**Residual risk, not fixed and not caused by this change.** A mail
+provider that pre-fetches links will consume the one-time token before
+the customer clicks, leaving them at `?error=confirm`. The round-2
+timings (confirmations 19 s and 14 s after signup) are consistent with
+exactly that. This affected the previous flow identically. The usual
+mitigation is a landing page that requires a human interaction before the
+token is spent; that is a UX change beyond this fix and is left as an open
+item.
+
+#### Configuration audit — 9 Sep 2026 (read directly from the project)
+
+Read with `supabase config pull --dry-run` (read-only; `config.toml` was
+byte-compared before and after and is unchanged) and the project's
+PostgREST/admin APIs. These are remote values, not operator report.
+
+| Setting | Remote value | Assessment |
+| --- | --- | --- |
+| `auth.email.enable_confirmations` | `true` | ✅ confirmation required, as intended |
+| `auth.email.smtp.enabled` | `true` | ✅ custom SMTP live |
+| `auth.email.smtp.host` / `port` | `smtp-relay.brevo.com` / `587` | ✅ Brevo, credentials masked by the API |
+| `auth.email.smtp.sender_name` | `Vokr` | ✅ |
+| **`auth.rate_limit.email_sent`** | **`30`** | ❌ **still the 30/hour default — human checklist item 2's "raise it" step is NOT done** |
+| `auth.email.max_frequency` | `1m0s` | one email per address per minute — relevant when re-testing |
+| `auth.email.otp_length` | `8` | — |
+| `auth.site_url` | `http://localhost:3000` | dev value; **must become the production origin at deploy** |
+| `auth.additional_redirect_urls` | `[]` (empty) | why the email template uses `{{ .SiteURL }}`, not `{{ .RedirectTo }}` |
+| `auth.external.google` | `false` | ❌ Google OAuth still not configured (deferred by instruction) |
+
+**Phase 3 migration status in the real project — still NOT deployed.**
+*(Snapshot of 9 Sep 2026. **Superseded 10 Sep 2026 — the migration has
+since been deployed;** see the resolution note below this table, Phase 3
+open item 5, and the §0.2 evidence log. Retained because the 9 Sep
+`PGRST205` readings are the evidence the gap was real.)*
+Re-checked via PostgREST with the anon key:
+
+| Table | Real project |
+| --- | --- |
+| `products` / `product_variants` / `inventory` | present (HTTP 401 `42501` — table exists, `anon` lacks SELECT) |
+| `app_users` | **absent** (HTTP 404 `PGRST205`) |
+| `guest_sessions` | **absent** (HTTP 404 `PGRST205`) |
+| `rate_limit_counters` | **absent** (HTTP 404 `PGRST205`) |
+
+Only Phase 2's `init_catalog` has been deployed. `20260908102243_auth_guest_sessions`
+has not. Deliberately left undeployed per the 9 Sep decision to keep
+production schema changes out of a defect investigation.
+
+**Update — 10 Sep 2026: deployed.** `20260908102243_auth_guest_sessions`
+was applied to `fzjuiocvzqaycchwsjef` under explicit operator approval,
+after the pending migration and its exact object list were reviewed
+first. `prisma migrate status` reports "Database schema is up to date!",
+and every row of the table above that said **absent** now reads
+`42501` (present, `anon` denied). The table is left unedited as the 9 Sep
+record.
+
+**Password reset carries the same cross-device defect the signup
+confirmation just had.** `src/components/auth/reset-password-form.tsx`
+calls `supabase.auth.exchangeCodeForSession(code)` **in the browser**, and
+the PKCE verifier it needs was written by the server response to
+`POST /api/auth/reset` — i.e. it lives only in the browser that submitted
+the forgot-password form. A reset link opened anywhere else fails exactly
+as signup confirmation did, with the same
+`AuthPKCECodeVerifierMissingError`. This is identified by reading the code
+and by symmetry with the confirmed signup defect; it is **not yet
+empirically confirmed**, and it is **not fixed** — the durable fix is a
+recovery route using `verifyOtp({ type: "recovery" })` that establishes
+the recovery session server-side and redirects to `/reset-password`,
+which is deliberately *not* what `/api/auth/confirm` does (it refuses
+`recovery` by design, so that a reset link can never become a plain
+sign-in). Raised as an open item.
+
+
+#### Defect log round 3 — the two reported real-world failures (9 Sep 2026)
+
+Reported after the **Confirm signup** template was repointed at
+`/api/auth/confirm`: (a) opening the confirmation link in a separate
+private window "does not complete successfully"; (b) the recovery link
+lands on `/reset-password` showing "This reset link is invalid or has
+expired". Investigated against the live project's Auth records, the local
+`app_users` table, the installed `@supabase/auth-js` source, and the
+running dev server.
+
+##### Evidence gathered first
+
+Auth user timeline, read from `GET /auth/v1/admin/users` (all five real
+users; throwaway test users created during this investigation were
+deleted and the final list re-asserted):
+
+| Email | created | confirmation sent | email confirmed | last sign-in | `app_users` row |
+| --- | --- | --- | --- | --- | --- |
+| `cs23b1011@iiitr.ac.in` | 09:06:53 | 09:06:53 | 09:07:12 | — | no |
+| `smaranreddy1011@…` | 09:08:31 | 09:08:31 | 09:08:45 | 09:12:31 | 09:12:31 |
+| `smaranreddy007@…` | 09:44:50 | 09:44:50 | 09:45:20 | 09:45:41 | 09:45:20.933 |
+| **`smaranreddy777@…`** | 10:23:44 | 10:23:44 | **10:24:00.497** | **10:24:00.509** | **10:24:00.731** |
+| **`smaranreddy33@…`** | 10:28:49 | 10:32:04 | **10:32:44.398** | 10:33:43 | **10:32:44.637** |
+
+The two bolded rows are the decisive measurement. For `…777@`,
+`email_confirmed_at` and `last_sign_in_at` are **12 ms apart**, and the
+`app_users` row lands 234 ms later; for `…33@`, the `app_users` row lands
+239 ms after `email_confirmed_at`. Nothing but `/api/auth/confirm` does
+those three things in one operation — GoTrue's own `/auth/v1/verify`
+confirms an address without signing anyone in, and nothing else in the
+system writes `app_users` at confirmation time.
+
+**Conclusion: the `token_hash` + `verifyOtp` confirmation flow works with
+real, emailed, PKCE-issued tokens.** The earlier 14/14 harness proved it
+with an admin-generated (non-PKCE) token; these two rows prove it with the
+genuine article, delivered through Brevo. `verifyOtp()` returned a real
+session and `completeSignIn()` ran.
+
+##### Root cause (a) — the confirmation *outcome* is invisible, both ways
+
+The confirmation succeeded server-side, so what failed was the customer's
+ability to observe it. Two distinct code defects, both real:
+
+1. **`/sign-in?error=confirm` was never read.** `/api/auth/confirm` and
+   `/api/auth/callback` both redirect every failure to
+   `/sign-in?error=confirm` / `?error=oauth` and deliberately log the real
+   reason server-side only. `src/app/(auth)/sign-in/page.tsx` did not
+   accept `searchParams` at all, so a *failed* confirmation rendered a
+   bare, unannotated sign-in page. The routes had been written against a
+   contract the page never implemented.
+2. **A *successful* confirmation is equally silent.** It redirects to `/`,
+   and `SiteHeader` contains no authentication affordance whatsoever — no
+   account link, no sign-out, no email. Success and failure therefore look
+   identical from the browser.
+
+Defect 1 is fixed here. **Defect 2 is deliberately not fixed:** this plan
+already assigns account affordances in `SiteHeader` to **Phase 4** (§5
+Phase 3, task 9 says so explicitly), and building them now would be
+starting Phase 4. It is carried as an open item instead, with the
+consequence stated plainly: until Phase 4 lands, a signed-in customer
+cannot tell they are signed in, so "did the confirmation work?" cannot be
+answered from the UI — only from the cookie jar or the database.
+
+**Not established, and stated as such:** which of the two the reporter
+actually hit. Both recent confirmations succeeded server-side, so the
+failed click was either an older link from an earlier test whose token was
+already spent (which now renders a bare sign-in page — defect 1), or a
+success the UI could not show (defect 2). Auth timestamps cannot
+distinguish them, and the dev-server log for that click was not captured.
+Re-testing after these fixes will distinguish them, because a failure now
+says so on the page.
+
+##### Root cause (b) — password reset was genuinely broken, cross-browser
+
+This one is a real functional defect and is fixed.
+
+`src/components/auth/reset-password-form.tsx` called
+`supabase.auth.exchangeCodeForSession(code)` **in the browser**. That
+requires the PKCE code-verifier cookie, and the verifier is written by the
+response to `POST /api/auth/reset` — confirmed directly by probing the
+route, which sets `sb-<ref>-auth-token-code-verifier`,
+`…-auth-token-flow-<id>-code-verifier` and `…-auth-token-flows-code-verifier`
+(`Path=/`, `SameSite=lax`, no `HttpOnly`). Those cookies exist **only in
+the browser that submitted the forgot-password form.** Any other
+browser — a private window, a second browser, a phone, webmail — has no
+verifier, the exchange fails, and the component falls into its
+`linkError` branch: *"This reset link is invalid or has expired."*
+Exactly the reported symptom, and deterministic rather than intermittent.
+
+Corroborated by the Auth record for `smaranreddy33@`: `recovery_sent_at`
+10:33:30 and `last_sign_in_at` 10:33:43. GoTrue's `/auth/v1/verify`
+**did** accept the token and mint a session 13 s later — the link was
+valid and was redeemed successfully. Only the browser-side exchange
+failed. The message was reporting the wrong thing entirely.
+
+**Ruled out along the way,** each by direct measurement rather than
+inference: the verifier cookies are not `HttpOnly`, so JS can read them;
+`redirect_to` is accepted (GoTrue matches the Site URL's hostname, which
+is why the page rendered at all despite `additional_redirect_urls` being
+empty); and `auth-js` 2.116.0 dual-writes the legacy fixed verifier key
+and appends `sb_flow_id` to the redirect, so multi-flow slot selection is
+not the failure either.
+
+##### Fix — server-side `verifyOtp({ type: "recovery" })`
+
+The mirror of the signup confirmation fix, and for the same reason:
+`verifyOtp()` needs nothing from the browser.
+
+- **`src/app/api/auth/reset/confirm/route.ts` (new).** Redeems
+  `?token_hash=…&type=recovery`, establishes the recovery session as
+  cookies on the redirect, and sends the customer to `/reset-password`.
+- **`src/server/auth/recovery.ts` (new).** `parseRecoveryParams()`, kept
+  out of the route file so the Vitest `node` project can cover it.
+- **`src/server/auth/otp-link.ts` (new).** The `token_hash` charset/length
+  check, now shared by both link endpoints instead of duplicated.
+- **`src/components/auth/reset-password-form.tsx`.** No longer exchanges a
+  code; it checks for the session the server established and collects the
+  new password. `updateUser()` stays client-side exactly as before —
+  `@supabase/ssr` does not mark session cookies `HttpOnly`, so the browser
+  client reads the server-established session from `document.cookie`. On
+  success it now signs out before redirecting to `/sign-in`, so a session
+  minted from an emailed link does not outlive the reset it was issued for.
+- **`src/app/api/auth/reset/route.ts`.** `redirectTo` repointed at the new
+  route and built on `siteConfig.url` rather than
+  `clientEnv.NEXT_PUBLIC_SITE_URL ?? ""`, which could produce a relative
+  redirect target if the variable were unset.
+- **`src/app/(auth)/sign-in/page.tsx` + `src/lib/auth-error-messages.ts`
+  (new).** Surfaces `?error=confirm` / `?error=oauth`. Unrecognised codes
+  render nothing rather than being echoed — the value comes from the URL,
+  and rendering arbitrary text on our own sign-in page is a phishing
+  primitive. Backed by a `Map`, not an object literal, so `constructor`
+  and `__proto__` cannot resolve to something inherited from
+  `Object.prototype`; there is a test for precisely that.
+
+**Security properties, each covered by a test.**
+
+- **`recovery` is the only accepted type**, the exact mirror of
+  `/api/auth/confirm` refusing `recovery`. Keeping the endpoints separate
+  is what pins the destination: a recovery token always lands on
+  `/reset-password`, which demands a new password before anything else,
+  and a `signup` token can never be redeemed to reach that page.
+- **No `next` parameter at all.** A recovery token mints a real session,
+  so a caller-chosen destination would be an open redirect that arrives
+  authenticated. The destination is a compile-time constant.
+- **`completeSignIn()` is deliberately not run here.** This is not a
+  "guest becomes a customer" event; merging a guest cart and rotating the
+  guest cookie on the strength of an emailed link would let anything that
+  touches that link — a stale inbox, a mail scanner — destroy a live guest
+  session. The upgrade runs when the customer signs in with the new
+  password.
+- **Uniform failures.** Every rejection redirects to
+  `/reset-password?error=link`; the reason goes only to the server log.
+  The `error=link` marker is trusted over the session check, so a visitor
+  who happens to hold a session is never shown a password form off a link
+  that failed.
+
+**End-to-end evidence (9 Sep 2026).** Exercised against the running dev
+server and the real Supabase project with a genuine recovery token from
+`POST /auth/v1/admin/generate_link`, **redeemed with no cookies at all** —
+which is precisely the cross-browser condition that was broken. One
+throwaway user created and deleted; cleanup asserted. **11/11 passed:**
+
+| Check | Result |
+| --- | --- |
+| `GET /api/auth/reset/confirm?token_hash=…&type=recovery`, cold cookie jar | HTTP 307 → `/reset-password` |
+| Recovery session cookie issued | `sb-<ref>-auth-token` present |
+| **Session actually authorises `updateUser({password})`** | **yes** |
+| **New password signs in via `/api/auth/signin`** | **HTTP 200** |
+| Replay of the spent token | refused → `?error=link` |
+| `type=signup` redeemed here | refused |
+| Missing `type` / malformed `token_hash` | both refused |
+| `next=https://evil.example` | ignored, no external redirect |
+| Cleanup (Auth user + `app_users` row) | verified removed |
+
+**Validation.** `npm run lint` clean · `npm run typecheck` clean ·
+`npm run test` **164 passed, 19 files** (was 132/17; +32 for
+`recovery.test.ts` and `auth-error-messages.test.ts`) ·
+`npm run test:integration` **31 passed, 5 files** · `npm run build` clean,
+with `/api/auth/reset/confirm` registering as a dynamic route.
+
+**REMAINING — the dashboard step this depends on.** *(✅ **DONE —
+confirmed 10 Sep 2026.** The template below is in place: a real recovery
+email was delivered through Brevo, its link opened in a separate private
+browser, reached the *Set a new password* form, and the new password
+signed in. Retained for the exact markup and for the production-origin
+note at the end.)* As with the signup
+fix, the endpoint is live and proven but the *email* still links to the
+old PKCE URL until the **Reset Password** template is changed
+(Authentication → Emails):
+
+```html
+<h2>Reset your password</h2>
+<p>Follow this link to set a new Vokr password:</p>
+<p><a href="{{ .SiteURL }}/api/auth/reset/confirm?token_hash={{ .TokenHash }}&type=recovery">Set a new password</a></p>
+```
+
+`{{ .SiteURL }}` rather than `{{ .RedirectTo }}` for the same reason as
+the signup template: `additional_redirect_urls` is empty, so a
+`RedirectTo` outside the allow-list silently falls back to the site URL.
+Site URL is `http://localhost:3000` today and must become the production
+origin at deploy. **`supabase config push` must still not be used** — it
+would set `auth.email.enable_confirmations` from `true` to `false`.
+
+
+#### Validation run — 10 Sep 2026 (Phase 3 closure)
+
+Run after the production migration and the real-world password-reset
+verification, with the dev server on local Compose Postgres.
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | clean |
+| `npm run typecheck` | clean (`next typegen` → route types generated, `tsc --noEmit` clean) |
+| `npm run test` | **189 passed, 21 files** (was 164 / 19 at round 3; +9 for `anti-enumeration.test.ts`) |
+| `npm run test:integration` | **37 passed, 6 files**, against Compose Postgres (+6 for `client-ip-bucketing.integration.test.ts`) |
+| `npm run build` | clean, from a deleted `.next` (the dev server was stopped first). 16 static pages generated. |
+| **`npm run verify` (full gate)** | **exit 0** — lint + typecheck + test + build |
+| Bundle secret-name grep | **0 matches** for all 8 server-secret names in `.next/static`; local DB password literal also 0 |
+| Client public-value inlining | Supabase URL / anon key / site URL each present in exactly 1 chunk |
+| `prisma migrate status` (production) | "Database schema is up to date!" |
+| Real password reset, cross-browser | ✅ passed — see §0.2 evidence row |
+
+#### Phase 3 open items as of 9 Sep 2026 (round 3)
+
+1. **Signup confirmation — code FIXED and now proven with real emails.**
+   Two real Brevo-delivered PKCE links confirmed *and* signed in through
+   `/api/auth/confirm` (see round 3 evidence table). The **Confirm
+   signup** template is in place. No longer an open defect.
+2. ✅ **CLOSED (10 Sep 2026) — password reset verified end-to-end with a
+   real Brevo-delivered email, cross-browser.** The **Reset Password**
+   template is confirmed repointed at `/api/auth/reset/confirm`, and one
+   fresh real-world reset was performed against `smaranreddy1011@gmail.com`:
+   requested in the normal browser, the emailed link **opened in a separate
+   Incognito/private window**, which reached the *Set a new password* form;
+   the new password was set and then successfully used to sign in.
+   **That cross-browser hop is the exact condition round 3 proved broken**
+   (`AuthPKCECodeVerifierMissingError` — the verifier cookie existed only
+   in the requesting browser). It now succeeds, so the server-side
+   `verifyOtp({type:"recovery"})` fix is confirmed against a genuine
+   PKCE-issued, Brevo-delivered token rather than only an admin-generated
+   one. Full evidence: §0.2 evidence log, row "3 — password reset
+   (real-world, cross-browser)".
+3. **No authentication affordance in the UI — Phase 4, and it blocks
+   verification today.** `SiteHeader` shows no signed-in state, so a
+   successful confirmation and a failed one are visually identical from
+   the browser; a signed-in customer cannot tell they are signed in, and
+   there is no sign-out. This plan assigns account affordances to Phase 4
+   (§5 Phase 3, task 9), so it is *not* built here. Consequence to accept
+   consciously: until Phase 4, "did it work?" is answerable only from the
+   cookie jar or the database, not by looking at the site.
+4. **Google OAuth — DEFERRED to Phase 4 (task 14), 10 Sep 2026.**
+   Recorded under §12 Definition-of-Done item 1: "explicitly deferred with
+   a recorded reason and a new task in a later phase." **Reason:** deferred
+   by operator instruction during Phase 3 closure; it requires a Google
+   Cloud OAuth 2.0 client (consent screen + credentials) that does not
+   exist yet, and it is a console/dashboard action rather than code.
+   **Evidence it is still unconfigured:** `/auth/v1/settings` on
+   `fzjuiocvzqaycchwsjef` reports `"google": false` — re-read live on
+   10 Sep 2026, unchanged from 9 Sep. **Resumes at:** Phase 4 task 14,
+   with the production redirect URL added at Phase 20 task 12. Phase 4 is
+   the resume point rather than Phase 20 because Phase 4 owns the account
+   affordances in `SiteHeader` and its own task 10 forbids shipping a form
+   or affordance that does not reach a real endpoint — a Google button
+   that cannot work is exactly that, so it must be resolved in the phase
+   that would otherwise ship it dead. **Consequence accepted:** the Google
+   half of the Acceptance Criteria is deferred, not met, and the Google
+   button cannot be tested until Phase 4 task 14 is done.
+5. ✅ **CLOSED (10 Sep 2026) — the Phase 3 migration is now deployed to
+   the real Supabase project.** `20260908102243_auth_guest_sessions` was
+   applied to `fzjuiocvzqaycchwsjef` via `prisma migrate deploy` against
+   the session pooler (port 5432), per the README procedure; `supabase
+   config push` was not used and no Auth/SMTP/pooler/storage setting was
+   touched. `prisma migrate status` now reports **"Database schema is up
+   to date!"** (exit 0), and all three tables have flipped from
+   `PGRST205` to `42501` on the anon-key survey — present, with `anon`
+   still correctly denied SELECT. Phase 2 data is intact (5 products, 27
+   variants, 27 inventory rows) and GST/HSN remain `NULL` on all five
+   products with all 27 variants still `draft`. Full object-level
+   evidence: §0.2 evidence log, row "3 — production migration".
+6. ✅ **CLOSED (10 Sep 2026) — anti-enumeration now has an automated
+   test.** `src/server/auth/__tests__/anti-enumeration.test.ts` (9 cases).
+   The gap persisted because a route-level test would need real Supabase
+   Auth responses this environment cannot reach — but that argument
+   applies to the *routes*, not to `classifySignupResult()` /
+   `classifyResetResult()`, which are what actually choose the
+   caller-visible outcome. The test feeds them the error shapes GoTrue
+   really returns for registered and unregistered addresses and asserts
+   the **caller-visible projection** (status + message) is identical,
+   rather than asserting `outcome.kind` equality — which would wrongly
+   fail on reset, where `silent-failure` and `generic-success` differ
+   internally but are indistinguishable to the caller by design. Covers
+   `user_already_exists`, `email_exists`, the confirmations-on duplicate
+   shape (a user with empty `identities` and no error), and — the
+   sharpest oracle in the phase — GoTrue's recovery cooldown, which is
+   keyed on `recovery_sent_at` and therefore reachable *only* for a
+   registered address. Two counter-tests assert the rule is not
+   over-applied: an SMTP failure on either route must still fail loudly,
+   never collapse into a fake success (R12's signature).
+7. ✅ **CLOSED (10 Sep 2026) by decision, not by change — see §0.3 D4.**
+   `auth.rate_limit.email_sent` **stays at 30/hour**, deliberately.
+   Neither this plan nor the PDF ever specified a target above the
+   default; both say only "raise it". The binding external constraint is
+   Brevo's free allowance of **300 emails/day**, which is ≈**12.5/hour
+   sustained** — so **30/hour is already more than double the
+   sustainable daily rate**, and raising it would only let one bad hour
+   consume a larger share of the day's budget and silently stop order
+   confirmations. Human checklist item 2's "raise it" step is therefore
+   **resolved as: no change required at launch.** Revisit if Brevo is
+   upgraded past the free tier (Phase 11 already pre-authorises one month
+   of Brevo Starter at $9) or if the 200/day alert fires. **The Supabase
+   setting was not modified.**
+8. ⚠️ **DECIDED (10 Sep 2026) — risk accepted for launch, current
+   behaviour retained; no UX change made.** A mail provider that
+   pre-fetches links can spend either one-time token before the customer
+   clicks, leaving them at `?error=confirm` / `?error=link`.
+   **Decision: accept and do not change the flow now.** Reasons, stated
+   so the next reader can re-open it on evidence rather than taste:
+   (a) the failure is **visible, not silent** — round 3 wired both
+   `/sign-in` and `/reset-password` to render the error code, so an
+   affected customer is told the link did not work and can request
+   another, which is the difference between an annoyance and R12's
+   silent-failure class; (b) it is **recoverable without support** —
+   requesting a fresh link is one click, subject only to the `1m0s`
+   `max_frequency`; (c) the standard mitigation is an **interstitial
+   landing page requiring a human interaction before the token is
+   spent**, which is a visible-content change to an auth surface and
+   therefore belongs to the phase that owns those surfaces (**Phase 4**,
+   which builds the account affordances), not to a phase closing on
+   schema and server routes; (d) **no real customer has hit it** — the
+   round-2 timings (confirmations 19 s and 14 s after signup) are
+   *consistent with* a scanner but were never isolated, and today's
+   cross-browser reset succeeded on the first click. **Re-open if:** any
+   real customer reports a first-click failure, or the sign-in/reset
+   error rate becomes measurable once Phase 15 observability lands.
+   **Carried as a Phase 4 consideration, not a Phase 3 blocker.**
+
+**Phase 3 status: READY TO CLOSE — every acceptance criterion and Exit
+Criterion is met or explicitly deferred under §12 item 1; the one
+unsatisfied DoD item is item 10, the scoped commit, which has not been
+made yet.** §0.1's checkbox stays unticked until it has. Deferred, each
+with a recorded reason and a named later-phase task: **Google OAuth** →
+Phase 4 task 14 (§12 item 1); **Sentry error reporting** (DoD item 6) →
+Phase 15, which is the phase that introduces Sentry — this phase's
+observability is `logServerError()` with a request ID on every
+`toErrorResponse()` call site; **Secret Manager** (DoD item 7) → Phase 20,
+which introduces GCP — this phase's variables are in `env.ts` and
+`.env.example`; **email-change flow** (task 9) → Phase 4, which builds the
+account page it would need an entry point on; **account affordances in
+`SiteHeader`** (open item 3) → Phase 4, assigned there by this plan from
+the outset. DoD item 8's "tested against a copy of production data" is
+satisfied in substance rather than by drill: the migration is expand-only
+and writes zero rows to existing tables, and it was applied to local
+Compose Postgres carrying the same seed before production — stated
+plainly rather than claimed as a restore-style rehearsal.
+
+*(Historical note, retained: the paragraph below was written when the
+phase was genuinely incomplete.)*
+Item 2's dashboard step previously meant no *real* recovery email had
+completed the fixed flow, which is an acceptance
+criterion — **that criterion is now MET: item 2 is CLOSED as of
+10 Sep 2026**, a real Brevo recovery email having completed the fixed flow
+cross-browser. Item 4 is formally deferred to Phase 4 and **item 5 is
+CLOSED** (the production migration is deployed and verified). **The only
+substantive items still open are 6, 7 and 8** — the anti-enumeration
+test, the un-raised `auth.rate_limit.email_sent`, and the link-prefetch UX
+decision. R12's email-delivery and
+SMTP-configuration halves are both evidenced directly, and its
+sign-in-on-confirmation half is now evidenced by **real delivered emails**
+rather than only an admin-generated token — that is the one criterion
+round 3 upgraded from inferred to observed.
+
 
 #### Validation
 Sign up with a personal address unconnected to the Supabase project.
@@ -1250,6 +2081,7 @@ real external address, receiving the email, Google sign-in.
 
 #### Acceptance Criteria
 - ⛔ A real customer can create an account and **receive the email** — blocked, see Exit Criteria.
+- ⏸️ **Sign in with Google — DEFERRED to Phase 4 (task 14), 10 Sep 2026.** Not met and not attempted; deferred by operator instruction under §12 item 1. `/auth/v1/settings` reports `"google": false`. See Phase 3 open item 4 for the recorded reason and the resume point.
 - ✅ Guest browsing works with no account — `getSession()` mints a guest session lazily on first use, integration-tested.
 - ✅ Guest → authenticated transition preserves identity and rotates the token — integration-tested end-to-end through `completeSignIn()`.
 - ✅ Auth endpoints are rate limited — integration-tested against real Postgres, including the concurrent-request race.
@@ -1267,11 +2099,25 @@ present in this environment.**
 
 #### Exit Criteria
 **A signup confirmation email has arrived in an inbox that is not on the
-Supabase project team.** Nothing less closes R12. **NOT MET.** Per this
-plan's own Definition of Done (§12): "A phase whose exit criteria depend
-on a manual verification is not complete until that verification has been
-performed." This phase's code is complete and tested to the limit of what
-this environment can verify; the phase itself is not.
+Supabase project team.** Nothing less closes R12. ✅ **MET — 9 Sep 2026,
+re-confirmed in the 10 Sep reconciliation.** Five real accounts were
+created through Brevo-delivered mail to addresses outside the Supabase
+project team, on two unrelated domains (`iiitr.ac.in`, `gmail.com`); two
+reached `email_confirmed_at`, which GoTrue sets only when the emailed link
+is actually followed, and `/api/auth/confirm` signed them in with the
+`app_users` row written in the same operation (12 ms between
+`email_confirmed_at` and `last_sign_in_at`). See "Defect log round 3" for
+the timeline read from the project's admin API.
+
+*This entry previously read "NOT MET". That was accurate when written and
+stale by the end of round 3 — the evidence had been gathered but the exit
+criterion was never reconciled against it. Corrected 10 Sep 2026.*
+
+**A second manual verification, not originally listed but required by the
+same principle**, is also met: a real Brevo-delivered *recovery* email
+completed the fixed password-reset flow **cross-browser** on 10 Sep 2026
+(requested in one browser, link opened in a private window) — the exact
+condition round 3 proved broken. See §0.2.
 
 ##### Human checklist to close this phase
 In order, each blocking the next:
@@ -1287,13 +2133,21 @@ In order, each blocking the next:
    Email/Password. In Authentication → Emails / SMTP settings: configure
    Brevo as the custom SMTP provider. Raise the email-send rate limit from
    its 30/hour default.
-3. Create a Google Cloud OAuth 2.0 client (consent screen + credentials);
+3. ⏸️ **DEFERRED to Phase 4 task 14 (10 Sep 2026) — do not do this now.**
+   Create a Google Cloud OAuth 2.0 client (consent screen + credentials);
    enter the client ID/secret into the Supabase dashboard's Google
    provider settings; add the dev/staging/production redirect URLs
-   (`<site-url>/api/auth/callback`).
+   (`<site-url>/api/auth/callback`). Deferred by operator instruction; it
+   therefore no longer blocks item 4 or item 5 below, and no longer blocks
+   this phase's closure. Recorded under §12 item 1 — see Phase 3 open
+   item 4.
 4. Add `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local` (from the Supabase
    dashboard, Settings → API) — everything else needed is already in
-   place.
+   place. **STILL NOT DONE as of 9 Sep 2026: the key is present but
+   empty, which is the direct cause of the HTTP 500 on `/sign-up` (see
+   Defect log above). This is the first thing to fix, but on its own it
+   only gets signup as far as Supabase — items 1–2 still gate the email
+   actually arriving.**
 5. Sign up with a personal email address that is **not** on the Supabase
    project team, via `/sign-up`. Confirm the email arrives, screenshot it.
    Sign in with Google via the same form's button. Both together close R12
@@ -1376,6 +2230,7 @@ must leave the rendered page indistinguishable from the legacy original.*
 11. Per-route `generateMetadata`, canonical URLs, Open Graph. `app/robots.ts` and `app/sitemap.ts` generated from real routes.
 12. Responsive pass at 360 / 768 / 1024 / 1440 px. Accessibility pass: landmarks, heading order, focus visibility, form labels, colour contrast. **An accessibility fix that would change visible content or section order is a §2A.6 item, not a silent edit.**
 13. **Produce the §2A.7 comparison evidence for every migrated page** — text-content diff, structural/heading diff, legal-page snapshots, responsive screenshots — and retain it alongside the legacy originals.
+14. **Configure Google OAuth — deferred here from Phase 3 (10 Sep 2026).** Create the Google Cloud OAuth 2.0 client (consent screen + credentials); enter the client ID/secret in Supabase → Authentication → Providers → Google; register the dev and staging redirect URLs (`<site-url>/api/auth/callback`). Then verify sign-in end-to-end through the existing `/api/auth/callback` route and the existing Google button — both were built and left in place in Phase 3, so this is configuration plus verification, not new code. **Until this is done the Google button must not ship**, per task 10: an affordance that cannot reach a real endpoint is a dead form. The production redirect URL is added later, at Phase 20 task 12, because it does not exist until the production origin does. Recorded reason and evidence: §5 Phase 3, open item 4.
 
 #### Files / Areas Affected
 `vokr/src/app/(marketing)/**` · `vokr/src/app/shop/[slug]/**` · `vokr/src/app/(support)/**` · `vokr/src/app/(legal)/**` · `vokr/src/components/**` · `vokr/src/app/robots.ts` · `vokr/src/app/sitemap.ts` · `vokr/src/styles/globals.css`
@@ -2854,6 +3709,7 @@ Load testing (Phase 21). `min-instances` (deliberately 0 — §10 trigger).
 9. Brevo sending DNS (SPF, DKIM, DMARC) verified on the same domain.
 10. Cloud Run domain mapping through Cloudflare; confirm the origin is not reachable directly, so the WAF cannot be bypassed.
 11. Confirm the Cloud Run free tier applies — it is not region-restricted and `asia-south1` is a Tier 1 region — while noting that **Mumbai has zero free egress**, which is why Cloudflare caching and R2 images matter.
+12. **Google OAuth production redirect URL.** Add the production origin's `<production-origin>/api/auth/callback` to the authorised redirect URLs of the Google OAuth client created at Phase 4 task 14, alongside setting Supabase's `auth.site_url` to the production origin (it is `http://localhost:3000` today). Both are required before Google sign-in works in production; neither can be done earlier, because the production origin does not exist until this phase.
 
 #### Files / Areas Affected
 `.github/workflows/deploy.yml` · `vokr/docs/infrastructure/cloud-run.md` · `vokr/docs/infrastructure/cloudflare.md` · Cloud Scheduler job definitions
@@ -3184,7 +4040,7 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R10** | Load test concurrent checkout on one variant | **10 / 25 / 50** concurrent buyers of one variant | 21 | Executed at all three levels; zero oversell, zero duplicates, zero deadlocks, zero 5xx | k6 output for all three; results doc | NOT STARTED |
 | **R11** | GST per variant + compliant invoice | Per-variant rate and HSN; sequential numbering; CGST/SGST vs IGST | 2, 6, 9 | Mixed-slab cart computed correctly; invoice reviewed by the CA | Test output; a CA-reviewed sample invoice | **BLOCKED on D2** |
 | **R12** | Brevo as Supabase Auth custom SMTP | Configured **before any real signup**; rate limit raised | 3 | **A confirmation email delivered to an address outside the project team** | Screenshot of the received email with headers | **BLOCKED — needs a human with Brevo + Supabase dashboard access; no Brevo account exists in this environment.** See Phase 3 Status, "Human checklist to close this phase" |
-| **R13** | Raise Auth email rate limit; forward client IP | Limit raised; real client IP forwarded, or Auth called from the browser | 3 | Dashboard setting; a test showing per-IP not per-instance limiting | Screenshot; test output; ADR entry | IN PROGRESS — client IP is forwarded on every `/api/auth/*` call (ADR-025); this app's own `rate_limit_counters` limiting is built, integration-tested and is the defence actually relied on. **Not VERIFIED**: the Supabase-side rate limit still needs raising in the dashboard (a human action) and there is no test against real Supabase confirming per-IP (not per-instance) behaviour |
+| **R13** | Raise Auth email rate limit; forward client IP | Limit raised; real client IP forwarded, or Auth called from the browser | 3 | Dashboard setting; a test showing per-IP not per-instance limiting | Screenshot; test output; ADR entry | **VERIFIED (10 Sep 2026)** — client IP is forwarded on every `/api/auth/*` call (ADR-025); this app's own `rate_limit_counters` limiting is built, integration-tested and is the defence actually relied on. **Per-IP-not-per-instance is now tested**: `src/server/rate-limit/__tests__/client-ip-bucketing.integration.test.ts` (6 cases) proves two forwarded client IPs occupy independent buckets, that `cf-connecting-ip` wins over a spoofed `x-forwarded-for`, that a genuinely separate `PrismaClient` (a second Cloud Run instance) observes the same shared counter rather than receiving its own allowance, and — by source assertion, since route modules sit outside the Vitest `node` project — that all three limited routes key on `getClientIp(request)` rather than a constant. **The “raise the limit” half is resolved as a decision, not a change: §0.3 D4 keeps `auth.rate_limit.email_sent` at 30/hour**, because 30/hour already exceeds the ≈12.5/hour sustainable under Brevo’s 300/day free allowance and neither this plan nor the PDF ever named a higher target. |
 | **R14** | Amend terms: "email/SMS" → "email" | Copy change plus a full consistency audit | 4, 22 | Grep the built output for "SMS" in the confirmation context | Diff; content audit doc | NOT STARTED |
 | **R15** | Courier operational | Shiprocket live, COD enabled, PIN serviceability available; manual panel acceptable | 6, 10 | A real order shipped and tracked through the panel | Account screenshot; a real AWB; runbook | NOT STARTED |
 | **R16** | Razorpay live-mode KYC | Entity, PAN, GST, bank account | 7, 23 | Live mode active; a real payment captured | Dashboard status; a real transaction ID | **BLOCKED on D3** |
