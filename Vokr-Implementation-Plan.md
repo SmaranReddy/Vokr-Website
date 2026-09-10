@@ -19,7 +19,7 @@ block and the master checklist below are the source of truth for progress.
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 5 — Server-Side Cart — **COMPLETE, 12 Sep 2026** (`carts`/`cart_items` migrated with the §3.5 constraints; server-resolved pricing and per-variant GST on every read; guest→user merge registered on the Phase 3 upgrade hook, idempotent under genuine concurrency; cart UI wired into the header and PDP, closing the cart/Bag and Add-to-Cart half of D5; see Phase 5 Status). **Phase 6 not started.** |
+| **Current phase** | Phase 5 — Server-Side Cart — **CLOSED, 12 Sep 2026** (`carts`/`cart_items` migrated with the §3.5 constraints; server-resolved pricing and per-variant GST on every read; guest→user merge registered on the Phase 3 upgrade hook, idempotent under genuine concurrency; cart UI wired into the header and PDP, closing the cart/Bag and Add-to-Cart half of D5; formal closure audit re-verified every exit/acceptance/security/testing requirement against the committed code from a clean checkout — see Phase 5 Status). **Phase 6 not started.** |
 | **Current status** | Phase 5 engineering complete and verified. **12 Sep 2026: `carts`/`cart_items` added (`20260910084234_cart`) with the two partial unique indexes making "one open cart per identity" a database guarantee, a CHECK scoped to `status='open'` only (a closed/merged cart legitimately outlives its guest session — found by this phase's own merge test, see Phase 5 Status), and RLS enabled with no policies, matching every prior migration's convention. `src/server/cart/` resolves unit price, line subtotal and per-variant GST from `product_variants`/`products` on every read — `cart_items` itself stores no price — and a `.strict()` zod boundary rejects any request body carrying `price`/`total`, closing the legacy client-controlled-pricing defect generically for all five launch SKUs (R6). The guest→user merge handler is registered against the Phase 3 upgrade hook and proven idempotent under a genuinely concurrent double-fired sign-in (a `SELECT ... FOR UPDATE` guard on the guest cart row), not just a sequential retry. **One real defect found and fixed mid-phase:** `completeSignIn()` created the `app_users` row *after* running upgrade handlers, so the cart-merge handler's FK to `app_users(id)` failed on a brand-new user's first sign-in with items in their guest cart — reordered so the profile row exists before any handler runs. Cart UI (drawer, quantity controls, line removal, live totals, out-of-stock-per-line) wired into `src/app/layout.tsx`, the header Bag button and the PDP Add to Cart button, replacing their Phase 4 D5 inert state for real. `npm run verify` green (lint, typecheck, 205/205 unit tests / 23 files, build); `npm run test:integration` green (52/52 / 8 files) against a disposable local Postgres — this sandbox still cannot reach the real Supabase project. Full flow (add, quantity update, remove, R6 price-injection attempt) exercised against a live `next dev` server via real HTTP requests with real cookies; not visually screenshotted in an actual browser window — no browser-automation tool is available in this sandbox. See Phase 5 Status for the full evidence.** |
 | **Latest relevant commit** | Phase 5: server-side cart, guest→user merge, cart UI live `6e4f7c78e29222dea24d7cd9b1e670be63b19df8` |
 | **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. **New: Phase 3's exit criterion (R12 — a confirmation email delivered to an external inbox via Brevo) requires a Brevo account, a verified sending domain, and Google OAuth credentials, none of which exist in this environment — see Phase 3 Status for the exact human checklist.** **Google OAuth is DEFERRED to Phase 4 task 14 (10 Sep 2026, operator instruction, recorded under §12 item 1) and is no longer counted as a Phase 3 blocker — see Phase 3 open item 4.** **D4 RESOLVED (10 Sep 2026): `auth.rate_limit.email_sent` stays at 30/hour by decision. No Phase 3 blocker remains except the scoped commit itself.** |
@@ -34,7 +34,7 @@ block and the master checklist below are the source of truth for progress.
 - [x] **Phase 2** — Catalog + Database (real Supabase project now linked and seeded — see Phase 2 Status)
 - [x] **Phase 3** — Authentication + Guest Sessions (**COMPLETE, 10 Sep 2026** — all acceptance criteria and the Exit Criterion met or deferred under §12 item 1; Google OAuth deferred to Phase 4 task 14. Closed by `f89e7ba` — see Phase 3 Status)
 - [x] **Phase 4** — Website / Page Migration (**CLOSED, 12 Sep 2026** — 26/26 legacy pages migrated (21 marketing/support/legal pages + one dynamic PDP template serving the 5 shop slugs); real forms, robots/sitemap, WCAG AA contrast pass done. **§2A.7 fidelity + axe + responsive screenshots verified for all 26/26 pages**, including the 5 PDP routes against a disposable local-Postgres validation database (§0.2) — this sandbox still cannot reach the real Supabase project. **D5 resolved 12 Sep 2026**: manager approved option B — the header cart/Bag button, PDP "Add to Cart" button, Order Status form and reviews "Write a Review" remain visible-but-inert through Phase 4 as an explicit, time-boxed §2A.6 exception, expiring when Phases 5/7/9 ship the real capability. Reviews Filters/Sort — never part of that exception — are now real (`reviews-list.tsx`). **Open but not closure-blocking, per the plan's own design**: tasks 7/8/9 (🔒, §2A.6 manager approval; Acceptance-Criteria-waivable) and task 14 (Google OAuth, needs external dashboard access this environment doesn't have). See Phase 4 Status.)
-- [x] **Phase 5** — Server-Side Cart (**COMPLETE, 12 Sep 2026** — `carts`/`cart_items` migrated with the §3.5 constraints; server-resolved price/GST on every read, no endpoint accepts a client price; guest→user merge idempotent under real concurrency; cart UI live in the header and PDP. See Phase 5 Status)
+- [x] **Phase 5** — Server-Side Cart (**CLOSED, 12 Sep 2026** — `carts`/`cart_items` migrated with the §3.5 constraints; server-resolved price/GST on every read, no endpoint accepts a client price; guest→user merge idempotent under real concurrency; cart UI live in the header and PDP; formal closure audit confirmed every exit criterion against committed code, 205/205 unit + 52/52 integration from a fresh checkout. See Phase 5 Status)
 - [ ] **Phase 6** — Address + Checkout Foundation
 - [ ] **Phase 7** — Razorpay Payments
 - [ ] **Phase 8** — Inventory + Concurrency Hardening
@@ -2444,7 +2444,7 @@ untouched.
 ### PHASE 5 — Server-Side Cart
 
 #### Status
-**COMPLETE, 12 Sep 2026.** Full evidence in §0.2's Phase 5 row. Summary:
+**CLOSED, 12 Sep 2026.** Full evidence in §0.2's Phase 5 row. Summary:
 `carts`/`cart_items` migrated with the §3.5 constraints (two partial
 unique indexes, a quantity CHECK, RLS); price and per-variant GST
 resolved server-side on every read, never stored on the row; a `.strict()`
@@ -2460,6 +2460,24 @@ own tests and fixed: an `app_users`-row-creation ordering bug in
 `completeSignIn()` that broke the merge handler's FK on a brand-new
 user's first sign-in, and a `carts_has_an_identity` CHECK that didn't
 account for a closed cart outliving its guest session.
+
+**Formal closure audit, 12 Sep 2026 (separate pass, no code changed):**
+every line of the Testing Requirements and Acceptance Criteria below was
+re-mapped one-by-one against the actual committed test titles in
+`src/server/cart/__tests__/` (not re-derived from memory) — each has a
+named, passing test; none are covered only by the earlier manual `curl`
+session. Confirmed no cart route ever reads `cart_id` from the request
+(`grep` of `src/app/api/cart/` for `cartId` outside test files: zero
+matches) — the IDOR protection the Security Requirements name. Full gate
+re-run from a clean state on commit `6e4f7c78e29222dea24d7cd9b1e670be63b19df8`:
+`npm run verify` (lint, typecheck, **205/205 unit / 23 files**, build —
+cart routes present in the route table); a second, independent disposable
+Postgres container, migrated from zero with `prisma migrate deploy` (all
+three migrations apply cleanly in sequence, confirming the committed
+migration SQL — not just the working database state from earlier in the
+phase), `npm run test:integration` **52/52 / 8 files**. Container torn
+down after. No exit criterion, acceptance criterion, security requirement
+or testing requirement found missing.
 
 #### Objective
 A persistent server-side cart keyed by user or guest session, whose prices
