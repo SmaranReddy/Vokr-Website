@@ -19,14 +19,28 @@ import { ReviewsList } from "@/components/shop/reviews-list";
  * not identical the way the numbers/bars are) — passed in rather than
  * hardcoded so each caller supplies its own page's real wording.
  */
+/**
+ * `.rr-photo-strip` alt text, in the legacy's image order. The five PDPs
+ * describe each shot; `reviews.html` labels all three plainly. Same split
+ * as `recommendText`/`summaryText` above — the PDP wording is the default
+ * and `/reviews` overrides it with its own.
+ */
+const PDP_PHOTO_ALTS = [
+  "Customer photo — Vokr shoes on sand",
+  "Customer photo — Vokr shoes on carpet",
+  "Customer photo — Vokr shoes outdoors",
+];
+
 export function ReviewsSummary({
   full = false,
   recommendText = "94% of reviewers would recommend this product to a friend.",
   summaryText = REVIEWS_SUMMARY.summaryText,
+  photoAlts = PDP_PHOTO_ALTS,
 }: {
   full?: boolean;
   recommendText?: string;
   summaryText?: string;
+  photoAlts?: string[];
 }) {
   const cards = full ? PDP_REVIEWS : PDP_REVIEWS.slice(0, PDP_REVIEW_CARD_COUNT);
 
@@ -96,12 +110,12 @@ export function ReviewsSummary({
         </div>
 
         <div className="grid grid-cols-3 gap-2 self-start">
-          {REVIEW_PHOTOS.map((src) => (
+          {REVIEW_PHOTOS.map((src, index) => (
             // eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21).
             <img
               key={src}
               src={src}
-              alt="Customer photo"
+              alt={photoAlts[index] ?? "Customer photo"}
               className="aspect-square rounded-lg bg-surface object-cover"
             />
           ))}

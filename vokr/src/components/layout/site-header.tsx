@@ -47,7 +47,8 @@ export function SiteHeader() {
             <NavMenu />
             <Link
               href="/#fit-quiz"
-              className="hidden text-[13px] font-semibold text-foreground sm:inline"
+              // `.header-fit-link` is hidden below the legacy's 700px breakpoint.
+              className="hidden text-[13px] font-semibold text-foreground mid:inline"
             >
               Find Your Fit
             </Link>

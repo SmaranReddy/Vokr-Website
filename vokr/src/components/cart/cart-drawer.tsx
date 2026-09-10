@@ -96,7 +96,14 @@ export function CartDrawer() {
   }, [isOpen, closeCart]);
 
   return (
+    // `inert` while closed, not just `aria-hidden`: the drawer stays mounted
+    // so it can transition, and its close/quantity/remove buttons stay in the
+    // tab order otherwise — an `aria-hidden` subtree containing focusable
+    // elements is a serious axe violation (`aria-hidden-focus`), and because
+    // the drawer lives in the root layout it failed that check on every
+    // route, not just the ones with a cart.
     <div
+      inert={!isOpen}
       aria-hidden={!isOpen}
       className={`fixed inset-0 z-50 ${isOpen ? "" : "pointer-events-none"}`}
     >
@@ -113,13 +120,13 @@ export function CartDrawer() {
       <aside
         role="dialog"
         aria-modal="true"
-        aria-label="Your Bag"
+        aria-label="Your Cart"
         className={`absolute right-0 top-0 flex h-full w-full max-w-sm flex-col bg-background shadow-xl transition-transform ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-sm font-semibold">Your Bag</h2>
+          <h2 className="text-sm font-semibold">Your Cart</h2>
           <button type="button" onClick={closeCart} aria-label="Close" className="p-1 text-lg leading-none">
             &times;
           </button>
@@ -153,9 +160,17 @@ export function CartDrawer() {
               Includes {formatPaiseAsRupees(cart.taxPaise)} GST.
             </p>
             <div className="mt-2 flex items-center justify-between text-sm font-semibold">
-              <span>Total</span>
+              <span>Estimated Total</span>
               <span>{formatPaiseAsRupees(cart.totalPaise)}</span>
             </div>
+
+            {/* `.cart-shipping-note` — approved legacy copy, restored verbatim. The
+                GST line above it is additional detail Phase 5 can now show,
+                not a replacement: shipping is still resolved at checkout. */}
+            <p className="mt-3 text-xs leading-relaxed text-muted">
+              Free shipping on orders over &#8377;4,999. Taxes and final
+              shipping calculated at checkout.
+            </p>
 
             <button
               type="button"

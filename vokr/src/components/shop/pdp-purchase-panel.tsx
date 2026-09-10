@@ -71,14 +71,25 @@ export function PdpPurchasePanel({
         })}
       </div>
 
+      {/* The label is the legacy's, verbatim and unconditional. Phase 5
+          needs a size before it can resolve a variant, but "Select a size"
+          / "Add to Cart — IN 8" are wording changes to approved content
+          (§2A.4) and break the §2A.7 text diff on all five PDPs. The
+          requirement is carried by the disabled state plus an `.sr-only`
+          description instead, which announces the reason without altering
+          any visible string. */}
       <button
         type="button"
         disabled={!selected || isLoading}
+        aria-describedby={selected ? undefined : "pdp-size-required"}
         onClick={() => void handleAddToCart()}
         className="w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {selected ? `Add to Cart — ${displaySizeLabel(selected.sizeLabel)}` : "Select a size"}
+        Add to Cart
       </button>
+      <p id="pdp-size-required" className="sr-only">
+        Select a size to add this item to your cart.
+      </p>
       <p className="mt-3 text-xs text-muted">
         Free shipping on orders over ₹4,999. Free 30-day exchanges &amp;
         returns.

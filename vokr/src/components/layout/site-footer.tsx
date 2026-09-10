@@ -17,7 +17,9 @@ export function SiteFooter() {
           VOKR
         </div>
 
-        <div className="mb-14 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+        {/* `.footer-top-grid`: four columns at ≥901px, two at 541–900px,
+            one at ≤540px — the legacy's breakpoints, not Tailwind's. */}
+        <div className="mb-14 grid grid-cols-1 gap-8 narrow:grid-cols-2 wide:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <div>
             <h2 className="mb-3.5 text-[15px] font-extrabold tracking-tight uppercase">
               Join the Vokr community.
@@ -104,7 +106,8 @@ export function SiteFooter() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5.5 text-xs text-white/60">
+        {/* `.footer-bottom` stacks below 541px. */}
+        <div className="flex flex-col items-start gap-3 border-t border-white/10 pt-5.5 text-xs text-white/60 narrow:flex-row narrow:flex-wrap narrow:items-center narrow:justify-between">
           <span>&copy; 2026 VOKR INC.</span>
           <div className="flex gap-5">
             <Link href="/terms" className="hover:text-white">

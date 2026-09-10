@@ -17,7 +17,8 @@ export interface AccordionItemData {
  * exclusive accordion (that behaviour belongs to `.support-toggle-item`,
  * implemented separately in `support-group.tsx`, which does close the
  * others). `defaultOpenId` reproduces the legacy's "first item open"
- * state.
+ * state. The `default` variant's two-column `.acc-grid` collapses to one
+ * column below the legacy's own 700px breakpoint, not Tailwind's 640px.
  */
 export function Accordion({
   items,
@@ -45,7 +46,7 @@ export function Accordion({
   }
 
   return (
-    <div className={variant === "default" ? "grid gap-3 sm:grid-cols-2" : ""}>
+    <div className={variant === "default" ? "grid gap-3 mid:grid-cols-2" : ""}>
       {items.map((item) => {
         const isOpen = openIds.has(item.id);
         return (

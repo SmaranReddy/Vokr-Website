@@ -18,6 +18,7 @@ export default function ReviewsPage() {
       full
       recommendText="94% of reviewers would recommend Vokr to a friend."
       summaryText="Customers say Vokr shoes are exceptionally comfortable for all-day wear, with many praising the lightweight design and clean look. Reviewers frequently mention wearing them for long stretches without foot pain. A few note the shoes feel slightly snug at first, and some report durability concerns after several months. Overall, customers appreciate the balance of comfort, style, and versatility."
+      photoAlts={["Customer photo", "Customer photo", "Customer photo"]}
     />
   );
 }

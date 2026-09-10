@@ -57,9 +57,18 @@ const COMFORT_ITEMS: AccordionItemData[] = [
   },
 ];
 
+interface Testimonial {
+  handle: string | null;
+  quote: string;
+  name: string;
+  role: string;
+  /** Present only on the legacy's two `.tc-imgcard` variants. */
+  image?: { src: string; alt: string; ratio: string; transform: string };
+}
+
 // Legacy row order (`.test-row1` / `.test-row2`): Rohan, Priyanka, Arjun
 // (image card) / Sneha (image card), Karan, Aditya.
-const TESTIMONIALS = [
+const TESTIMONIALS: Testimonial[] = [
   {
     handle: "@rohansethiblr",
     quote:
@@ -76,6 +85,15 @@ const TESTIMONIALS = [
   },
   {
     handle: null,
+    // `.tc-imgcard` — the legacy card leads with a tilted shoe photo above
+    // the quote. Thumb ratio, image and the rotate/scale transform are the
+    // approved values from `vokr-production/index.html`.
+    image: {
+      src: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
+      alt: "Vokr black shoes — tilted view",
+      ratio: "4/3",
+      transform: "rotate(-8deg) scale(1.18)",
+    },
     quote:
       "My architect friends in Hyderabad kept asking where I got them. Told all of them.",
     name: "Arjun Nair",
@@ -83,6 +101,13 @@ const TESTIMONIALS = [
   },
   {
     handle: null,
+    image: {
+      src: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772",
+      alt: "Vokr black shoes — tilted view",
+      // The legacy card overrides `.tc-imgcard-thumb`'s 4/3 inline.
+      ratio: "16/9",
+      transform: "rotate(6deg) scale(1.22)",
+    },
     quote: "From Koramangala to Connaught Place — one shoe, zero complaints.",
     name: "Sneha Krishnan",
     role: "Co-founder, Setu · Bengaluru",
@@ -103,18 +128,29 @@ const TESTIMONIALS = [
   },
 ];
 
+// `.tech-card` — each card leads with a material close-up. The legacy's
+// second card genuinely reuses the antimicrobial-lining photograph under a
+// different alt; that pairing is reproduced rather than corrected, since
+// which image sits where is approved content (§2A.4), not an engineering
+// choice (R21/Phase 14 changes only how these are delivered).
 const TECH_CARDS = [
   {
     title: "Antimicrobial Lining",
     body: "Vokr shoes feature an antimicrobial copper lining that kills bacteria and prevents odor.",
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/Antimicrobial_lining.jpg?v=1777482622",
+    alt: "Antimicrobial copper lining close-up",
   },
   {
     title: "Lightweight Foam",
     body: "A lightweight foam midsole cushions your feet for unparalleled comfort.",
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/Antimicrobial_lining.jpg?v=1777482622",
+    alt: "Vokr outsole detail close-up",
   },
   {
     title: "Stretch Laces",
     body: "Stretch laces, so you only have to tie your shoes once.",
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/LACES2.jpg?v=1777579071",
+    alt: "Stretch laces close-up",
   },
 ];
 
@@ -122,8 +158,12 @@ export default function Home() {
   return (
     <>
       {/* HERO */}
-      <section className="grid grid-cols-1 sm:grid-cols-2">
-        <div className="flex flex-col justify-end gap-5 px-6 py-14 sm:px-12 sm:py-16">
+      {/* Legacy `.hero` puts the image *above* the text below 901px
+          (`.hero-img { order: 1 }` / `.hero-text { order: 2 }`) — the
+          migrated markup keeps source order for reading order and swaps
+          visually, matching the approved page. */}
+      <section className="grid grid-cols-1 wide:grid-cols-2">
+        <div className="order-2 flex flex-col justify-start gap-5 px-6 py-12 wide:order-1 wide:justify-end wide:px-12 wide:py-16">
           <p className="text-[11px] font-semibold tracking-[.15em] text-muted uppercase">
             Introducing
           </p>
@@ -141,7 +181,7 @@ export default function Home() {
             Shop Model x &rarr;
           </Link>
         </div>
-        <div className="aspect-square bg-surface-2 sm:aspect-auto">
+        <div className="order-1 min-h-[300px] bg-surface-2 wide:order-2 wide:min-h-0">
           {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
           <img
             src="https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639"
@@ -152,7 +192,7 @@ export default function Home() {
       </section>
 
       {/* FEATURE STRIP */}
-      <div className="grid grid-cols-2 border-y border-border sm:grid-cols-4">
+      <div className="grid grid-cols-2 border-y border-border wide:grid-cols-4">
         {[
           { label: "Cushioning", value: "All Day Comfort" },
           { label: "Antimicrobial lining", value: "Copper-Infused" },
@@ -173,8 +213,8 @@ export default function Home() {
       </div>
 
       {/* EXPLORE EVERY DAY */}
-      <section className="grid grid-cols-1 border-t border-border sm:grid-cols-2">
-        <div className="min-h-[300px] bg-surface-2 sm:min-h-[500px]">
+      <section className="grid grid-cols-1 border-t border-border wide:grid-cols-2">
+        <div className="min-h-[280px] bg-surface-2 wide:min-h-[500px]">
           {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
           <img
             src="https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772"
@@ -182,7 +222,7 @@ export default function Home() {
             className="h-full w-full object-cover"
           />
         </div>
-        <div className="flex flex-col justify-center px-6 py-14 sm:px-12">
+        <div className="flex flex-col justify-center px-6 py-10 wide:px-12 wide:py-14">
           <div className="mb-8 flex items-center justify-between">
             <span className="text-[11px] font-semibold tracking-[.15em] text-muted uppercase">
               Explore Every Day
@@ -217,24 +257,48 @@ export default function Home() {
           <h2 className="mb-10 text-3xl font-bold tracking-tight sm:text-4xl">
             What our customers say
           </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 wide:grid-cols-3">
             {TESTIMONIALS.map((t) => (
-              <div key={t.name} className="border border-white/10 bg-white/5 p-7">
-                {t.handle && (
-                  <p className="mb-3 text-[10px] tracking-[.06em] text-white/60 uppercase">
-                    {t.handle} · View post on X
-                  </p>
-                )}
-                <p className="mb-5 text-[15px] leading-relaxed">
-                  &quot;{t.quote}&quot;
-                </p>
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-sm font-bold">
-                    {t.name[0]}
+              <div
+                key={t.name}
+                className={`border border-white/10 bg-white/5 ${
+                  t.image ? "overflow-hidden" : "p-7"
+                }`}
+              >
+                {t.image && (
+                  <div
+                    className="overflow-hidden bg-[#111]"
+                    style={{ aspectRatio: t.image.ratio }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
+                    <img
+                      src={t.image.src}
+                      alt={t.image.alt}
+                      className="h-full w-full object-cover"
+                      style={{
+                        transform: t.image.transform,
+                        transformOrigin: "center center",
+                      }}
+                    />
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold">{t.name}</p>
-                    <p className="text-xs text-white/65">{t.role}</p>
+                )}
+                <div className={t.image ? "p-5" : ""}>
+                  {t.handle && (
+                    <p className="mb-3 text-[10px] tracking-[.06em] text-white/60 uppercase">
+                      {t.handle} · View post on X
+                    </p>
+                  )}
+                  <p className="mb-5 text-[15px] leading-relaxed">
+                    &quot;{t.quote}&quot;
+                  </p>
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-sm font-bold">
+                      {t.name[0]}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">{t.name}</p>
+                      <p className="text-xs text-white/65">{t.role}</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -280,7 +344,7 @@ export default function Home() {
               Shop All Shoes &rarr;
             </Link>
           </div>
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-8 wide:grid-cols-3">
             {[
               {
                 href: "/shop/model-x",
@@ -311,13 +375,18 @@ export default function Home() {
                 </Link>
                 <p className="mb-1 text-sm font-bold">{product.name}</p>
                 <p className="mb-3 text-sm text-muted">{product.desc}</p>
-                {/* Legacy label is "Add to Cart" — kept verbatim rather than
-                    relabelled, but inert like the PDP's own Add to Cart
-                    button: cart UI is out of scope until Phase 5. */}
+                {/* Legacy label is "Add to Cart", kept verbatim. D5's
+                    inert-control exception expired for the *PDP* button when
+                    Phase 5 closed, and that one is now real. This card is a
+                    separate control with no size selector, and Phase 5
+                    resolves price and stock from a variant ID — there is no
+                    variant to send from here without inventing a default
+                    size. Registered as its own §2A.6 row (D6) rather than
+                    given a premature implementation or silently removed. */}
                 <button
                   type="button"
                   aria-disabled="true"
-                  title="Cart launches in a later phase"
+                  title="Choose a size on the product page to add this to your cart"
                   className="cursor-default border border-border-strong px-5 py-2.5 text-[13px] font-semibold opacity-60"
                 >
                   Add to Cart
@@ -337,10 +406,17 @@ export default function Home() {
           <h2 className="mb-10 max-w-lg text-3xl font-bold tracking-tight sm:text-4xl">
             Every millimetre. Every material. Every detail.
           </h2>
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-8 wide:grid-cols-3">
             {TECH_CARDS.map((card) => (
               <div key={card.title}>
-                <div className="mb-4 aspect-4/3 rounded-2xl bg-border" />
+                <div className="mb-4 aspect-square overflow-hidden rounded-2xl bg-border">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
+                  <img
+                    src={card.img}
+                    alt={card.alt}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
                 <h3 className="mb-1.5 text-base font-bold">{card.title}</h3>
                 <p className="text-sm text-muted">{card.body}</p>
               </div>
@@ -401,7 +477,7 @@ export default function Home() {
       </section>
 
       {/* BRAND STORY */}
-      <section className="grid grid-cols-1 gap-10 border-t border-border px-5 py-16 sm:grid-cols-2 sm:py-20">
+      <section className="grid grid-cols-1 gap-10 border-t border-border px-5 py-16 wide:grid-cols-2 wide:py-20">
         <div>
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
             One shoe.
@@ -449,7 +525,11 @@ export default function Home() {
         <p className="mb-6 text-center text-[11px] font-semibold tracking-[.15em] text-muted uppercase">
           Vokr in everyday
         </p>
-        <div className="mx-auto grid max-w-[1200px] grid-cols-3 gap-2 sm:grid-cols-6">
+        {/* `.ig-grid` is five 2/3-portrait tiles across at ≥901px, three at
+            541–900px and two at ≤540px — the legacy hides the overflow
+            (`.ig-item:nth-child(n+4)` / `(n+3)`) rather than wrapping it,
+            so the strip is always exactly one row. */}
+        <div className="mx-auto grid max-w-[1200px] grid-cols-2 gap-[3px] narrow:grid-cols-3 wide:grid-cols-5">
           {[
             {
               img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639",
@@ -471,8 +551,13 @@ export default function Home() {
               img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
               handle: "soles.and.souls",
             },
-          ].map((item) => (
-            <div key={item.handle} className="group relative aspect-square overflow-hidden bg-surface-2">
+          ].map((item, index) => (
+            <div
+              key={item.handle}
+              className={`group relative aspect-2/3 overflow-hidden bg-surface-2 ${
+                index >= 3 ? "hidden wide:block" : index >= 2 ? "hidden narrow:block" : ""
+              }`}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
               <img src={item.img} alt={`@${item.handle}`} className="h-full w-full object-cover" />
               <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">

@@ -41,7 +41,8 @@ export function NewsletterForm() {
 
   return (
     <div>
-      <form onSubmit={onSubmit} className="flex gap-2">
+      {/* `.footer-signup-row` stacks the field above the button below 541px. */}
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 narrow:flex-row">
         <label htmlFor="footer-newsletter-email" className="sr-only">
           Email address
         </label>

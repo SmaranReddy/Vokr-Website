@@ -401,6 +401,7 @@ manager approves it.**
 |---|---|---|---|
 | **D1** — gift cards | `gift-cards.html` not migrated, not linked from nav/footer/anywhere, unreachable by any route or sitemap entry | Commercial decision: gift cards deferred from launch | **APPROVED** — decided by the business owner, 8 Sep 2026, recorded in §0.3. Currently the only authorised change to the approved information architecture. |
 | **D5** — Phase 4 task 10 exception | Four approved-legacy controls stay **visible and inert** through Phase 4 rather than getting a real endpoint or being removed: the header cart/Bag button, the PDP "Add to Cart" button, the Order Status tracking form, and the reviews "Write a Review" button. No wording, layout, section, navigation or product-presentation content changes — the controls are pixel-identical to the approved legacy, just not yet wired to a backend that doesn't exist yet. | Task 10 is otherwise a strict "real endpoint or removed" binary; none of the four can get a real endpoint inside Phase 4 (cart/checkout is Phases 5–7, order tracking needs the Phase 9 `Order` model, review submission needs both), and removing approved legacy structure needs approval of its own. | **APPROVED (option B for all four) — manager decision, 12 Sep 2026, recorded in §0.3 D5.** Not a content, wording or navigation change — an explicit, time-boxed exception to task 10's binary, expiring control-by-control when its owning phase ships: cart/Bag and Add to Cart at Phase 5–7 close, Order Status at Phase 9 close, Write a Review at Phase 9 close (also still gated on R20). **Cart/Bag and Add to Cart EXPIRED, 12 Sep 2026 (Phase 5 closed) — both now real, see §0.2 Phase 5 row.** Order Status and Write a Review remain under this exception. |
+| **D6** — homepage "Picked for you" Add to Cart | The three product-card `Add to Cart` buttons on the homepage stay **visible and inert**, as D5's expired Add-to-Cart row left them. Label, position and styling are unchanged from the approved legacy. | D5's Add-to-Cart expiry (12 Sep 2026) covered the **PDP** button, which Phase 5 made real. These three are a different control: the card has no size selector, and Phase 5 resolves price, GST and stock from a **variant** ID, so there is no variant to send from a homepage card without inventing a default size — which would be fabricating product behaviour, and the legacy's own `data-price="9995"` attribute is the client-controlled-pricing defect R6 exists to eliminate. | **PENDING APPROVAL.** Three options for the manager: (a) leave inert until Phase 6/7 give the card a real quick-add path; (b) make the button navigate to the PDP, where a size can be chosen — an interaction change to approved content; (c) remove the button — a visible-content removal. Recorded 12 Sep 2026 by the reference-site comparison audit (§2A.9); **not** implemented either way. |
 | **R14** — Phase 4 task 7 | Amend the "order confirmation email/SMS" wording in `terms.html` to "email" | SMS is deferred (TRAI DLT registration, ~₹5,900 and 3–7 days). Leaving the copy publishes a contractual promise the launch cannot honour. | **PENDING APPROVAL.** This is legal copy — §2A.4 forbids changing it unilaterally. Recommended; the alternative is to implement SMS. Do not apply until approved. |
 | **R20** — Phase 4 task 8 | Delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description; replace with an honest empty state | Consumer Protection Act 2019 exposure for fabricated reviews and ratings | **PENDING APPROVAL.** Visible content removal. Strongly recommended — this is legal exposure rather than preference — but it remains a manager's call, not an engineer's. |
 | **Phase 4 task 9** | Audit and correct unverifiable marketing claims ("250,000+ people", review counts, ratings, delivery promises) | Same statute; claims must be substantiable at launch | **PENDING APPROVAL, item by item.** Each proposed change is to be added to this table with its exact before/after text before it is made. |
@@ -460,6 +461,95 @@ homepage source, that is their decision to make.
 *(The `.gitignore` comment block carries the same understated wording. It
 is left untouched here because this task is documentation-only; correcting
 it is a one-line follow-up.)*
+
+### 2A.9 Reference-site comparison audit — 12 Sep 2026
+
+The deployed Cloud Run revision (`vokr-plxgen7xla-el.a.run.app`, built from
+`29e5b30`) was compared against the reference site `https://vokr.shop/`.
+Branch `fix/reference-site-fidelity`.
+
+**First finding — what the reference site actually is.** `GET https://vokr.shop/`
+returns **19,927,942 B, MD5 `82aa900609d7bae122064c87925308b4`** — byte-for-byte
+`index (7).html`. Every other path (`/about-vokr`, `/terms`, `/shop-model-x.html`,
+`/gift-cards.html`, with and without `.html`) returns **404**. The reference site
+is the approved legacy homepage served as a single static file and nothing else.
+The deployed application serves all 26 migrated routes plus `/search`, the Phase 3
+auth routes, `robots.txt`, `sitemap.xml` and `/api/health` — all 200, with
+`/gift-cards` correctly 404 per D1. **The comparison therefore reduces to the
+homepage**; on every other route the deployment is ahead of the reference, not
+behind it.
+
+**Second finding — §2A.7's evidence requirement has two blind spots.** The
+Phase 4 harness (`e2e/phase4-fidelity.spec.ts`) compares *visible text* and
+*heading tag/order* inside `#main`. It therefore cannot see (a) **images** —
+an `<img>` replaced by an empty placeholder `<div>` changes no text and no
+heading — or (b) **breakpoint values**, since the responsive spec captured
+screenshots without diffing them against a legacy rendering. Both gaps hid
+real regressions, listed below. Neither the harness nor Phase 4's conclusions
+were wrong about what they measured; they measured less than "faithful" needs.
+
+**Regressions found and fixed (implementation-only under §2A.4 — restoring
+approved content and layout, changing no wording, section or navigation):**
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | The three `.tech-card` material close-ups ("Every millimetre. Every material. Every detail.") rendered as **empty grey boxes** — the `<img>` was never migrated, and `.tech-card-img`'s `aspect-ratio: 1/1` had become `4/3`. | Images restored from the canonical zip with the legacy's own square ratio. |
+| 2 | Both `.tc-imgcard` testimonial cards (Arjun Nair, Sneha Krishnan) lost their tilted-shoe photograph, including the legacy's 4/3 and 16/9 thumb ratios and `rotate/scale` transforms. The migration's own code comment already named them "image card". | Images and transforms restored. |
+| 3 | **Every multi-column section switched at Tailwind's 640px instead of the legacy's 900px.** Between 641–900px the migrated homepage showed a desktop layout where the approved page shows one column. Full-page height at 768px: reference **15,248px**, deployment **8,040px**. | Legacy breakpoints (541/701/901px) named in `globals.css` and applied to hero, feature strip, explore, testimonials, product grid, tech cards, comfort accordion, footer and newsletter row. Height at 768px now **15,370px**. |
+| 4 | The hero did not swap order below 900px; the legacy puts the image **above** the text (`.hero-img { order: 1 }`). | Visual order swapped; source order kept for reading order. |
+| 5 | The Instagram strip used **6 columns for 5 tiles**, square tiles, and never hid overflow. Legacy: 5 tiles at ≥901px, 3 at 541–900px, 2 at ≤540px, all `aspect-ratio: 2/3`. | Column counts, tile ratio and the `nth-child` hiding rules reproduced. |
+| 6 | The header search panel dropped the legacy's **`Popular Searches`** (6 chips) and **`Quick Links`** (5 chips) content entirely. | Restored verbatim, wired to the real `/search` route; `Gift Cards` omitted per D1, as in the footer and hamburger nav. |
+| 7 | The cart drawer relabelled approved copy: **"Your Cart" → "Your Bag"**, **"Estimated Total" → "Total"**, and dropped `.cart-shipping-note` ("Free shipping on orders over ₹4,999. Taxes and final shipping calculated at checkout.") — a Phase 5 wording change to approved content. | Legacy strings restored verbatim. Phase 5's per-variant GST line is kept *in addition*, not as a replacement. |
+| 8 | The five PDPs' `.rr-photo-strip` alt text was genericised to "Customer photo", losing the legacy's "— Vokr shoes on sand / on carpet / outdoors". (`reviews.html` genuinely does use the generic form.) | Alt text is now per-caller, like the existing `recommendText`/`summaryText` split. |
+| 9 | **The PDP Add-to-Cart button read "Select a size" / "Add to Cart — IN 8"** instead of the approved "Add to Cart" — a Phase 5 wording change that fails the §2A.7 text diff on all five PDPs. | Label restored unconditionally; the size requirement is carried by the disabled state plus an `.sr-only` description, which the §2A.7 extractor already excludes. |
+| 10 | **Site-wide serious axe violation.** Phase 5's `CartDrawer` sits in the root layout and, while closed, is `aria-hidden="true"` around focusable buttons — `aria-hidden-focus`, impact *serious*, on **every route**, reproduced against the live deployment. Phase 4 closed with zero serious violations; Phase 5 broke it and did not re-run that suite. | The closed drawer is now `inert`. |
+
+**Differences left in place deliberately** — each already governed by an
+existing decision, none of them a defect:
+
+- **Ten homepage photographs differ between the reference site and the
+  migration.** `index (7).html` carries base64 payloads where the tracked
+  `vokr-production.zip` carries `cdn.shopify.com` URLs of *different*
+  photographs — the hero, the explore image, both testimonial thumbs, the
+  outsole card and all five Instagram tiles. This is exactly the divergence
+  §2A.2 recorded and §2A.8 declined to resolve by preference: the zip
+  remains the canonical migration source, so the deployment follows it. The
+  five images that are CDN URLs in *both* artefacts match exactly. **If the
+  manager wants the reference site's photographs, that is the §2A.8 decision
+  to make**; it is not an engineering choice, and R21/Phase 14 changes only
+  how these are delivered, never which.
+- The legacy's slide-over **account panel** (`Continue with Google`,
+  `Welcome back`, `Saved Addresses`, `Payment Methods`, `Wishlist`,
+  `Sign out`) stays replaced by a link to the real `/sign-in` — Phase 4
+  task 3/task 14, with Google OAuth still deferred pending console access.
+  Saved addresses are Phase 6, payment methods Phase 7.
+- The drawer's **Checkout** button stays inert — Phase 6.
+- The **Order Status** form and **Write a Review** button stay inert — D5,
+  expiring at Phase 9 close (the latter also gated on R20).
+- The homepage **Add to Cart** cards stay inert — new row **D6** above.
+- Footer column headings are `<h2>` where the legacy used `<h4>`. A footer
+  `h4` with no `h3` above it skips a heading level; task 12's accessibility
+  pass is explicitly allowed to correct that, and heading *level* is not
+  visible content. Heading **text and order** are unchanged.
+- Tasks 7, 8 and 9 (R14, R20, the marketing-claims audit) remain untouched
+  and pending, exactly as Phase 4 left them.
+
+**Validation:** `npm run lint`, `npm run typecheck`, `npm run build` clean;
+`npm run test` 205/205; `npm run test:integration` 52/52 against a seeded
+Postgres (the documented `docker-compose` path, on host port 15432 — 55432
+is still inside this machine's Hyper-V dynamic port-exclusion range, the
+same quirk Phase 4 recorded); `e2e/phase4-fidelity.spec.ts` +
+`e2e/phase4-routes.spec.ts` **79/79** (26 fidelity, route-200, zero
+serious/critical axe — the five PDP fidelity checks and the site-wide axe
+check pass for the first time since Phase 5); `e2e/phase4-responsive.spec.ts`
+**104/104**. Homepage image inventory against the canonical zip: **15 vs 15,
+exact match**; the PDP/`/reviews` surplus is only the JS-injected review-card
+photographs the `supersetOk` cases already document. Full-page height,
+reference vs remediated: 360px 13,086/12,959 · 768px 15,248/15,370 ·
+1024px 8,278/8,207 · 1440px 8,984/8,849.
+
+**Legacy sources untouched:** `index (7).html` MD5 re-verified
+`82aa900609d7bae122064c87925308b4`; `vokr-production.zip` clean.
 
 ---
 ## 3. Target Production Architecture
