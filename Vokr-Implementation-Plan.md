@@ -93,6 +93,7 @@ than engineering ones, and this plan deliberately does not guess.
 | **D6** | ~~The three homepage "Picked for you" product-card `Add to Cart` buttons are visible and inert.~~ **RESOLVED (12 Sep 2026): OPTION B.** The buttons **navigate to their corresponding PDP**, where the customer chooses a size and the real Phase 5 add-to-cart runs. The approved legacy label, position and styling are unchanged; only the interaction changed, and an `.sr-only` suffix names the destination for screen readers without touching visible content or the §2A.7 text diff. **Implemented** — see §2A.6 row D6. | *(resolved — Phase 4 task 10's "no dead affordance" criterion is now closed for these three controls; nothing on the homepage is inert)* | *Original framing, for the record:* D5's Add-to-Cart expiry covered the **PDP** button, which Phase 5 made real; these three were a different control, left behind. They could not simply be switched on — Phase 5 resolves unit price, per-variant GST and stock from a **variant** ID, and a homepage card carries no size selector, so there is no variant to send. Picking a default size would **invent product behaviour**: it would silently choose what the customer is buying, and the legacy button's own `data-price="9995"` attribute is precisely the client-controlled-pricing defect **R6** exists to eliminate, so the legacy markup could not be copied either. Options (b) and (c) both changed approved visible content or its interaction, which §2A.4 reserves to the manager — the same authority already used for D1 and D5. The manager chose **(b)**. |
 | **D8** | ~~Five approved-legacy marketing forms are inert and were never registered.~~ **RESOLVED (12 Sep 2026): OPTION A.** The five forms — `refer-a-friend` ("Get My Link"), `vokr-ambassadors` ("Submit Application"), `wholesale-orders` ("Submit Inquiry"), `discount-program` ("Verify & Get Code") and `analyze-your-shoes` ("Analyze My Shoes") — **remain visible and inert as an explicit, documented exception to Phase 4 task 10**, the same treatment D5 gave its four controls. **They are not to be removed or redesigned, and no backend endpoint is to be built for them** (manager instruction, 12 Sep 2026). No code change was made: the forms are exactly as the approved legacy left them. Registered in §2A.6 as row **D8**. | *(resolved — Phase 4's "no inert form" Exit Criterion is now closed via D5 + D8, and Phase 4 is CLOSED)* | *Original framing, for the record:* each renders `onSubmit={(event) => event.preventDefault()}`, React's exact equivalent of the legacy `onsubmit="return false;"` that task 10 exists to eliminate. Each already carried a code comment explaining why (no account/referral system, no ambassador or wholesale pipeline, no discount engine, no image-analysis service) and an `aria-disabled` button with an explanatory `title`, so none was *silently* dead — but a code comment is not a registered deviation, and **D5 enumerated four controls, not nine**. The choice between (a) except them explicitly, (b) build five backing systems the plan has never scoped, and (c) remove approved content from five pages was manager-only, the same authority used for D1 and D5. The manager chose **(a)**. Found 12 Sep 2026 while reconciling Phase 4 closure after D6/D7; the checklist line *"No inert form — ✅ closed via D5"* had been inaccurate. |
 | **D7** | ~~Which homepage photographs are canonical.~~ **RESOLVED (12 Sep 2026): OPTION B.** `index (7).html`'s photographs — the ones the live reference site shows — are **canonical for the ten homepage slots where the two approved exports differ**, superseding the `cdn.shopify.com` URLs currently in the code. **Execution is bound to Phase 14 / R21 (new task 2a)**, which already re-hosts every homepage image: the ten decode to **14.2 MB** against a **500 KB** homepage budget, so they are only shippable once that phase's AVIF/WebP re-encode exists. Adopting them nothing earlier would blow R21 by ~28×. The five homepage images identical in both artefacts are unaffected. **Nothing replaced, removed or altered yet** — this is a scheduled decision, and until Phase 14 runs, the storefront keeps the zip's photographs. | *(resolved — no longer open; now scope for Phase 14 / R21, task 2a)* | *Original framing, for the record:* §2A.8 recorded the divergence and explicitly refused to settle it by preference: *"if the manager wants a different canonical homepage source, that is their decision to make."* §2A.1 calls `index (7).html` "the newest approved export" while §2A.8 limits its authority to two CSS points — **both artefacts are approved and they disagree**, which no engineer can resolve. R21 governs only *how* an image is delivered, "never which image, what it depicts, or where it sits on the page", so this could not be absorbed into R21 silently; D7 is what authorises it. Worklist and per-image evidence: Phase 14 task 2a. |
+| **D9** | **The production edge architecture, and whether the Cloud Run origin must actually be unreachable.** Phase 20 task 10 requires that all traffic pass Cloudflare so the WAF cannot be bypassed. A Cloud Run domain mapping does **not** deliver that — the `*.run.app` hostname stays public. Three options: **(a)** domain mapping + Cloudflare proxied — free, simplest, **origin stays reachable and task 10's guarantee is not met**; **(b)** Cloudflare Tunnel to a private-ingress service — origin hidden, free, but adds a component the PDF does not list; **(c)** external Application Load Balancer + Cloud Armor — origin hidden, but **not free** (~$18/mo of forwarding rules), which breaks the zero-cost premise. Secondary and inseparable: **§3.7's unresolved Hostinger→Cloudflare nameserver migration**, which moves the live Zoho MX and every TXT record with it. | Phase 20 tasks 5–10; the custom domain `https://vokr.shop/`; **R19** (HTTPS/HSTS/WAF) | Two of the three options change either the security guarantee the PDF states or the cost model it is built on, so this is a business trade-off, not an engineering call — the same authority used for D1 and D5. It also cannot be executed from this environment at all: there are **no Cloudflare credentials and no Hostinger access** here, and a nameserver delegation is irreversible on a TTL timescale and breaks statutory `grievance@` mail if the records are not recreated first. Options, evidence and the ordered external checklist: `vokr/docs/infrastructure/domain-and-dns.md`. Recorded 10 Sep 2026. |
 
 ---
 
@@ -4016,6 +4017,135 @@ Branch `deploy/production-infrastructure`.
   the Phase 5 closure commit) — the running service is provably that
   commit, not an untracked build.
 
+**SECOND PASS — 10 September 2026 (branch `deploy/production-cicd`,
+commits `ee676b6`, `d1e0469`).**
+
+**Built this pass:**
+
+- **`.github/workflows/deploy.yml` (tasks 4/5, the gap the first pass
+  left).** Three jobs. *preflight* asserts all ten required repository
+  variables are present, that `NEXT_PUBLIC_SITE_URL` is neither empty nor
+  localhost, and that the target project is `vokr-website` — it fails
+  closed rather than substituting a default. *build* checks out
+  `github.sha` exactly, refuses a dirty tree, authenticates via the
+  existing WIF provider (no Actions secret, no service-account JSON key),
+  builds, asserts no `.env` file reached the runtime image, pushes tagged
+  with the commit SHA and resolves the **digest**. *deploy* is gated on a
+  `production` GitHub Environment (task 5's manual approval), records the
+  currently serving revision as a rollback target, deploys **by digest
+  rather than by tag**, asserts `max-instances=3` / the dedicated runtime
+  service account / that the live image is the digest just built (Phase 20
+  task 2, in-pipeline), runs the smoke test, and on any failure returns
+  100% of traffic to the recorded revision. YAML parsed and all 13
+  embedded `run` scripts `bash -n`-checked. **It has never executed** —
+  see the blocker below.
+
+- **`vokr/scripts/assert-deployable.ts` (`npm run deploy:check`).**
+  Refuses a manual deploy from a dirty working tree or from a commit
+  present on no remote. Demonstrated failing correctly on both counts
+  against the current tree.
+
+- **`vokr/infra/artifact-registry-cleanup-policy.json`** — the R2 policy is
+  now version-controlled rather than existing only as console state.
+
+- **`vokr/docs/infrastructure/{cicd,cloud-run,artifact-registry,domain-and-dns}.md`**
+  — the files this phase's "Files / Areas Affected" already named.
+
+**Five defects found by auditing the live infrastructure and by building
+the committed tree. Three are repaired; two are recorded and deliberately
+left alone.**
+
+1. **The Artifact Registry cleanup policy had deleted every tag in the
+   repository — repaired.** `delete-old-tagged` was `DELETE` on
+   `{tagState: TAGGED}` with no `olderThan` and no `tagPrefixes`. At audit
+   time the repo held eight versions and zero tags, and
+   `gcloud artifacts docker images describe …:b6f706bb…` returned
+   `Image not found`. So the commit → image provenance this plan recorded
+   was **no longer verifiable from the registry**, and the digest the
+   running revision pins had become untagged and was in scope for
+   `delete-untagged-after-1-day` — with `min-instances=0`, deleting it
+   risks breaking cold starts on a live service. Repaired by re-tagging
+   that digest with its commit SHA and with `production` (the mapping
+   taken from Cloud Run's own records: the service spec named the tag, the
+   revision recorded the digest it resolved to — nothing inferred), and by
+   replacing the policy with four rules: KEEP `production*`, KEEP the 2
+   most recent, DELETE tagged older than 30 d, DELETE untagged older than
+   1 d. Applied with `--no-dry-run` and read back via `describe`.
+
+2. **Cloud Run's startup probe did not check the database — repaired.**
+   See the Phase 20 status block.
+
+3. **`vokr/public/` is not in the committed tree — repaired.** It is
+   empty, so it holds no tracked file and git does not create it on
+   checkout; the runner stage's `COPY --from=builder /app/public` then
+   fails on **every clean checkout**. `mkdir -p public` in the builder
+   stage removes the dependency (`d1e0469`).
+
+4. **The committed tree does not build — recorded, not fixed.** Five
+   committed API routes (`api/cart/route.ts`, `api/cart/items/route.ts`,
+   `api/cart/items/[id]/route.ts`, `api/marketing/contact/route.ts`,
+   `api/marketing/newsletter/route.ts`) import `@/lib/log`, but
+   `vokr/src/lib/log.ts` **has never been committed**. `npm run build`
+   fails from a clean checkout at every commit back to and including
+   `b6f706b` — the commit currently deployed to production.
+
+5. **`NEXT_PUBLIC_*` values do not reach the client bundle in committed
+   code — recorded, not fixed.** The live production bundles were scanned
+   for the real Supabase project ref: **absent**. The committed
+   `src/lib/env-client.ts` reads client variables as
+   `parseEnvSection(clientSchema, process.env, …)`, and Next.js inlines
+   `NEXT_PUBLIC_*` by rewriting *static member expressions*, so a
+   whole-object reference inlines nothing. Supplying the build args does
+   not help: a build of the committed tree **with the real
+   `NEXT_PUBLIC_SUPABASE_*` values supplied was refused** by the new
+   Dockerfile assertion, because the values were still absent from
+   `.next/static`. Runtime consequence in production today:
+   `createSupabaseBrowserClient()` throws in the browser, so the
+   **password-reset form is broken** (the only other consumer is the
+   Google sign-in button, which is deferred). Email/password sign-in and
+   sign-up go through API routes and are unaffected.
+
+   Defects 4 and 5 are **not fixed here by design**: both live in
+   application code that is under active uncommitted change in the working
+   tree (which already carries `log.ts` and a corrected `env-client.ts`
+   with literal `process.env.NEXT_PUBLIC_…` references, plus a test for
+   it), and shipping application code was out of scope for this pass. The
+   Dockerfile now refuses to build an image in which a supplied
+   `NEXT_PUBLIC_*` value did not reach `.next/static`, and `deploy.yml`
+   fails closed if the variables are unset — so the pipeline cannot ship
+   either defect silently.
+
+**Validation performed** (detached worktree at `ee676b6`, with `log.ts`
+copied in but *not* committed, so the Dockerfile itself could be
+exercised): the CI-style build with only `NEXT_PUBLIC_SITE_URL` succeeds,
+the inlining assertion correctly skips, image **318 MB** (unchanged); the
+container boots, answers HTTP on :3000, runs as uid 1001 (`nextjs`) and
+contains no `.env` file; the build with `NEXT_PUBLIC_SUPABASE_*` supplied
+is refused, as described above. Live-side: `gcloud iam service-accounts
+keys list` shows `SYSTEM_MANAGED` keys only on both service accounts (no
+downloadable key has ever existed), and a scan of every JS chunk served by
+the live deployment finds **no server-only secret name** — the Phase 1
+bundle guarantee holds in production, not only in CI.
+
+**THE BLOCKER FOR R1, newly recorded.** `origin/master` is at `4ec495f` —
+**Phase 2**. Phases 3, 4 and 5 and the infrastructure commit `29e5b30`
+have never been pushed to GitHub. There are zero Actions runs, and
+`ci.yml` is not on the default branch, so **the PR gate has never executed
+either**. A merge-to-`master` deploy today would build Phase 2 code and
+regress production. Nothing was pushed in this pass, by explicit
+instruction. **R1 therefore stays open**, and neither workflow has been
+exercised end to end. The exact `gh variable set` and environment commands
+needed once that is resolved are in `vokr/docs/infrastructure/cicd.md`.
+
+**Still blocked, unchanged:** staging/production separation (task 9 — needs
+the R5 second Supabase project, not invented here), `prisma migrate deploy`
+in the pipeline (task 11, same dependency), rollback practised for real
+(task 13), and 5 of the 6 Secret Manager containers still empty (task 8 —
+**1 active version, not 6**; there are no real Razorpay/Brevo credentials
+to put in them, and inventing them is forbidden).
+
+---
+
 #### Objective
 GitHub → GitHub Actions → Artifact Registry → Cloud Run, with environment
 separation, a registry cleanup policy from the first push, and Secret
@@ -4164,6 +4294,82 @@ plan's sense: the plan requires "an alert observed firing" by lowering a
 threshold, which was not done in this pass (would send a real
 notification email; left for a deliberate follow-up rather than doing it
 inside an otherwise scaffolding-only pass).
+
+**SECOND PASS — 10 September 2026 (branch `deploy/production-cicd`,
+commits `ee676b6`, `d1e0469`).** Three things moved; the rest is unchanged
+and still externally blocked.
+
+- **Tasks 1 and 2 — Cloud Run configuration re-verified and hardened.**
+  Still `asia-south1`, `min-instances=0`, `max-instances=3`, 1 vCPU,
+  512 MiB, concurrency 80, timeout 300 s, running as
+  `vokr-cloud-run@vokr-website.iam.gserviceaccount.com` — read back from
+  `gcloud run services describe --format=json`, not the console. Two
+  changes: the default TCP-on-:3000 startup probe was replaced with an
+  **HTTP probe on `/api/health`** (delay 5 s, timeout 5 s, period 10 s,
+  threshold 12), so a revision that cannot reach Supabase never receives
+  traffic; and the service now references the image **by digest**
+  (`@sha256:447d1599…`) rather than by tag, which a cleanup policy can
+  sweep. Revision `vokr-00009-vdq` came up green under the new probe and
+  serves 100% of traffic; the smoke test passes against it
+  (`/api/health` → 200 `{"status":"ok"}`, `/` → 200,
+  `/api/catalog/products` → 200 with 5 real products,
+  `/shop/kids-model-123` → 200), which is direct evidence that the running
+  revision reaches the real Supabase database. `vokr-00007-4bv` is
+  retained as a rollback target. A third revision, `vokr-00008-6kb`, was
+  created and then deleted in the same pass: its probe path had been
+  mangled by MSYS path translation into `/C:/Program Files/Git/api/health`,
+  and leaving a mis-configured revision in the rollback history would have
+  been worse than removing it.
+
+- **Task 4, job 1 of 3 — keep-warm created and verified.** Cloud Scheduler
+  API enabled; job `vokr-keep-warm` (`asia-south1`, `*/5 * * * *`,
+  `Asia/Kolkata`) issues `GET /api/health` with an OIDC token from a
+  dedicated `vokr-scheduler@vokr-website.iam.gserviceaccount.com`
+  (`roles/run.invoker` on this service only). **Verified firing**, not
+  merely created: the Cloud Run access log records HTTP 200 at
+  `2026-09-10T17:00:01Z` under user agent `Google-Cloud-Scheduler`.
+  Because `/api/health` runs `SELECT 1`, this one job covers both Cloud
+  Run cold starts and Supabase's 7-day inactivity pause. It currently
+  targets the `*.run.app` hostname and must be re-pointed at the
+  production origin after any domain cutover — command recorded in
+  `vokr/docs/infrastructure/cloud-run.md`. **Jobs 2 and 3 remain
+  uncreated**: they would call Phase 18 and Phase 8 code that does not
+  exist.
+
+- **Task 3 — billing budget unchanged, and still not verified.** The
+  budget exists exactly as recorded above. No alert has been observed
+  firing, so by this phase's own standard ("an untested alert is not an
+  alert") **R4 stays open on that clause.**
+
+**Still blocked, unchanged, and not attempted (tasks 5–10):** all of
+Cloudflare, the domain, DNS, SSL/HSTS, cache rules, WAF, bot protection,
+the domain mapping, the five Zoho mailboxes and the Brevo sending DNS.
+Measured this pass, read-only: `vokr.shop` nameservers are
+`helios.dns-parking.com` / `aster.dns-parking.com` (Hostinger, per §3.7);
+the apex resolves to Hostinger IPs, and `https://vokr.shop/` returns a
+**Hostinger** page (`platform: hostinger`), not this application.
+
+**One new finding:** the published SPF record is `v=spf1 include:zoho.in
+~all` — **Brevo is not in it**, so §3.7.1's single merged record does not
+yet exist and **R12 stays open** independently of anything buildable here.
+A `brevo-code:` TXT is present, which is verification, not sending
+authorisation.
+
+Task 10's "the origin is not reachable directly" is additionally an
+**unresolved architectural question**, not merely missing access: a Cloud
+Run domain mapping leaves the `*.run.app` hostname public, so the WAF
+stays bypassable. The three real options and their cost/security
+trade-offs are written up in `vokr/docs/infrastructure/domain-and-dns.md`
+for a manager decision. Domain mapping *is* available in `asia-south1`
+(the API accepts the region and returns `NOT_FOUND` for the domain, not a
+region error).
+
+**Task 12 (the Google OAuth production redirect URL) was explicitly
+excluded from this pass by instruction and remains deferred.**
+
+`https://vokr.shop/` is **not** live with this application.
+
+---
 
 #### Objective
 The production runtime: Cloud Run in Mumbai with the exact configuration the
@@ -4979,17 +5185,17 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] Cold-start time measured with and without keep-warm
 
 ### 13.17 CI/CD & infrastructure
-- [ ] **R1: every change reaches production only through the pipeline** ✱
-- [ ] **R2: Artifact Registry cleanup policy active; registry under quota** ✱
+- [ ] **R1: every change reaches production only through the pipeline** ✱ — `deploy.yml` written and validated but **never executed**: `origin/master` is still at Phase 2 (`4ec495f`) and nothing since has been pushed, so neither workflow has ever run. The image in production was built by hand from an uncommitted working tree
+- [x] **R2: Artifact Registry cleanup policy active; registry under quota** ✱ *(10 Sep 2026 — policy re-applied `--no-dry-run` and read back via `describe`; version-controlled at `vokr/infra/artifact-registry-cleanup-policy.json`. The previous policy had deleted every tag in the repository, including the live service's — see Phase 19 Status. ~128 MB of 500 MB. The 400 MB storage alert R2 also asks for does not exist.)*
 - [ ] **R3: exactly 6 Secret Manager versions, loaded at boot; rotation proven** ✱
-- [ ] **R4: `max-instances=3` verified via API** ✱
+- [x] **R4: `max-instances=3` verified via API** ✱ *(10 Sep 2026 — `gcloud run services describe --format=json`, and asserted in `deploy.yml` after every deploy, per Phase 20 task 2)*
 - [ ] **R4: billing budget alerts at $1/$5/$20, one observed firing** ✱
 - [ ] **R5: staging on Razorpay sandbox, enforced at boot** ✱
-- [ ] `NEXT_PUBLIC_SITE_URL` correct in the production image (§2.5 trap closed)
-- [ ] All three Cloud Scheduler jobs green
+- [ ] `NEXT_PUBLIC_SITE_URL` correct in the production image (§2.5 trap closed) — the served canonical **is** `https://vokr.shop`, but no `NEXT_PUBLIC_*` value reaches the **client** bundle at all in committed code (Phase 19 Status, defect 5), so this cannot be called closed
+- [ ] All three Cloud Scheduler jobs green — **1 of 3 exists.** `vokr-keep-warm` created and verified firing (HTTP 200 at `2026-09-10T17:00:01Z`, UA `Google-Cloud-Scheduler`); jobs 2 and 3 would call Phase 18 / Phase 8 code that does not exist
 - [ ] DNS, SSL, cache rules correct; no identity-bearing response cached — **at whichever provider holds the zone at launch. Today that is Hostinger (§3.7), not Cloudflare; if the Cloudflare migration ran, re-verify mail flow and Brevo authentication after cutover**
 - [ ] **Brevo domain authentication reported VERIFIED by Brevo itself** (§3.7.1) — records present in DNS is not verification
-- [ ] All five `@vokr.shop` mailboxes receiving; SPF is a single merged record covering Zoho and Brevo
+- [ ] All five `@vokr.shop` mailboxes receiving; SPF is a single merged record covering Zoho and Brevo — **measured 10 Sep 2026: the published record is `v=spf1 include:zoho.in ~all`, so Brevo is NOT in it.** The merged record does not exist yet; R12 stays open
 - [ ] Rollback performed and timed
 
 ### 13.18 Content & legal
