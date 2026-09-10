@@ -1,0 +1,120 @@
+name: CI
+
+# Phase 19 — CI/CD + Artifact Registry (Vokr-Implementation-Plan.md).
+# Runs on every pull request. Nothing merges red.
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "vokr/**"
+      - ".github/workflows/ci.yml"
+
+defaults:
+  run:
+    working-directory: vokr
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    env:
+      # `npm run verify` runs the production build, which loads
+      # `prisma7.config.ts` — that resolves DATABASE_URL at config-load
+      # time even though `prisma generate` itself makes no connection.
+      # A syntactic placeholder is enough; PR builds never touch a real
+      # database.
+      DATABASE_URL: "postgresql://build:build@localhost:5432/build"
+      NEXT_PUBLIC_SITE_URL: "https://vokr.shop"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: "vokr/.nvmrc"
+          cache: "npm"
+          cache-dependency-path: "vokr/package-lock.json"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+      - name: No server secret name in the client bundle
+        run: |
+          set -euo pipefail
+          # AGENTS.md / Phase 19: the runtime image must contain no build
+          # secret and no server-only variable name. `env-client.ts`'s own
+          # split (Phase 3) keeps the server schema's key list out of any
+          # client chunk — assert that holds for every build, not just the
+          # day it was fixed.
+          SERVER_ONLY_KEYS="SUPABASE_SERVICE_ROLE_KEY RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET BREVO_API_KEY SENTRY_AUTH_TOKEN R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY"
+          FOUND=0
+          for key in $SERVER_ONLY_KEYS; do
+            if grep -r "$key" .next/static >/dev/null 2>&1; then
+              echo "FAIL: $key found in a client bundle (.next/static)" >&2
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK: no server secret name found in .next/static"
+
+      - name: Homepage weight budget
+        run: |
+          set -euo pipefail
+          # Guards against an accidental regression to the legacy
+          # multi-megabyte homepage the Phase 0 audit found and Phase 4
+          # replaced. Generous headroom (500 KB) — this is a budget, not a
+          # precision measurement.
+          SIZE=$(find .next/static/chunks -maxdepth 1 -name "*.js" -exec du -cb {} + | tail -1 | cut -f1)
+          echo "Homepage JS chunk weight: ${SIZE} bytes"
+          if [ "$SIZE" -gt 512000 ]; then
+            echo "FAIL: homepage JS chunks exceed the 500 KB budget" >&2
+            exit 1
+          fi
+
+      - name: Docker image builds
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_SITE_URL=https://vokr.shop \
+            -t vokr:ci-check .
+
+      - name: Container starts and answers /api/health
+        run: |
+          set -euo pipefail
+          docker run -d --name vokr-ci-check -p 8080:3000 vokr:ci-check
+          CODE="000"
+          for i in $(seq 1 15); do
+            CODE=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:8080/api/health || echo "000")
+            if [ "$CODE" != "000" ]; then
+              # This job has no database, so /api/health legitimately
+              # returns 503 here — the assertion is that the server
+              # answers HTTP at all, not that the DB check passes.
+              echo "Container answered with HTTP $CODE (503 is expected with no database in this job)."
+              break
+            fi
+            if [ "$i" -eq 15 ]; then
+              echo "FAIL: container never answered on :8080" >&2
+              docker logs vokr-ci-check || true
+              exit 1
+            fi
+            sleep 1
+          done
+          docker rm -f vokr-ci-check

@@ -1,0 +1,39 @@
+# Phase 19 — keeps the build context (and therefore anything that could
+# leak into a layer) to source only. Artifact Registry's free tier is
+# 0.5 GB, the tightest quota in the stack (plan §3.3) — nothing here
+# should ever need to reach the image.
+
+node_modules
+.next
+.git
+.gitignore
+
+# tests and reference artefacts never shipped to production
+e2e
+coverage
+test-results
+playwright-report
+blob-report
+prisma/__tests__
+prisma/seed.ts
+prisma/seed-data.ts
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+
+# local/dev-only config and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+docker-compose.yml
+.vscode
+.agents
+.claude
+.windsurf
+skills-lock.json
+
+# docs and non-runtime metadata
+README.md
+*.tsbuildinfo
+next-env.d.ts

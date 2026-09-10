@@ -3765,7 +3765,94 @@ in §0.2 including its date and measured RTO.
 ### PHASE 19 — CI/CD + Artifact Registry
 
 #### Status
-**NOT STARTED**
+**IN PROGRESS (infra scaffolding only) — 10 September 2026.** Started
+ahead of its stated prerequisite (Phase 16, Security + Abuse Protection,
+is `NOT STARTED`) at explicit user instruction, scoped deliberately to
+the subset that has no dependency on unbuilt phases. See "What is
+genuinely blocked" below for what cannot close until Phases 6–18 land.
+Branch `deploy/production-infrastructure`.
+
+**Built and verified:**
+- `vokr/Dockerfile` (multi-stage: deps → builder → runner, `node:22-alpine`,
+  non-root `nextjs` user, `output: "standalone"`), `vokr/.dockerignore`.
+  Local `docker build` succeeds; container starts and serves the real
+  homepage; `/api/health` returns 200 against a real Postgres and 503
+  when the DB is unreachable. Image size **318 MB** — over the task's
+  150 MB aspirational target; the gap is `node:22-alpine`'s own base
+  layers (~180 MB, mandated by task 1's exact base-image choice), not
+  the application layers (`.next/standalone` + `.next/static` + `public`
+  together are ~67 MB). Hitting 150 MB would require a different base
+  image than the plan specifies.
+- Phase 19 task 10 (the §2.5 localhost-canonical-URL gate): implemented
+  as a `Dockerfile` build-arg check, not an application-code change —
+  the build fails if `NEXT_PUBLIC_SITE_URL` is empty or contains
+  `localhost`.
+- `vokr/src/app/api/health/route.ts` — did not exist before this phase;
+  required by the Dockerfile healthcheck, Cloud Run, and the smoke test.
+  Touches Postgres via `prisma.$queryRaw\`SELECT 1\``, per `AGENTS.md`.
+- `vokr/scripts/smoke-test.ts` (`npm run smoke-test`) — health, homepage,
+  catalog API, one PDP. **Two items the plan names are not implemented**:
+  full PDP content assertions (belongs with Phase 4/13 rendering) and
+  webhook-signature rejection (no webhook endpoint exists before Phase 7).
+- `.github/workflows/ci.yml` — PR gate: lint, typecheck, unit tests,
+  production build, a client-bundle server-secret-name scan, a homepage
+  JS weight budget, and a Docker build-and-boot check. Not yet exercised
+  by a real PR merge in this session (would require pushing to GitHub,
+  out of scope for this pass — the equivalent commands were all run and
+  verified locally instead).
+- GCP project **`vokr-website`** (created this session; billing account
+  `0186FE-763C1B-A6406E`). One project only (not vokr-staging/vokr-prod
+  split) — see "Environment separation" below for why.
+- Artifact Registry repo `vokr` (`asia-south1`, Docker format) with a
+  cleanup policy **applied live (not dry-run)**: keep the 2 most recent
+  tagged versions, delete all other tagged versions, delete untagged
+  after 1 day. Verified via `gcloud artifacts repositories describe`.
+- Workload Identity Federation: pool `github-actions`, OIDC provider
+  `github` (issuer `token.actions.githubusercontent.com`), attribute
+  condition restricting the pool to `assertion.repository ==
+  'SmaranReddy/Vokr-Website'` exactly. No service-account JSON key
+  created or downloaded anywhere in this session.
+- Service accounts: `github-deployer@vokr-website.iam.gserviceaccount.com`
+  (roles: `artifactregistry.writer`, `run.developer`,
+  `iam.serviceAccountUser`; bound to the WIF principal set for the exact
+  GitHub repo only) and `vokr-cloud-run@vokr-website.iam.gserviceaccount.com`
+  (the Cloud Run **runtime** identity — not the default compute service
+  account; granted `secretmanager.secretAccessor` on each of the 6
+  secrets below).
+- Secret Manager: the 6 secrets the plan names —
+  `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_ID`,
+  `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY` —
+  created as containers. **Only `DATABASE_URL` has a real value** (the
+  real Phase 2 Supabase project's pooler connection string, added
+  directly by the user via `gcloud secrets versions add --data-file=`,
+  never typed into this conversation). The other 5 remain empty
+  containers — there are no real Razorpay/Brevo credentials to put in
+  them yet (Phases 7/11 not built), and the task explicitly forbids
+  inventing production credentials.
+  - `DATABASE_URL` took three attempts to get right, all diagnosed
+    without the value ever being read or displayed in this conversation:
+    v1 was a truncated 2-character value (an interactive-paste/stdin
+    failure); v2 carried a leading UTF-8 BOM from
+    `Out-File -Encoding utf8` in Windows PowerShell 5.1, which broke
+    `pg-connection-string`'s scheme detection and resolved to a dummy
+    host (`getaddrinfo EAI_AGAIN base`) — confirmed by reading
+    `pg-connection-string`'s source (`new URL(str, 'postgres://base')`)
+    and by a temporary, non-secret diagnostic route (reported only
+    length/first-char-code/parsed-host, deployed as a tagged
+    zero-traffic revision, then deleted) before any secret content was
+    trusted; v3 (`[System.IO.File]::WriteAllText`, no BOM) is correct
+    and live. v1 and v2 are disabled, not deleted (rotation discipline).
+- Cloud Run service `vokr` in `asia-south1`: `min-instances=0`,
+  `max-instances=3` (verified via `gcloud run services describe`, not
+  the console), 1 vCPU, 512 MiB, concurrency 80, running as
+  `vokr-cloud-run@...`, `DATABASE_URL` wired from Secret Manager
+  `:latest`. **Deployed and fully smoke-tested**: `/api/health` → 200,
+  `/` → 200, `/api/catalog/products` → 200 with 5 real products,
+  `/shop/kids-model-123` → 200. Live URL:
+  `https://vokr-plxgen7xla-el.a.run.app`. Deployed image is tagged with
+  the exact commit SHA it was built from (`b6f706bb0fb2211866b4c211aad9f13f171f327e`,
+  the Phase 5 closure commit) — the running service is provably that
+  commit, not an untracked build.
 
 #### Objective
 GitHub → GitHub Actions → Artifact Registry → Cloud Run, with environment
@@ -3779,6 +3866,26 @@ image, not after it fills.
 
 #### Prerequisites
 Phases 1, 16. GCP project with billing enabled.
+
+**What is genuinely blocked (Phase 16 and later phases not built yet):**
+- No staging/production Razorpay sandbox-vs-live separation or boot
+  assertion (task 9) — Razorpay isn't integrated until Phase 7.
+- Migration strategy (task 11, `prisma migrate deploy` in the pipeline)
+  not wired into `deploy.yml` — no staging database to migrate against
+  yet without deciding on a second Supabase project (R5), which is
+  itself deferred.
+- Rollback (task 13) not practised for real — there is only one revision
+  history worth rolling back through so far; will be practised once
+  `deploy.yml` performs real merge-triggered deploys.
+- `deploy.yml` (build → push → auto-deploy staging → manual-approve
+  production) was not written — everything above was done by direct
+  `gcloud`/`docker` commands in this session instead, to validate the
+  infrastructure before wiring CI to drive it. Writing `deploy.yml`
+  itself is unblocked and is the next concrete step, but was left for a
+  follow-up pass given the amount of time this session spent
+  diagnosing the `DATABASE_URL` secret (see below).
+- 5 of 6 Secret Manager secrets are empty containers (no real
+  Razorpay/Brevo credentials exist to put in them).
 
 #### Scope
 Dockerfile; the CI pipeline; Artifact Registry with a cleanup policy;
@@ -3861,7 +3968,40 @@ been performed for real.
 ### PHASE 20 — Cloud Run + Cloudflare Production Deployment
 
 #### Status
-**NOT STARTED**
+**IN PROGRESS (Cloud Run only) — 10 September 2026.** Task 1's exact
+Cloud Run configuration (`asia-south1`, `min-instances=0`,
+`max-instances=3`, 1 vCPU, 512 MiB, concurrency 80) is live and verified
+via `gcloud run services describe` — see Phase 19's status block for
+full detail (it was validated together with the Artifact Registry /
+Secret Manager work, task 2's "verified by an infrastructure assertion,
+not the console" is satisfied the same way).
+
+**Everything else in this phase is blocked on external access this
+session does not have and must not invent:** Cloud Scheduler's 3 jobs
+(task 4 — no keep-warm/backup/maintenance jobs exist yet; nothing to
+schedule them against beyond the health check), all of Cloudflare (DNS,
+SSL, cache rules, WAF, bot protection — tasks 5–7, 10; no Cloudflare
+account credentials in this environment), the 5 Zoho mailboxes (task 8),
+Brevo sending DNS (task 9), and the domain itself (`vokr.shop` is
+registered and DNS-managed at Hostinger per §3.7 — moving/pointing it
+requires access to that Hostinger account). The Cloud Run service is
+reachable today only at its `*.run.app` URL
+(`https://vokr-plxgen7xla-el.a.run.app`), not at `vokr.shop`.
+
+**Billing budget alerts (R4, task 3): created.** AGENTS.md states this as
+non-negotiable ("Billing budget alerts are always live"), so this was
+done rather than only flagged. Scoped to the `vokr-website` project only
+(`projects/978877857702`), monthly calendar period, thresholds at 5% /
+25% / 100% of a ₹2,000 budget. **The billing account's currency is INR,
+not USD** — the plan's "$1/$5/$20" is approximated as ₹100/₹500/₹2,000
+(budget ID `d3a6647b-8c72-4638-84c4-31ecd6f7454d`); adjust if a different
+INR mapping is wanted. Notifications go to the billing account's default
+IAM recipients (`baquar@haett.app`, `roles/billing.admin`) — no separate
+Pub/Sub or monitoring channel was configured. **Not yet VERIFIED** in the
+plan's sense: the plan requires "an alert observed firing" by lowering a
+threshold, which was not done in this pass (would send a real
+notification email; left for a deliberate follow-up rather than doing it
+inside an otherwise scaffolding-only pass).
 
 #### Objective
 The production runtime: Cloud Run in Mumbai with the exact configuration the
@@ -4219,11 +4359,11 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 
 | # | Requirement | What must be implemented | Phase | How it is verified | Evidence required | Status |
 |---|---|---|---|---|---|---|
-| **R1** | Git repository with CI/CD | Repo exists (done); GitHub Actions → Artifact Registry → Cloud Run | 0, 19 | A change reaches production only through the pipeline | Successful pipeline run URL; deployed revision SHA | IN PROGRESS |
-| **R2** | Artifact Registry cleanup policy | Keep 2 tags, delete untagged; set in the repository-creating commit. `output: "standalone"` keeps images small | 0, 19 | Policy queried via API; registry under quota after ≥ 5 deploys | Policy JSON; registry size screenshot; image size | IN PROGRESS |
-| **R3** | Secrets in Secret Manager, loaded at boot | Exactly 6 versions: DB URL, Razorpay key ID, key secret, webhook secret, Brevo API key, Supabase service-role key | 19 | Version count = 6; a boot-time load with zero per-request fetches | Version listing; access-count metric; rotation drill log | NOT STARTED |
-| **R4** | `max-instances=3` + billing budget alerts | Set at service creation; alerts at $1/$5/$20 | 20 | Service config via API; **an alert observed firing** | Service description; alert screenshot | NOT STARTED |
-| **R5** | Environment separation | Dev/staging/prod; staging on Razorpay **sandbox** | 19 | Boot assertion rejects live keys outside production | Config listing; failing-boot test output | NOT STARTED |
+| **R1** | Git repository with CI/CD | Repo exists (done); GitHub Actions → Artifact Registry → Cloud Run | 0, 19 | A change reaches production only through the pipeline | Successful pipeline run URL; deployed revision SHA | IN PROGRESS — `ci.yml` (PR gate) written; `deploy.yml` (the actual pipeline) not yet written, image was built/pushed/deployed by direct `gcloud`/`docker` commands this session to validate the infra first. Deployed revision provably runs commit `b6f706bb0fb2211866b4c211aad9f13f171f327e`. |
+| **R2** | Artifact Registry cleanup policy | Keep 2 tags, delete untagged; set in the repository-creating commit. `output: "standalone"` keeps images small | 0, 19 | Policy queried via API; registry under quota after ≥ 5 deploys | Policy JSON; registry size screenshot; image size | **VERIFIED** — repo `vokr` (`asia-south1`), cleanup policy applied live (not dry-run), confirmed via `gcloud artifacts repositories describe`; registry holds exactly 1 tagged image today. Container image itself is 318 MB (over the 150 MB aspirational target — the gap is `node:22-alpine`'s own base layers, not the app). |
+| **R3** | Secrets in Secret Manager, loaded at boot | Exactly 6 versions: DB URL, Razorpay key ID, key secret, webhook secret, Brevo API key, Supabase service-role key | 19 | Version count = 6; a boot-time load with zero per-request fetches | Version listing; access-count metric; rotation drill log | IN PROGRESS — all 6 secret containers exist; only `DATABASE_URL` has a real value (live, wired into Cloud Run, verified working end-to-end). The other 5 are empty — no real Razorpay/Brevo credentials exist yet (Phases 7/11). Boot-time load via `requireServerEnv()` already existed from Phase 1; not a per-request fetch. |
+| **R4** | `max-instances=3` + billing budget alerts | Set at service creation; alerts at $1/$5/$20 | 20 | Service config via API; **an alert observed firing** | Service description; alert screenshot | IN PROGRESS — `max-instances=3` verified live via `gcloud run services describe`. Budget alert created (billing account is INR-denominated; thresholds are ₹100/₹500/₹2,000 approximating $1/$5/$20), scoped to the `vokr-website` project, id `d3a6647b-8c72-4638-84c4-31ecd6f7454d`. **Not VERIFIED**: no alert has been observed firing yet. |
+| **R5** | Environment separation | Dev/staging/prod; staging on Razorpay **sandbox** | 19 | Boot assertion rejects live keys outside production | Config listing; failing-boot test output | NOT STARTED — deliberately deferred; a single GCP project/Cloud Run service exists today, no staging environment, no boot assertion. Meaningless before Phase 7 (Razorpay) exists to have a sandbox-vs-live distinction. |
 | **R6** | Server-side price resolution | Prices resolve from variant ID server-side; no endpoint accepts a price | 2, 5, 6 | Automated test: posting a price changes nothing. **Client-controlled-pricing regression test** (generalized from the legacy gift-card defect; the gift-card SKU itself is deferred, D1) | Test run; the regression test | IN PROGRESS — structural half done (Phase 2: `resolvePrices()` is the only price-shaped export, unit-tested); behavioural half (no cart/checkout endpoint accepts a client price) lands in Phase 5 |
 | **R7** | Razorpay webhook signature verification | Constant-time HMAC on the raw body; state driven only by webhooks | 7 | Tampered payload rejected; forged browser callback grants nothing | Security test output | NOT STARTED |
 | **R8** | Idempotency keys | On checkout session, Razorpay order creation and all payment endpoints | 6, 7 | Repeated key produces one order; replayed webhook is inert | Integration test; concurrency run | NOT STARTED |
@@ -4242,7 +4382,7 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | NOT STARTED |
 | **R22** | DPDP consent + log retention | Consent records, export and deletion endpoints, weekly log export to R2 | 15, 17 | Full export-and-erasure cycle on a real test account; export job running | Cycle log; R2 listing | NOT STARTED |
 
-**Current: 0 of 22 VERIFIED.** Two are blocked on human decisions (R11 on
+**Current: 2 of 22 VERIFIED** (R2, R13). Two are blocked on human decisions (R11 on
 D2, R16 on D3) and should be unblocked immediately because they gate late
 phases and have long lead times.
 
