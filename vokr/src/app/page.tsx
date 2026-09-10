@@ -375,22 +375,26 @@ export default function Home() {
                 </Link>
                 <p className="mb-1 text-sm font-bold">{product.name}</p>
                 <p className="mb-3 text-sm text-muted">{product.desc}</p>
-                {/* Legacy label is "Add to Cart", kept verbatim. D5's
-                    inert-control exception expired for the *PDP* button when
-                    Phase 5 closed, and that one is now real. This card is a
-                    separate control with no size selector, and Phase 5
-                    resolves price and stock from a variant ID — there is no
-                    variant to send from here without inventing a default
-                    size. Registered as its own §2A.6 row (D6) rather than
-                    given a premature implementation or silently removed. */}
-                <button
-                  type="button"
-                  aria-disabled="true"
-                  title="Choose a size on the product page to add this to your cart"
-                  className="cursor-default border border-border-strong px-5 py-2.5 text-[13px] font-semibold opacity-60"
+                {/* D6, resolved 12 Sep 2026 — option (b), manager-approved
+                    (§0.3 D6, §2A.6): the control navigates to its PDP, where
+                    a size can be chosen and the real Phase 5 add-to-cart
+                    runs. The card carries no size selector and Phase 5
+                    resolves price, GST and stock from a variant ID, so there
+                    is nothing to add from here directly without inventing a
+                    default size. The legacy label is unchanged; the sr-only
+                    suffix names the destination for screen readers without
+                    altering visible content (§2A.4) or the §2A.7 text diff,
+                    which excludes `.sr-only`. */}
+                <Link
+                  href={product.href}
+                  className="inline-block border border-border-strong px-5 py-2.5 text-[13px] font-semibold hover:border-foreground"
                 >
                   Add to Cart
-                </button>
+                  <span className="sr-only">
+                    {" — "}
+                    {product.name}: choose a size on the product page
+                  </span>
+                </Link>
               </div>
             ))}
           </div>
