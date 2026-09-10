@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { extractLegacyPage, extractStructure } from "./fidelity/extract";
+import {
+  extractLegacyPage,
+  extractStructure,
+  assertSupersetAroundCardList,
+} from "./fidelity/extract";
 
 /**
  * §2A.7 fidelity regression — text-content diff (item 1) and structural
@@ -59,6 +63,29 @@ const CASES: FidelityCase[] = [
   { route: "/subscription", legacyFile: "subscription.html" },
   { route: "/analyze-your-shoes", legacyFile: "analyze-your-shoes.html" },
   { route: "/reviews", legacyFile: "reviews.html", supersetOk: true },
+  // The 5 dynamic PDP routes (task 5) — name/price/sizes come from the
+  // live Phase 2 catalog rather than static markup (the seeded catalog,
+  // prisma/seed-data.ts, mirrors the legacy prices exactly). Each PDP
+  // carries the same `.rr-section` as reviews.html, with the same
+  // JS-injected (never-executed-by-the-static-extraction) review cards,
+  // so the same supersetOk treatment applies for the same reason.
+  { route: "/shop/model-x", legacyFile: "shop-model-x.html", supersetOk: true },
+  {
+    route: "/shop/model-001",
+    legacyFile: "shop-model-001.html",
+    supersetOk: true,
+  },
+  {
+    route: "/shop/kids-model-123",
+    legacyFile: "shop-kids-model-123.html",
+    supersetOk: true,
+  },
+  { route: "/shop/socks", legacyFile: "shop-socks.html", supersetOk: true },
+  {
+    route: "/shop/stretch-laces",
+    legacyFile: "shop-laces.html",
+    supersetOk: true,
+  },
 ];
 
 for (const { route, legacyFile, supersetOk } of CASES) {
@@ -70,10 +97,12 @@ for (const { route, legacyFile, supersetOk } of CASES) {
     const migrated = extractStructure(mainHtml);
 
     if (supersetOk) {
-      expect(
-        migrated.text,
-        "migrated text must retain every word of the legacy page, in order",
-      ).toContain(legacy.text);
+      // Splits on the JS-injected-review-cards sentinel (see
+      // isolateLegacyContent) so real, server-rendered review cards
+      // sitting between two pieces of legacy static copy don't break an
+      // otherwise-valid match — every other word must still appear, in
+      // order, unaltered.
+      assertSupersetAroundCardList(migrated.text, legacy.text);
     } else {
       expect(migrated.text, "visible text must match the legacy page").toBe(
         legacy.text,

@@ -75,16 +75,63 @@ export function isolateLegacyContent(fullHtml: string): string {
   const endIdx = footerIdx === -1 ? fullHtml.length : footerIdx;
   const content = fullHtml.slice(startIdx, endIdx);
 
-  // `#rrModalOverlay` (reviews.html) is an empty detail-view template —
-  // every field (title/body/name/photos) is blank in the static source
-  // and filled in only by a click handler; the few static labels it does
-  // carry ("Fit", "Size Purchased", the helpful-count default) describe
-  // UI chrome for that interaction, not page content, so it is excluded
-  // the same way the cart/search/account-panel chrome is (never sliced
-  // in to begin with, since those sit outside the nav→footer boundary —
-  // this one happens to sit inside it). Depth-counted rather than a
-  // fixed-depth regex, since `<div>` nests arbitrarily inside it.
-  return stripBalancedDiv(content, '<div class="rr-modal-overlay"');
+  // `#rrModalOverlay` (reviews.html / every PDP) is an empty detail-view
+  // template — every field (title/body/name/photos) is blank in the
+  // static source and filled in only by a click handler; the few static
+  // labels it does carry ("Fit", "Size Purchased", the helpful-count
+  // default) describe UI chrome for that interaction, not page content,
+  // so it is excluded the same way the cart/search/account-panel chrome
+  // is (never sliced in to begin with, since those sit outside the
+  // nav→footer boundary — this one happens to sit inside it).
+  // Depth-counted rather than a fixed-depth regex, since `<div>` nests
+  // arbitrarily inside it.
+  const withoutModal = stripBalancedDiv(content, '<div class="rr-modal-overlay"');
+
+  // `#rrCardList` (reviews.html / every PDP) is an empty container the
+  // legacy's own `<script>` fills via `innerHTML =` at runtime — that
+  // script sits outside this nav→footer slice and is never executed
+  // here, so the static source genuinely carries none of that text.
+  // Replaced with a sentinel (rather than left empty) so
+  // `splitOnCardListSentinel` below can still verify everything *before*
+  // and *after* the card list — the recommend line, the score bars, the
+  // summary paragraph, the sort controls, the "see all" link — without
+  // requiring the whole page to be one unbroken contiguous match.
+  return withoutModal.replace(
+    /<div id="rrCardList"[^>]*>[\s\S]*?<\/div>/,
+    ` ${CARD_LIST_SENTINEL} `,
+  );
+}
+
+export const CARD_LIST_SENTINEL = "⟪JS-INJECTED-REVIEW-CARDS⟫";
+
+/**
+ * For a page whose legacy text contains `CARD_LIST_SENTINEL` (reviews.html
+ * and every PDP — see `isolateLegacyContent`): asserts every legacy
+ * segment around that sentinel still appears in `migratedText`, in the
+ * same order, rather than demanding the legacy text as one unbroken
+ * substring — which would fail merely because the migrated page renders
+ * real review cards *between* two pieces of legacy static copy that are
+ * adjacent only because the legacy left the space between them empty.
+ */
+export function assertSupersetAroundCardList(
+  migratedText: string,
+  legacyText: string,
+): void {
+  const segments = legacyText
+    .split(CARD_LIST_SENTINEL)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let searchFrom = 0;
+  for (const segment of segments) {
+    const foundAt = migratedText.indexOf(segment, searchFrom);
+    if (foundAt === -1) {
+      throw new Error(
+        `Expected migrated text to contain, in order after position ${searchFrom}:\n"${segment}"\n\nFull migrated text:\n${migratedText}`,
+      );
+    }
+    searchFrom = foundAt + segment.length;
+  }
 }
 
 /** Removes the first `<div ...>` matching `openTagPrefix` through its balanced closing `</div>`. */

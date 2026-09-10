@@ -5,6 +5,18 @@ import { useState } from "react";
 import type { CatalogVariant } from "@/server/catalog";
 
 /**
+ * The legacy always displays `IN <size>` (`IN 4`, `IN S/M`, `IN One
+ * Size`). The seed data only bakes that prefix into the adult/kids shoe
+ * sizes (`sizeLabel: "IN 4"`); socks and laces store the bare value
+ * (`"S/M"`, `"One Size"`) — see `prisma/seed-data.ts`. Normalising here
+ * keeps the display faithful without duplicating "IN " for the sizes
+ * that already have it.
+ */
+function displaySizeLabel(sizeLabel: string): string {
+  return sizeLabel.startsWith("IN ") ? sizeLabel : `IN ${sizeLabel}`;
+}
+
+/**
  * The legacy `.pdp-size-grid` / `#pdpAddBtn` — real size selection driven
  * by the live catalog variants, but "Add to Cart" stays inert: cart UI is
  * explicitly out of scope for this phase (Phases 5–7 own it). Matches the
@@ -44,7 +56,7 @@ export function PdpPurchasePanel({
                   : "border-border-strong text-foreground hover:border-foreground"
               } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
             >
-              {variant.sizeLabel}
+              {displaySizeLabel(variant.sizeLabel)}
             </button>
           );
         })}
