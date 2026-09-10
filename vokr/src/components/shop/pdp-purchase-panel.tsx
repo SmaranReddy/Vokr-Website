@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useCart } from "@/components/cart/cart-provider";
 import type { CatalogVariant } from "@/server/catalog";
 
 /**
@@ -18,10 +19,8 @@ function displaySizeLabel(sizeLabel: string): string {
 
 /**
  * The legacy `.pdp-size-grid` / `#pdpAddBtn` — real size selection driven
- * by the live catalog variants, but "Add to Cart" stays inert: cart UI is
- * explicitly out of scope for this phase (Phases 5–7 own it). Matches the
- * header's cart affordance treatment — present, honest about why it
- * doesn't yet do anything, not a silent no-op.
+ * by the live catalog variants. "Add to Cart" now calls the Phase 5 cart
+ * API (`useCart().addItem`) instead of staying inert.
  */
 export function PdpPurchasePanel({
   variants,
@@ -29,7 +28,17 @@ export function PdpPurchasePanel({
   variants: CatalogVariant[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { addItem, openCart, isLoading } = useCart();
   const selected = variants.find((variant) => variant.id === selectedId);
+
+  // Opens the drawer either way: on success it shows the item just added,
+  // on failure it surfaces `CartProvider`'s own error banner — one place
+  // for that message rather than a second copy here.
+  async function handleAddToCart() {
+    if (!selected) return;
+    await addItem(selected.id, 1);
+    openCart();
+  }
 
   return (
     <div>
@@ -64,11 +73,11 @@ export function PdpPurchasePanel({
 
       <button
         type="button"
-        aria-disabled="true"
-        title="Cart launches in a later phase"
-        className="w-full cursor-default bg-foreground px-6 py-3.5 text-sm font-semibold text-background opacity-70"
+        disabled={!selected || isLoading}
+        onClick={() => void handleAddToCart()}
+        className="w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {selected ? `Add to Cart — ${selected.sizeLabel}` : "Add to Cart"}
+        {selected ? `Add to Cart — ${displaySizeLabel(selected.sizeLabel)}` : "Select a size"}
       </button>
       <p className="mt-3 text-xs text-muted">
         Free shipping on orders over ₹4,999. Free 30-day exchanges &amp;

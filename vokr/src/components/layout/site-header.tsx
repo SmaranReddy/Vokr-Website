@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useCart } from "@/components/cart/cart-provider";
 import { NavMenu } from "@/components/layout/nav-menu";
 import { HeaderSearch } from "@/components/layout/header-search";
 
@@ -15,15 +18,14 @@ import { HeaderSearch } from "@/components/layout/header-search";
  *   replacing the legacy's cosmetic slide-over sign-in panel, which the
  *   plan records this phase as *replacing* rather than migrating
  *   (§0.2 Phase 3 evidence log, item 12).
- * - The cart affordance is present (icon + count, matching the legacy
- *   `#cartToggle`) but inert: cart UI is explicitly out of scope for this
- *   phase ("Explicitly Out of Scope" — Cart and checkout UI belongs to
- *   Phases 5–7). Building a `/cart` destination here would be scope
- *   creep into Phase 5; shipping a link to nothing would be a dead
- *   affordance. `aria-disabled` plus a `title` say why, honestly, rather
- *   than either.
+ * - The cart affordance (icon + count, matching the legacy `#cartToggle`)
+ *   now opens the real cart drawer built in Phase 5
+ *   (`src/components/cart/cart-drawer.tsx`), reading its count from
+ *   `CartProvider` — see `src/app/layout.tsx`.
  */
 export function SiteHeader() {
+  const { itemCount, openCart } = useCart();
+
   return (
     <>
       <div className="border-b border-[#222] bg-black px-4 py-3 text-center text-[13px] text-white">
@@ -77,11 +79,10 @@ export function SiteHeader() {
             <button
               type="button"
               aria-label="Your Cart"
-              aria-disabled="true"
-              title="Cart launches in a later phase"
-              className="cursor-default text-[13px] font-semibold text-foreground"
+              onClick={openCart}
+              className="text-[13px] font-semibold text-foreground"
             >
-              Bag&thinsp;<span>0</span>
+              Bag&thinsp;<span>{itemCount}</span>
             </button>
           </div>
         </div>

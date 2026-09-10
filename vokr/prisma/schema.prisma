@@ -1,7 +1,8 @@
-// Vokr production schema — Phase 2 (catalog + inventory) + Phase 3
-// (authentication + guest sessions). See Vokr-Implementation-Plan.md §3.5
-// for the full entity plan and the reasoning behind every constraint
-// below. Carts, orders and payments land in later phases.
+// Vokr production schema — Phase 2 (catalog + inventory), Phase 3
+// (authentication + guest sessions) + Phase 5 (server-side cart). See
+// Vokr-Implementation-Plan.md §3.5 for the full entity plan and the
+// reasoning behind every constraint below. Orders and payments land in
+// later phases.
 
 generator client {
   provider = "prisma-client"
@@ -78,6 +79,7 @@ model ProductVariant {
   status CatalogStatus @default(draft)
 
   inventory Inventory?
+  cartItems CartItem[]
 
   @@unique([productId, colorway, sizeLabel])
   @@index([productId, status])
@@ -124,6 +126,8 @@ model AppUser {
   /// order's `user_id` may still reference.
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  carts Cart[]
+
   @@map("app_users")
 }
 
@@ -143,6 +147,8 @@ model GuestSession {
   /// pruning job's window, not by extending this column on every request.
   expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
 
+  carts Cart[]
+
   @@index([expiresAt])
   @@map("guest_sessions")
 }
@@ -161,4 +167,68 @@ model RateLimitCounter {
 
   @@index([windowStart])
   @@map("rate_limit_counters")
+}
+
+/// One open cart per identity — enforced at the database, not just the
+/// application, by the two partial unique indexes added by hand in the
+/// Phase 5 migration (Prisma's schema language has no partial-index
+/// primitive). `closed` marks a cart that has already been merged into a
+/// user's cart on sign-in (see `src/server/auth/upgrade.ts`) and is kept
+/// only for audit; it is never read from again.
+enum CartStatus {
+  open
+  closed
+
+  @@map("cart_status")
+}
+
+/// An *open* cart belongs to exactly one identity — a signed-in user or a
+/// guest session, never both, never neither (see the hand-written CHECK
+/// in the Phase 5 migration). A `closed` cart is a historical record and
+/// may have neither: its guest session is typically deleted moments
+/// later by the sign-in that closed it, which nulls `guestSessionId` via
+/// the FK. See `src/server/cart/service.ts` for how prices are resolved
+/// on every read; this table never stores one.
+model Cart {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String?  @map("user_id") @db.Uuid
+  user   AppUser? @relation(fields: [userId], references: [id])
+
+  guestSessionId String?       @map("guest_session_id") @db.Uuid
+  guestSession   GuestSession? @relation(fields: [guestSessionId], references: [id])
+
+  status CartStatus @default(open)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Bumped on every cart mutation. Drives the 30-day abandoned-cart
+  /// pruning job (plan §3.5 retention table) — never used to extend a
+  /// cart's life on mere reads.
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items CartItem[]
+
+  @@index([updatedAt])
+  @@map("carts")
+}
+
+/// A line in a cart. **Stores no price** — `getCart()` resolves unit
+/// price, line subtotal and per-variant GST server-side on every read
+/// from `product_variants.price_paise` and `products.gst_rate_bps`, never
+/// from this row (R6).
+model CartItem {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  cartId String @map("cart_id") @db.Uuid
+  cart   Cart   @relation(fields: [cartId], references: [id])
+
+  variantId String         @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  quantity Int
+
+  addedAt DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
+
+  @@unique([cartId, variantId])
+  @@map("cart_items")
 }
