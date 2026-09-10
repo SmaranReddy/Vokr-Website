@@ -43,6 +43,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `prisma generate` writes the client to `src/generated/prisma`, which
+      # is gitignored — so on a fresh checkout it does not exist, and every
+      # step that compiles or imports application code fails until it does.
+      # Only `npm run build` used to generate it, which is *after* typecheck
+      # and unit tests here, so both failed on a clean runner: typecheck with
+      # `Cannot find module '@/generated/prisma/client'` plus its cascade of
+      # implicit-any errors, and the unit suite with 2 of 18 files unable to
+      # import `@/generated/prisma/enums`.
+      #
+      # This is a separate step rather than a `postinstall` hook because
+      # `prisma7.config.ts` resolves `env("DATABASE_URL")` at config-load
+      # time: a postinstall would make `npm ci` itself fail with
+      # `PrismaConfigEnvError` wherever DATABASE_URL is unset — including the
+      # Dockerfile's `deps` stage, which installs before any schema or
+      # environment is present. `npm run verify` starts with the same
+      # `db:generate` call, so the two entry points stay in step.
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
       - name: Lint
         run: npm run lint
 

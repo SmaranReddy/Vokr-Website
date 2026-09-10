@@ -17,7 +17,7 @@
     "test:coverage": "vitest run --project node --project jsdom --coverage",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "verify": "npm run db:generate && npm run lint && npm run typecheck && npm run test && npm run build",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
