@@ -18,6 +18,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# `public/` is empty and therefore holds no tracked file, so it does not
+# exist at all in a clean checkout — only in a working tree where someone
+# happened to create it. The runner stage's `COPY /app/public` then fails,
+# which is why the image running in production could only ever be built
+# from somebody's laptop. Create it unconditionally instead of depending
+# on the checkout to have it.
+RUN mkdir -p public
+
 # NEXT_PUBLIC_* values are inlined into the client bundle at build time,
 # so they must be supplied per environment as build args — never baked
 # into the image from a committed default.
