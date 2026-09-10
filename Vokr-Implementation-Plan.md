@@ -4146,6 +4146,143 @@ to put in them, and inventing them is forbidden).
 
 ---
 
+**PRODUCTION RELEASE — 11 September 2026. Commit `49f817f` is live.**
+
+The first Vokr deployment that is provably reproducible from Git. Built
+from a detached worktree of `49f817fbd8a54dda4d896489f4f735798432649d`
+with `npm run deploy:check` passing (clean tree, commit present on
+`origin/fix/ci-prisma-generate-ordering`) — the guard that the previous
+production image, built by hand from an uncommitted working tree, would
+have failed.
+
+**Provenance chain, each link verified rather than asserted:**
+
+```
+commit  49f817fbd8a54dda4d896489f4f735798432649d
+  -> tag     …/vokr:49f817fbd8a54dda4d896489f4f735798432649d
+  -> index   sha256:5418fe797683ca58345087027f11e20d40420c350080b238988de1851617b1fa
+  -> amd64   sha256:c675a36d5913e6b25fc3b9a016786b23fef3614b7273b227fa8d1ff682d7b470
+  -> revision vokr-00010-rdd  (100% traffic)
+```
+
+The service spec references the **index** digest; Cloud Run resolved and
+pinned its `linux/amd64` child, which `docker manifest inspect` confirms
+is exactly that manifest. Both are recorded because a reader comparing
+`spec.template.spec.containers[0].image` against
+`status.imageDigest` will otherwise see two different SHAs and suspect a
+mismatch. The registry tag `production` now points at the deployed index.
+
+**Configuration re-verified live after deploy:** `asia-south1`,
+`max-instances=3`, `min-instances=0`, 1 vCPU / 512 MiB, concurrency 80,
+timeout 300 s, runtime SA `vokr-cloud-run@…`, `DATABASE_URL` from Secret
+Manager `:latest`, HTTP startup probe on `/api/health`. The revision
+became ready under that probe, which is direct evidence it reached the
+real Supabase database at boot.
+
+**Smoke test (`npm run smoke-test`, run from the deployed commit): PASS**
+— `/api/health` 200 `{"status":"ok"}`, `/` 200, `/api/catalog/products`
+200 with 5 real products, `/shop/kids-model-123` 200.
+
+**Wider route verification:** homepage 200, both PDPs 200
+(`kids-model-123`, `men-model-456`), `/sign-in` 200, `/sign-up` 200,
+`/reset-password` 200. **`/api/cart` 500 — see the defect below.**
+
+**What this release actually fixes in production:** the live client
+bundle now contains the Supabase project ref (verified by fetching all 10
+chunks `/sign-in` serves). Before this deploy it did not, so
+`createSupabaseBrowserClient()` threw in the browser and the
+password-reset form was broken. That is the Phase 19-audit defect 5,
+closed in production.
+
+**Security re-verified against the live deployment:** no server-only
+variable name in any served chunk (8 checked), no `DATABASE_URL` value,
+no `postgres://`-with-password, `sb_secret_`, `rzp_` or `xkeysib-` shape;
+67 log lines of this revision scanned for the same patterns, none found.
+Keep-warm still firing (HTTP 200 at 19:00, 19:05, 19:10).
+
+**Rollback remains available and was not needed:** `vokr-00009-vdq` and
+`vokr-00007-4bv` are retained. `gcloud run services update-traffic vokr
+--to-revisions=vokr-00009-vdq=100` reverts.
+
+---
+
+**DEFECT FOUND IN PRODUCTION, PRE-EXISTING, NOT FIXED HERE: the Phase 5
+cart migration has never been applied to the real Supabase database.**
+
+`GET /api/cart` returns 500. The cause was diagnosable only because this
+release is the first to carry `src/lib/log.ts`:
+
+```
+[cart] INTERNAL_ERROR requestId=83c606be-…: PrismaClientKnownRequestError:
+Invalid `prisma.cart.findFirst()` invocation:
+The table `public.carts` does not exist in the current database.
+```
+
+**Confirmed pre-existing, not a regression from this deploy.** The
+previous revision was tagged to a zero-traffic URL
+(`prev---vokr-…run.app`) and tested side by side: `/api/cart` returns 500
+on `vokr-00009-vdq` exactly as on `vokr-00010-rdd`, while `/api/health`
+returns 200 on both. The tag was removed afterwards. So the cart API has
+been broken in production since Phase 5 shipped; the tables were only
+ever created in the local Compose database.
+
+Migration `20260910084234_cart` is therefore unapplied against production.
+`prisma migrate deploy` was **not** run: that is a schema change to a live
+database, it was outside the scope of this release, and **Phase 19 task 11
+(migration strategy in the pipeline) is explicitly still deferred** — so
+there is no sanctioned, rehearsed path for it yet. Applying it needs its
+own decision and its own pass.
+
+This does not affect the catalog (Phase 2 tables exist — the API returns
+5 real products) or the auth pages.
+
+---
+
+**R21 / the 512 KB CI weight gate — deferred to its owning phase, not
+weakened.**
+
+The first CI run in the repository's history (PR #1, run `34514441766`)
+failed on one step: `Homepage weight budget`, 1,291,561 bytes against a
+512,000 budget. Every other gate passed — install, **Generate Prisma
+Client**, lint, typecheck, 113 unit tests, production build, and the
+client-bundle secret-name scan.
+
+That gate is **Phase 14 task 9 verbatim** ("Homepage weight budget (R21):
+under 500 KB total transfer. Enforced by an automated check in CI that
+fails the build if exceeded"), and the R-item register assigns **R21 to
+phase 14**, status **NOT STARTED**. It was implemented early, in the
+Phase 19 scaffolding commit `29e5b30`, ahead of the phase that owns it.
+
+Two facts kept separate on purpose:
+
+1. **It is not a Phase 5 production blocker.** It gates a Phase 14
+   deliverable — migrating 84 images to R2 as WebP/AVIF — that has not
+   been scheduled to start.
+2. **It is also not measuring what R21 defines.** R21's target is total
+   homepage *transfer*, dominated by images ("all 84 images to R2…, zero
+   base64"). The check sums `.next/static/chunks/*.js` — JavaScript
+   bytes, across every route, not one page's transfer weight. The 500 KB
+   figure was set as "generous headroom" against the legacy 19.9 MB
+   base64 page, without measuring the real build.
+
+**The gate was not weakened, relaxed or deleted, and no application code
+was optimised to satisfy it.** The R21 weight target remains **UNRESOLVED
+and deferred to Phase 14**, where task 9 and task 2a (the D7 photographs,
+14.2 MB undelivered) both live. CI will stay red on this one step until
+Phase 14 runs — that is the honest state, and it is recorded here rather
+than hidden by moving a threshold.
+
+---
+
+**R1 is still open.** This deploy was performed with direct `gcloud`
+commands, not by `deploy.yml`, because the pipeline only triggers on a
+push to `master` and `master` has not been advanced (PR #1 is open, not
+merged). What changed is that the deployed artefact is now provably a
+committed, pushed revision — the property R1 exists to guarantee — even
+though the mechanism is not yet the pipeline.
+
+---
+
 #### Objective
 GitHub → GitHub Actions → Artifact Registry → Cloud Run, with environment
 separation, a registry cleanup policy from the first push, and Secret
@@ -4747,7 +4884,7 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R18** | Catalog cached in Cloud Run memory | In-process cache, short TTL, single-flight | 2, 13 | Concurrent-miss test issues one query; egress measured | Test output; measured bytes/pageview | IN PROGRESS — `TtlCache` implemented and unit-tested (60s TTL, single-flight verified by concurrent-miss test); not yet VERIFIED at the launch-gate level — that needs Cloud Run and real measured egress (Phase 13/20) |
 | **R19** | HTTPS + HSTS; rate limiting; WAF | Headers; the full rate-limit matrix; 5 WAF rules; bot protection | 16, 20 | Headers verified externally; every limit triggers; WAF verified from the internet | Header scan; rate-limit test output; WAF config | NOT STARTED |
 | **R20** | Remove fabricated reviews | Delete 10 reviews, the 4.7 average, the "4,059 customer reviews" meta | 4 | **Automated check: those strings appear nowhere in the build** | CI check output | NOT STARTED |
-| **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | NOT STARTED |
+| **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | **NOT STARTED — UNRESOLVED, deferred to Phase 14.** The CI weight gate (Phase 14 task 9) was implemented early in `29e5b30` and is live: PR #1's run measured **1,291,561 bytes against the 512,000 budget** and fails on it. Deliberately *not* weakened, and no application code was optimised to satisfy it (11 Sep 2026). Note the gate sums `.next/static/chunks/*.js` across all routes, which is **not** the total-transfer, image-dominated quantity R21 defines. |
 | **R22** | DPDP consent + log retention | Consent records, export and deletion endpoints, weekly log export to R2 | 15, 17 | Full export-and-erasure cycle on a real test account; export job running | Cycle log; R2 listing | NOT STARTED |
 
 **Current: 2 of 22 VERIFIED** (R2, R13). Two are blocked on human decisions (R11 on
@@ -5137,7 +5274,7 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] Admin restricted at both application and Cloudflare layers
 
 ### 13.11 Images & storage
-- [ ] **R21: homepage under 500 KB, enforced in CI** ✱
+- [ ] **R21: homepage under 500 KB, enforced in CI** ✱ — enforcement exists and is live; the budget itself is **unmet (1,291,561 bytes vs 512,000)** and deferred to Phase 14. Not weakened to obtain a green build
 - [ ] **R21: zero `cdn.shopify.com` references; zero large base64 payloads** ✱
 - [ ] Responsive WebP/AVIF from R2 with immutable caching
 - [ ] Alt text on every image
@@ -5185,7 +5322,7 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] Cold-start time measured with and without keep-warm
 
 ### 13.17 CI/CD & infrastructure
-- [ ] **R1: every change reaches production only through the pipeline** ✱ — `deploy.yml` written and validated but **never executed**: `origin/master` is still at Phase 2 (`4ec495f`) and nothing since has been pushed, so neither workflow has ever run. The image in production was built by hand from an uncommitted working tree
+- [ ] **R1: every change reaches production only through the pipeline** ✱ — **11 Sep 2026: `49f817f` is deployed to production (revision `vokr-00010-rdd`), built from a clean checkout of a pushed commit with `deploy:check` passing — so the artefact is provably reproducible from Git, which is what R1 protects. The mechanism is still direct `gcloud`, not the pipeline**, because `deploy.yml` triggers on push to `master` and PR #1 is open, not merged. `deploy.yml` written and validated but **never executed**: `origin/master` is still at Phase 2 (`4ec495f`) and nothing since has been pushed, so neither workflow has ever run. The image in production was built by hand from an uncommitted working tree
 - [x] **R2: Artifact Registry cleanup policy active; registry under quota** ✱ *(10 Sep 2026 — policy re-applied `--no-dry-run` and read back via `describe`; version-controlled at `vokr/infra/artifact-registry-cleanup-policy.json`. The previous policy had deleted every tag in the repository, including the live service's — see Phase 19 Status. ~128 MB of 500 MB. The 400 MB storage alert R2 also asks for does not exist.)*
 - [ ] **R3: exactly 6 Secret Manager versions, loaded at boot; rotation proven** ✱
 - [x] **R4: `max-instances=3` verified via API** ✱ *(10 Sep 2026 — `gcloud run services describe --format=json`, and asserted in `deploy.yml` after every deploy, per Phase 20 task 2)*
