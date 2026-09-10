@@ -62,7 +62,39 @@ export function parseEnvSection<Shape extends z.ZodRawShape>(
   return result.data;
 }
 
-const client = parseEnvSection(clientSchema, process.env, "Client environment");
+/**
+ * Every client variable read as an explicit `process.env.X` member
+ * expression, deliberately — this is not redundant with `clientSchema`.
+ *
+ * Next.js substitutes `NEXT_PUBLIC_*` values into the browser bundle at
+ * build time by replacing *static member expressions* in the source. It
+ * cannot substitute anything when `process.env` is passed as a whole
+ * object, because there is no member expression to rewrite. Doing that
+ * (the previous form: `parseEnvSection(clientSchema, process.env, …)`)
+ * compiled to a lookup against the browser's empty `process` shim, so
+ * every `NEXT_PUBLIC_*` was `undefined` in the browser and
+ * `createSupabaseBrowserClient()` threw "… are not set" on the client —
+ * breaking the Google sign-in button and the password-reset form, while
+ * the server half kept working and hid it. Verified by grepping a clean
+ * production build: before, the Supabase URL and anon key appeared in
+ * zero `.next/static` files; after, they appear in the client chunk.
+ *
+ * Keep these as literal `process.env.NEXT_PUBLIC_…` references. A loop,
+ * a computed key, or spreading `process.env` silently reintroduces the
+ * bug — the build still succeeds and only the browser breaks.
+ */
+const CLIENT_ENV_SOURCE: Record<string, string | undefined> = {
+  NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  NEXT_PUBLIC_RAZORPAY_KEY_ID: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+};
+
+const client = parseEnvSection(
+  clientSchema,
+  CLIENT_ENV_SOURCE,
+  "Client environment",
+);
 
 /**
  * Client-safe environment values. Available in both server and browser
