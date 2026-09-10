@@ -3,9 +3,8 @@ import {
   PDP_REVIEW_CARD_COUNT,
   REVIEWS_SUMMARY,
   REVIEW_PHOTOS,
-  starString,
-  type LegacyReview,
 } from "@/config/reviews-data";
+import { ReviewsList } from "@/components/shop/reviews-list";
 
 /**
  * The legacy `.rr-section` ("Ratings and Reviews"), reproduced verbatim.
@@ -116,53 +115,7 @@ export function ReviewsSummary({
         </p>
       </div>
 
-      {/* Legacy `.rr-controls-row` / `.rr-list-meta` — filtering, review
-          submission and sorting have no backend yet, so these stay
-          present but inert (same treatment as the PDP purchase panel),
-          rather than being dropped. */}
-      <div className="mb-4 flex gap-3">
-        <button
-          type="button"
-          aria-disabled="true"
-          title="Filtering isn't wired to a backend yet"
-          className="cursor-default text-sm font-semibold text-muted"
-        >
-          &#9776; Filters
-        </button>
-        <button
-          type="button"
-          aria-disabled="true"
-          title="Review submission isn't wired to a backend yet"
-          className="cursor-default text-sm font-semibold text-muted"
-        >
-          &#9998; Write a Review
-        </button>
-      </div>
-
-      <div className="mb-6 flex items-center justify-between text-sm">
-        <span className="font-semibold">
-          {REVIEWS_SUMMARY.totalCount} reviews
-        </span>
-        <label className="text-muted">
-          Sort{" "}
-          <select
-            disabled
-            defaultValue="Most Recent"
-            className="cursor-default bg-transparent"
-          >
-            <option>Most Recent</option>
-            <option>Highest Rated</option>
-            <option>Lowest Rated</option>
-            <option>Most Helpful</option>
-          </select>
-        </label>
-      </div>
-
-      <ul className="divide-y divide-border">
-        {cards.map((review) => (
-          <ReviewCard key={review.id} review={review} />
-        ))}
-      </ul>
+      <ReviewsList cards={cards} totalCount={REVIEWS_SUMMARY.totalCount} />
 
       {!full && (
         <a
@@ -173,48 +126,5 @@ export function ReviewsSummary({
         </a>
       )}
     </section>
-  );
-}
-
-function ReviewCard({ review }: { review: LegacyReview }) {
-  return (
-    <li className="py-6">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <span className="text-sm font-bold">
-          {review.name}
-          {/* Legacy `.rr-card-verified` is #4a9d5f (2.6:1 on white,
-              fails WCAG AA) — darkened for contrast per task 12; same
-              colour change as the design-token darkening in globals.css. */}
-          {review.verified && (
-            <span className="ml-2 text-xs font-semibold text-[#1a7f37]">
-              ✓ Verified Buyer
-            </span>
-          )}
-        </span>
-        <span className="text-xs whitespace-nowrap text-subtle">
-          {review.time}
-        </span>
-      </div>
-      <div aria-hidden="true" className="mb-2 tracking-widest">
-        {starString(review.rating)}
-      </div>
-      <p className="mb-1.5 text-sm font-bold">{review.title}</p>
-      <p className="max-h-[3.2em] overflow-hidden text-[13.5px] leading-relaxed text-foreground/70">
-        {review.body}
-      </p>
-      {review.photos > 0 && (
-        <div className="mt-3 flex gap-1.5">
-          {Array.from({ length: review.photos }).map((_, index) => (
-            // eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21).
-            <img
-              key={index}
-              src={REVIEW_PHOTOS[index % REVIEW_PHOTOS.length]}
-              alt={`Customer photo from ${review.name}'s review`}
-              className="h-11 w-11 rounded-lg bg-surface object-cover"
-            />
-          ))}
-        </div>
-      )}
-    </li>
   );
 }
