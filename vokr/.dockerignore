@@ -37,3 +37,8 @@ skills-lock.json
 README.md
 *.tsbuildinfo
 next-env.d.ts
+
+# infrastructure-as-code and infrastructure docs — applied with gcloud,
+# never needed inside the runtime image
+docs
+infra

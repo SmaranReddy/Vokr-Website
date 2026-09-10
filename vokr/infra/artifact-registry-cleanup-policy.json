@@ -1,0 +1,34 @@
+[
+  {
+    "name": "keep-production-tag",
+    "action": { "type": "Keep" },
+    "condition": {
+      "tagState": "TAGGED",
+      "tagPrefixes": ["production"]
+    }
+  },
+  {
+    "name": "keep-2-most-recent-tagged",
+    "action": { "type": "Keep" },
+    "mostRecentVersions": {
+      "packageNamePrefixes": ["vokr"],
+      "keepCount": 2
+    }
+  },
+  {
+    "name": "delete-old-tagged",
+    "action": { "type": "Delete" },
+    "condition": {
+      "tagState": "TAGGED",
+      "olderThan": "30d"
+    }
+  },
+  {
+    "name": "delete-untagged-after-1-day",
+    "action": { "type": "Delete" },
+    "condition": {
+      "tagState": "UNTAGGED",
+      "olderThan": "1d"
+    }
+  }
+]

@@ -50,6 +50,35 @@ RUN case "$NEXT_PUBLIC_SITE_URL" in \
 
 RUN npm run build
 
+# A build arg that was never passed is silently harmless to the build and
+# fatal at runtime: Next.js inlines NEXT_PUBLIC_* by rewriting static member
+# expressions, so an empty value simply inlines nothing. The Phase 19 audit
+# found exactly that shipped to production — an image built without
+# NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY, leaving
+# `createSupabaseBrowserClient()` throwing in the browser while every
+# server-rendered page kept working and hid it. Assert the inlining
+# happened rather than trusting that the arg was supplied.
+#
+# Each check is skipped when its arg is empty, so the PR gate (which builds
+# with only NEXT_PUBLIC_SITE_URL) is unaffected; `deploy.yml` requires all
+# three to be non-empty before it ever reaches this stage.
+RUN set -eu; \
+    if [ -n "$NEXT_PUBLIC_SUPABASE_URL" ]; then \
+      host=$(printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | sed -e 's|^[a-z]*://||' -e 's|/.*$||'); \
+      grep -rqF "$host" .next/static || { \
+        echo "ERROR: NEXT_PUBLIC_SUPABASE_URL was supplied but is absent from .next/static." >&2; \
+        echo "The browser Supabase client would throw at runtime. Refusing to ship." >&2; \
+        exit 1; \
+      }; \
+    fi; \
+    if [ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then \
+      grep -rqF "$NEXT_PUBLIC_SUPABASE_ANON_KEY" .next/static || { \
+        echo "ERROR: NEXT_PUBLIC_SUPABASE_ANON_KEY was supplied but is absent from .next/static." >&2; \
+        exit 1; \
+      }; \
+    fi; \
+    echo "OK: every supplied NEXT_PUBLIC_* value is inlined in the client bundle."
+
 FROM node:22-alpine AS runner
 WORKDIR /app
 
