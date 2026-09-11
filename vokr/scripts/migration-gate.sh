@@ -32,6 +32,8 @@ PROJECT="${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
 cd "$(dirname "$0")/.."
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+# Keep the log to the gate's own output.
+export PRISMA_HIDE_UPDATE_MESSAGE=1
 mask() { if [ -n "${GITHUB_ACTIONS:-}" ] && [ -n "$1" ]; then echo "::add-mask::$1"; fi; }
 
 case "$MODE" in check | apply) ;; *) fail "MODE must be 'check' or 'apply', got '$MODE'." ;; esac
@@ -86,6 +88,37 @@ printf '%s\n' "$OUT"
 printf '%s' "$OUT" | grep -q "pooler.supabase.com:5432" ||
   fail "Prisma did not report the 5432 session pooler as its datasource."
 
+# Prisma 7.10's `migrate status` reports "Database schema is up to date!"
+# even when the database holds a migration this commit does not have
+# (reproduced against a throwaway database), so compare the two lists
+# directly. Older code against a newer schema is safe only under
+# expand/contract, and that is a judgement a person makes, not the pipeline.
+APPLIED="$(DATABASE_URL="$DB_URL" node -e '
+  const { Client } = require("pg");
+  const c = new Client({ connectionString: process.env.DATABASE_URL });
+  (async () => {
+    await c.connect();
+    const t = await c.query("SELECT to_regclass($1) IS NOT NULL AS present", ["public._prisma_migrations"]);
+    if (t.rows[0].present) {
+      const r = await c.query(
+        "SELECT migration_name FROM public._prisma_migrations " +
+        "WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name");
+      for (const row of r.rows) console.log(row.migration_name);
+    }
+    await c.end();
+  })().catch((e) => { console.error("query failed: " + e.message); process.exit(1); });
+' 2>&1)" || fail "could not list the database's applied migrations: $APPLIED"
+LOCAL="$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -name '[0-9]*_*' -exec basename {} \; | LC_ALL=C sort)"
+AHEAD="$(LC_ALL=C comm -13 <(printf '%s
+' "$LOCAL") <(printf '%s
+' "$APPLIED" | grep -E '^[0-9]{14}_' | LC_ALL=C sort) || true)"
+if [ -n "$AHEAD" ]; then
+  fail "the database has migration(s) this commit does not: $(printf '%s ' $AHEAD)— deploying older code against a newer schema is safe only under expand/contract. Confirm it by hand; the pipeline will not."
+fi
+echo "Applied in the database: $(printf '%s
+' "$APPLIED" | grep -cE '^[0-9]{14}_') · in this commit: $(printf '%s
+' "$LOCAL" | grep -cE '^[0-9]{14}_') · database ahead of commit: none"
+
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Database schema is up to date"; then
   echo "OK: production schema matches this commit's migrations. Nothing to apply."
   exit 0
@@ -111,7 +144,7 @@ for m in $PENDING; do
   [ -f "$SQL_FILE" ] || fail "pending migration $m has no migration.sql in this commit."
   HITS="$(sed -e 's/--.*$//' "$SQL_FILE" | tr '\n' ' ' | grep -oiE "$NON_ADDITIVE" | sort -u | paste -sd ',' - || true)"
   if [ -n "$HITS" ]; then
-    BLOCKED="$BLOCKED $m[$HITS]"
+    BLOCKED="$BLOCKED ${m}[${HITS}]"
     echo "  pending: $m  -> NON-ADDITIVE: $HITS"
   else
     echo "  pending: $m  -> additive"
@@ -122,11 +155,13 @@ if [ -n "$BLOCKED" ]; then
 fi
 
 if [ "$MODE" = "check" ]; then
-  fail "$(printf '%s' "$PENDING" | wc -l | tr -d ' ') pending migration(s) — deploying this code would run it against a schema it does not have. Take a pg_dump first (Phase 18 backups do not exist yet), then re-run this workflow via workflow_dispatch with apply_migrations=true."
+  fail "$(printf '%s
+' "$PENDING" | wc -l | tr -d ' ') pending migration(s) — deploying this code would run it against a schema it does not have. Take a pg_dump first (Phase 18 backups do not exist yet), then re-run this workflow via workflow_dispatch with apply_migrations=true."
 fi
 
 # --- 4. Apply (explicitly requested, approval-gated, additive only) --------
-echo "Applying $(printf '%s' "$PENDING" | wc -l | tr -d ' ') additive migration(s) with prisma migrate deploy…"
+echo "Applying $(printf '%s
+' "$PENDING" | wc -l | tr -d ' ') additive migration(s) with prisma migrate deploy…"
 DATABASE_URL="$DB_URL" DIRECT_URL="$DB_URL" node "$PRISMA_CLI" migrate deploy
 
 set +e
