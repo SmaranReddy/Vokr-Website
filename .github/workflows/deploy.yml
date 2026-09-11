@@ -326,16 +326,26 @@ jobs:
 
       - name: Deploy by digest, never by tag
         id: deployed
+        env:
+          BREVO_API_KEY_READY: ${{ vars.BREVO_API_KEY_READY }}
         run: |
           set -euo pipefail
           # A tag can be moved, or swept by the registry cleanup policy; a
           # digest cannot. The service therefore always references an
           # immutable image.
+          # BREVO_API_KEY (the Phase 4 newsletter/contact forms) is mounted only
+          # once a real key exists and BREVO_API_KEY_READY says so: Cloud Run
+          # refuses a revision that references a secret with no version.
+          # See docs/infrastructure/brevo.md.
+          SECRETS="DATABASE_URL=DATABASE_URL:latest"
+          if [ "${BREVO_API_KEY_READY:-}" = "true" ]; then
+            SECRETS="$SECRETS,BREVO_API_KEY=BREVO_API_KEY:latest"
+          fi
           gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" \
             --image="${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}" \
             --region="${{ vars.GCP_REGION }}" \
             --service-account="${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}" \
-            --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+            --set-secrets="$SECRETS" \
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \

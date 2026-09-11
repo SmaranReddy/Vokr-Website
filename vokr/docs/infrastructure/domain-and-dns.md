@@ -133,6 +133,63 @@ application's secret check being right. That check must be covered by
 tests — a request to `run.app` without the secret returns 403, a forged
 `cf-connecting-ip` is ignored — before the domain cuts over.
 
+## D9 decided — 11 Sep 2026
+
+**Option 1, the Cloudflare Worker, was adopted by the manager on 11 Sep 2026. The paid load balancer is rejected** (plan §0.3 D9, ADR-031).
+
+**Checked against the PDF and the plan.** PDF §1 names _Cloudflare Free_
+as the edge (DNS, CDN, WAF, SSL, bot protection). A Worker is a feature of
+that same free plan, not a new vendor, and it holds no application code —
+the application still deploys only to Cloud Run, so this is not the
+rejected "Cloudflare Pages as a separate deploy target". Cost stays $0
+within 100,000 requests/day.
+
+**Access check — stopped here.** Checked 11 Sep 2026, presence only: no
+Cloudflare API token or account ID in the session or the persistent user
+or machine environment, no `wrangler` or `cloudflared` login on this
+machine, and no Hostinger API token. **No Cloudflare, Hostinger, DNS or
+nameserver change was made.**
+
+**Prepared, not deployed:** `vokr/infra/cloudflare/`
+
+- `edge-worker.mjs` — forwards each request to the Cloud Run hostname,
+  overwrites the `x-vokr-origin-auth` header with the Worker secret, sets
+  `x-forwarded-host`/`x-forwarded-proto`, and rewrites absolute redirects
+  that name the origin back to the public host. Fails closed (503) if
+  either setting is missing.
+- `wrangler.toml` — custom domain `vokr.shop`, `workers_dev = false`, no
+  account ID, zone ID or secret committed.
+- `edge-worker.test.mjs` — 6/6 pass, including a live case that proxies a
+  real `GET /api/health` to production through the Worker code (on Node's
+  fetch; not yet run inside workerd).
+
+**Not done — needs its own approval.** Closing the bypass needs the
+application to refuse requests without the secret (`src/proxy.ts`) and to
+trust a client IP only on those requests (`src/server/net/client-ip.ts`).
+Both files belong to completed Phase 3, which this task was told not to
+modify. It also needs a decision on where the secret lives on the Cloud
+Run side: a seventh Secret Manager secret (needs an ADR against the
+six-version rule, ~$0.06/month), or a plain Cloud Run environment variable.
+Until then the Worker proxies correctly but `run.app` stays bypassable.
+
+**Records Cloudflare must hold before delegation** — public DNS cannot
+list a zone, so these are only what probing found:
+
+| Record                                         | Value (11 Sep 2026)                                  | At cutover                                                              |
+| ---------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| MX ×3                                          | `mx.zoho.in` 10, `mx2.zoho.in` 20, `mx3.zoho.in` 30  | copy exactly (TTL today 14400)                                          |
+| TXT apex                                       | SPF, `zoho-verification=…`, `brevo-code:…`           | copy exactly                                                            |
+| TXT `_dmarc`                                   | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com`   | copy exactly                                                            |
+| CNAME `brevo1._domainkey`, `brevo2._domainkey` | `b1`/`b2.vokr-shop.dkim.brevo.com`                   | copy, **DNS-only (grey cloud)**                                         |
+| A / AAAA apex                                  | Hostinger (`84.32.84.24`, `88.222.222.33`, two AAAA) | **do not copy** — the Worker custom domain replaces them                |
+| CNAME `www`                                    | `www.vokr.shop.cdn.hstgr.net`                        | replace with a redirect to the apex (a free Redirect Rule)              |
+| A `ftp`                                        | `157.173.216.210` (Hostinger)                        | copy, or drop if the Hostinger hosting is being retired — your decision |
+| Zoho DKIM                                      | **not found** under the common selectors             | must come from the Hostinger zone listing or Zoho's admin console       |
+
+**Hence the first thing needed from Hostinger is the complete record list
+for `vokr.shop`** (hPanel → Domains → `vokr.shop` → DNS / Nameservers),
+not only the nameserver change.
+
 ## What is required, in order
 
 Nothing later can start before the item above it.
@@ -169,5 +226,6 @@ redirect (Phase 20 task 12) remain with their own phases.
 
 ## Status
 
+D9 is decided; execution is blocked on Cloudflare and Hostinger access.
 `https://vokr.shop/` is **not** serving the Vokr application and is not
 verified. Any claim otherwise would be fabricated.

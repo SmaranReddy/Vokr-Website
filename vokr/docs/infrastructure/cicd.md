@@ -78,24 +78,23 @@ for the procedure that was used.
 **Staging:** task 11 says "staging then production". There is no staging
 database (R5, not decided), so the gate runs against production only.
 
-### Prerequisite not yet in place — one IAM binding
+### IAM prerequisite — granted 11 Sep 2026
 
-The gate reads `DATABASE_URL` as the deploy identity, which today has no
-access to it. Until this binding exists, **every deploy fails at the
-migration gate** — closed, with a message pointing here:
+The gate reads `DATABASE_URL` as the deploy identity. The binding was
+granted on 11 Sep 2026 on explicit instruction and read back:
 
-```bash
-gcloud secrets add-iam-policy-binding DATABASE_URL \
-  --project=vokr-website \
-  --member='serviceAccount:github-deployer@vokr-website.iam.gserviceaccount.com' \
-  --role='roles/secretmanager.secretAccessor'
+```
+$ gcloud secrets get-iam-policy DATABASE_URL --project=vokr-website
+roles/secretmanager.secretAccessor
+  serviceAccount:github-deployer@vokr-website.iam.gserviceaccount.com
+  serviceAccount:vokr-cloud-run@vokr-website.iam.gserviceaccount.com
 ```
 
-Scoped to that one secret. It does not widen what the identity can reach:
-`github-deployer` can already deploy a revision that runs as
-`vokr-cloud-run@…`, which holds exactly this access. It was not applied
-automatically in the 11 Sep pass (the change was refused by this
-environment's permission policy) and is left for an explicit decision.
+It is scoped to that one secret; the identity's project roles are
+unchanged (`artifactregistry.writer`, `run.developer`,
+`iam.serviceAccountUser`). It does not widen what the identity can reach:
+`github-deployer` could already deploy a revision running as
+`vokr-cloud-run@…`, which holds the same access.
 
 ## No long-lived credentials
 
@@ -155,6 +154,12 @@ source as the live build, and read back with `gh variable list`.
 `deploy.yml` fails closed if any is missing — it will not substitute a
 default and ship a misconfigured image.
 
+One optional variable, **unset** today:
+
+| Variable              | Effect                                                                                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BREVO_API_KEY_READY` | `true` adds `BREVO_API_KEY=BREVO_API_KEY:latest` to the revision's secrets. Set it only after a real key version exists — Cloud Run refuses to reference an empty secret. See `brevo.md`. |
+
 ## The `production` environment — created 11 Sep 2026
 
 Phase 19 task 5 requires production to be a manual approval gate. The
@@ -170,6 +175,25 @@ gh api repos/SmaranReddy/Vokr-Website/environments/production
 `prevent_self_review` is off, because the repository has one maintainer:
 the gate is a deliberate human pause before production, not four-eyes
 review. Adding a second reviewer and turning it on is the upgrade.
+
+## PR #1 and the one-time D10 exception
+
+Phase 19 task 3 says nothing merges red, and `ci.yml` still carries the
+homepage weight budget — Phase 14 task 9 (R21), deferred and failing
+(1,291,561 bytes against 512,000). Plan §0.3 **D10** records a
+manager-authorised, **one-time** exception: PR #1 (the Phases 3–5 and
+deployment-infrastructure stack) may merge with that single step red.
+
+- The gate is **not** weakened, relaxed or deleted — same threshold, same
+  logic, still failing every PR until Phase 14.
+- It now runs **last** in `ci.yml`. A failing step skips every step after
+  it, so in its old position it hid the Docker build and container-boot
+  gates; they now run and must pass.
+- Before the merge: every other CI step green on the PR's final head; the
+  commits reaching `master` listed; no secret in them; the tip rebuilt from
+  a clean checkout; the deployed commit (`49f817f`) contained.
+- **Any later red merge needs its own decision.** The exception does not
+  carry over.
 
 ## Deploying by hand (discouraged)
 
@@ -187,9 +211,8 @@ that corresponded to no reproducible commit — see `artifact-registry.md`.
 
 ## Not yet run, and why
 
-| Item                                             | Blocker                                                                                                                                                                                                                       |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A real end-to-end run of `deploy.yml`            | It triggers on `master`, which is still at Phase 2 (`4ec495f`). Advancing it means merging PR #1, whose only red check is the Phase 14 weight budget (R21) — "nothing merges red" versus a deferred gate is a human decision. |
-| The migration gate inside the pipeline           | the IAM binding above                                                                                                                                                                                                         |
-| Staging deploy on merge (task 4, first half)     | no staging environment exists (R5)                                                                                                                                                                                            |
-| Razorpay sandbox-vs-live boot assertion (task 9) | Razorpay is not integrated until Phase 7                                                                                                                                                                                      |
+| Item                                             | State                                                                                                                                        |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| An end-to-end run of `deploy.yml`                | The first run is the one the PR #1 merge triggers; its `deploy` job then waits for the `production` reviewer. See the plan, Phase 19 Status. |
+| Staging deploy on merge (task 4, first half)     | No staging environment exists (R5)                                                                                                           |
+| Razorpay sandbox-vs-live boot assertion (task 9) | Razorpay is not integrated until Phase 7                                                                                                     |

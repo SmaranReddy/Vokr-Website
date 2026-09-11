@@ -95,20 +95,6 @@ jobs:
           fi
           echo "OK: no server secret name found in .next/static"
 
-      - name: Homepage weight budget
-        run: |
-          set -euo pipefail
-          # Guards against an accidental regression to the legacy
-          # multi-megabyte homepage the Phase 0 audit found and Phase 4
-          # replaced. Generous headroom (500 KB) — this is a budget, not a
-          # precision measurement.
-          SIZE=$(find .next/static/chunks -maxdepth 1 -name "*.js" -exec du -cb {} + | tail -1 | cut -f1)
-          echo "Homepage JS chunk weight: ${SIZE} bytes"
-          if [ "$SIZE" -gt 512000 ]; then
-            echo "FAIL: homepage JS chunks exceed the 500 KB budget" >&2
-            exit 1
-          fi
-
       - name: Docker image builds
         run: |
           docker build \
@@ -137,3 +123,21 @@ jobs:
             sleep 1
           done
           docker rm -f vokr-ci-check
+
+      - name: Homepage weight budget
+        run: |
+          set -euo pipefail
+          # Phase 14 task 9 (R21). Deliberately the LAST step: it is deferred
+          # and currently red (plan §0.3 D10), and a failing step skips every
+          # step after it — so it runs after the Docker gates rather than
+          # hiding them. Threshold and logic unchanged.
+          # Guards against an accidental regression to the legacy
+          # multi-megabyte homepage the Phase 0 audit found and Phase 4
+          # replaced. Generous headroom (500 KB) — this is a budget, not a
+          # precision measurement.
+          SIZE=$(find .next/static/chunks -maxdepth 1 -name "*.js" -exec du -cb {} + | tail -1 | cut -f1)
+          echo "Homepage JS chunk weight: ${SIZE} bytes"
+          if [ "$SIZE" -gt 512000 ]; then
+            echo "FAIL: homepage JS chunks exceed the 500 KB budget" >&2
+            exit 1
+          fi
