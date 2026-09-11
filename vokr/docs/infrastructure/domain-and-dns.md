@@ -1,105 +1,171 @@
-# Domain, DNS and the edge — what is true, and what is blocked
+# Domain, DNS and the edge — measured state, D9, and what is blocked
 
-Phase 20 tasks 5–10 (`../../../Vokr-Implementation-Plan.md`), plan §3.7.
-**Nothing in this file has been changed by the deployment work.** It
-records the measured state and the exact external actions required, so
-that nobody has to guess a zone ID, an account, or a record.
+Phase 20 tasks 5–10 (`../../../Vokr-Implementation-Plan.md`), plan §3.7,
+§0.3 **D9**. **No DNS record, nameserver, Cloudflare setting or Cloud Run
+traffic setting has been changed for the domain.** This file records the
+measured state and the exact external actions required, so that nobody has
+to guess a zone ID, an account, or a record.
 
-## Measured state — audited, read-only
+## Measured state — 11 Sep 2026, read-only
+
+Resolved against `1.1.1.1`; HTTPS probed directly.
 
 ```
-$ dig NS vokr.shop           helios.dns-parking.com, aster.dns-parking.com   (Hostinger)
-$ dig A  vokr.shop           147.79.69.89, 93.127.173.135                    (Hostinger)
-$ curl -sI https://vokr.shop/    HTTP/1.1 200 OK · platform: hostinger
-$ dig MX vokr.shop           mx.zoho.in (10), mx2.zoho.in (20), mx3.zoho.in (30)
-$ dig TXT vokr.shop          v=spf1 include:zoho.in ~all
-                             zoho-verification=zb10135958.zmverify.zoho.in
-                             brevo-code:79bc379f44ef9f105455b2455eb55f6c
+NS    vokr.shop            aster.dns-parking.com, helios.dns-parking.com    (Hostinger)
+A     vokr.shop            84.32.84.24, 88.222.222.33                        (Hostinger)
+CNAME www.vokr.shop        www.vokr.shop.cdn.hstgr.net                       (Hostinger CDN)
+MX    vokr.shop            mx.zoho.in (10), mx2.zoho.in (20), mx3.zoho.in (30)
+TXT   vokr.shop            v=spf1 include:zoho.in ~all
+                           zoho-verification=zb10135958.zmverify.zoho.in
+                           brevo-code:79bc379f44ef9f105455b2455eb55f6c
+TXT   _dmarc.vokr.shop     v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com
+CNAME brevo1._domainkey    b1.vokr-shop.dkim.brevo.com
+CNAME brevo2._domainkey    b2.vokr-shop.dkim.brevo.com
+GET   https://vokr.shop/   200 · server: hcdn · platform: hostinger · 19,927,942 bytes
 ```
 
-So today:
-
-- `vokr.shop` is served by **Hostinger**, not by Cloud Run. The Next.js
-  application is reachable only at
-  `https://vokr-plxgen7xla-el.a.run.app`.
-- **Cloudflare is not in the picture at all** — no nameserver delegation,
-  no zone, no account credentials in this environment.
+- `vokr.shop` is served by **Hostinger**: the 19.9 MB legacy homepage
+  (`index (7).html`), not this application. The apex A records differ from
+  the 10 Sep reading (`147.79.69.89`, `93.127.173.135`) — still Hostinger.
+- The Next.js application is reachable only at
+  `https://vokr-plxgen7xla-el.a.run.app`. Cloud Run has **0** domain
+  mappings.
+- **Cloudflare is not in the picture at all** — no zone, no delegation, no
+  credentials in this environment.
 - Zoho inbound mail is live and must not be disturbed. `grievance@` is a
   statutory requirement (plan §9).
 
-## Defect found in the mail DNS
+## Email authentication — SPF does not need Brevo
 
-The published SPF record is `v=spf1 include:zoho.in ~all`. **Brevo is not
-in it.** Plan §3.7.1 requires a _single merged_ SPF TXT record covering
-both the inbound (Zoho) and outbound (Brevo) senders, because a domain may
-publish only one. The Brevo verification TXT (`brevo-code:…`) is present,
-which is a different thing and does not authorise sending.
+**Correction to the 10 Sep entry**, which called the SPF record a defect
+and proposed `v=spf1 include:zoho.in include:spf.brevo.com ~all`. Brevo's
+own help centre ("Authenticate your domain with Brevo"):
 
-Until the merged record is published and Brevo itself reports the domain
-verified, **R12 stays open** and transactional/auth email is not
-trustworthy in production. The merged form is:
+> The SPF and MX records are not required to authenticate a domain. We
+> only provide these records when setting up a dedicated IP.
 
-```
-v=spf1 include:zoho.in include:spf.brevo.com ~all
-```
+Brevo authenticates a domain with the **Brevo code, DKIM and DMARC**, and
+sends with its own envelope sender, so SPF is evaluated against Brevo's
+domain rather than `vokr.shop`. All three records Brevo asks for are
+published (above). The proposed merged SPF record is therefore **not an
+approved record and must not be added** — `v=spf1 include:zoho.in ~all`
+is correct as it stands, and it is the record Zoho depends on.
 
-Publishing it is a Hostinger DNS change, and DKIM/DMARC still have to be
-added and verified in the Brevo dashboard alongside it. Not done here —
-no Hostinger access, and getting SPF wrong breaks inbound mail.
+What R12 still needs is not a DNS change:
 
-## The architectural decision nobody has made yet
+1. The Brevo dashboard reporting the domain **authenticated** (only Brevo
+   can say this — records resolving is not verification).
+2. Brevo configured as Supabase Auth custom SMTP.
+3. A real confirmation email arriving in an inbox outside the project team.
 
-Plan §3.7 records the conflict rather than resolving it: PDF §1 names
-**Cloudflare Registrar + Cloudflare DNS/CDN/WAF/SSL**, while the domain
-and its DNS live at **Hostinger**. Phase 20 must treat "move DNS to
-Cloudflare" as an explicit migration with its own cutover, not as a
-precondition.
+None of these can be checked from here — there is no Brevo access in this
+environment.
 
-There is a second, unresolved question underneath it. Phase 20 task 10
-requires that the Cloud Run origin **not be reachable directly**, so the
-WAF cannot be bypassed. A Cloud Run domain mapping does not give you
-that — the `*.run.app` hostname stays public, and Cloud Run cannot
-restrict ingress to Cloudflare's IP ranges without also breaking the
-mapping. The realistic options are:
+## D9 — the edge architecture
 
-| Option                                                                                        | Origin hidden?                       | Cost                                          | Notes                                                                                                      |
-| --------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Cloud Run domain mapping, Cloudflare proxied in front                                         | **No** — `*.run.app` stays reachable | free                                          | Simplest. Task 10's guarantee is not met; the WAF is bypassable by anyone who learns the run.app hostname. |
-| Cloudflare Tunnel (`cloudflared`) to a private-ingress service                                | Yes                                  | free, but needs a container to run the tunnel | Adds a component the PDF does not list.                                                                    |
-| External Application Load Balancer + Cloud Armor, ingress `internal-and-cloud-load-balancing` | Yes                                  | **not free** (~$18/mo forwarding rules)       | Breaks the zero-cost premise.                                                                              |
+### Two facts that change the options recorded on 10 Sep
 
-Domain mapping _is_ available in `asia-south1` (verified: the API accepts
-the region and returns `NOT_FOUND` for the domain, not a region error).
+1. **Cloud Run domain mapping does not exist in `asia-south1`.** Google's
+   documentation lists the supported regions (`asia-east1`,
+   `asia-northeast1`, `asia-southeast1`, `europe-north1`, `europe-west1`,
+   `europe-west4`, `us-central1`, `us-east1`, `us-east4`, `us-west1`) and
+   states the feature is Preview and "not production-ready". The 10 Sep
+   note inferred availability from the API returning `NOT_FOUND` for the
+   domain rather than a region error; that inference was wrong. Option (a)
+   as recorded in §0.3 is not available.
+2. **Cloudflare Free cannot rewrite the `Host` header.** Origin Rules on
+   Free support only destination-port override; Host, SNI and DNS-record
+   overrides are paid features. Cloud Run answers only for its own
+   hostname, so a proxied DNS record pointing `vokr.shop` at `*.run.app`
+   reaches Google and gets a 404.
 
-**This is a manager decision, not an engineering one**, because two of the
-three options change either the security guarantee or the cost model that
-the PDF is built on.
+### The options that remain
 
-## What is required from outside this environment
+| Option                                                                                                     | Origin bypass                                                           | Monthly cost                                                                                                                 | Added parts                                                     |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **1. Cloudflare Worker as the reverse proxy** (recommended)                                                | Closed **at the application**: `run.app` still resolves but answers 403 | **$0** up to 100,000 requests/day (Workers Free); **$5** (Workers Paid) beyond                                               | ~30-line Worker, one shared secret, one check in `src/proxy.ts` |
+| 2. Global external Application Load Balancer + serverless NEG, ingress `internal-and-cloud-load-balancing` | Closed **at the network**: `run.app` refuses internet traffic           | ~**US$18+** for the forwarding rule alone, plus data processing (Cloud Armor extra) — breaks the zero-cost premise           | Load balancer, NEG, certificate, static IP                      |
+| 3. Cloudflare Tunnel                                                                                       | Closed                                                                  | Needs an always-on host: Cloud Run `min-instances` (rejected, ADR-010) or a VM (the free e2-micro exists only in US regions) | A connector host to run and patch                               |
+| ~~Cloud Run domain mapping~~                                                                               | —                                                                       | —                                                                                                                            | Not available in `asia-south1`                                  |
 
-Ordered. Nothing later can start before the item above it.
+### Recommendation: option 1
 
-1. **Decide the edge architecture** — one of the three rows above.
-2. **Cloudflare account access.** No credentials exist here. Do not guess
-   a zone ID or an account ID.
-3. **Hostinger account access**, to either delegate nameservers to
-   Cloudflare or add records in place.
-4. **The nameserver decision itself.** Delegating `vokr.shop` to
-   Cloudflare moves _all_ records, including the live Zoho MX and the SPF
-   and verification TXTs. Mail breaks if they are not recreated correctly
-   _before_ the cutover. This is irreversible on a timescale of hours
-   (TTL + propagation) and must not be done casually.
-5. **What happens to the current Hostinger-served site at `vokr.shop`.**
-   Pointing the domain at Cloud Run replaces it.
-6. **The merged SPF record + Brevo DKIM/DMARC**, then Brevo's own
-   verification (R12).
-7. **Zoho mailbox delivery re-verified after any cutover** — all five
-   addresses, `grievance@` especially.
+**In plain terms.** Cloudflare becomes the front door for `vokr.shop`.
+Every visitor talks to Cloudflare, which handles HTTPS, blocks attacks and
+bots, and caches what is safe to cache. A small Cloudflare program (a
+Worker) passes each remaining request on to Cloud Run and attaches a secret
+password to it. The Vokr application refuses any request that does not
+carry that password. So even though the Cloud Run web address still exists
+on the internet, going around Cloudflare gets you nothing but an error.
 
-Only after 1–5 can any of this be done: HSTS with preload, cache rules
-(bypass on `/api/*`, `/checkout/*`, `/admin/*` and anything
-identity-bearing — a cached checkout page is a data leak), the Phase 16
-WAF rules, bot protection, and the domain mapping itself.
+**Does the `*.run.app` URL stay publicly reachable?** Yes — the hostname
+keeps resolving. Cloud Run has no setting that admits only Cloudflare's IP
+ranges; only a Google load balancer (option 2) can close it at the network.
+
+**Is leaving it public a meaningful problem?** Today, yes, and concretely.
+`src/server/net/client-ip.ts` trusts `cf-connecting-ip`, then the first
+`x-forwarded-for` entry, from any caller. On the directly reachable
+`run.app` URL anyone can set those headers, so the per-IP rate limits that
+R13 relies on can be sidestepped by sending a different fake IP each time.
+The other bypass effects are skipping the WAF, bot protection and the cache
+(Mumbai egress is billed per GiB); `max-instances=3` bounds what that can
+cost. With option 1, the application trusts a client IP only on requests
+that carry the Worker's secret, and rejects everything else.
+
+**Cost and limits.** $0 at launch scale. The ceiling is 100,000 Worker
+requests per day, and every request to `vokr.shop` counts — page, script,
+stylesheet — whether or not Cloudflare serves it from cache. At roughly 20
+requests per page view that is about 5,000 page views a day (ESTIMATE —
+measure it). Beyond the limit Cloudflare returns **error 1027 until 00:00
+UTC**, a hard stop in the same class as Supabase's 402. So this option
+needs a usage alert, and the $5/month Workers Paid upgrade pre-authorised
+in the same way the plan pre-authorises Supabase Pro.
+
+**Why not option 2.** It is the cleanest security design — no application
+code, the origin simply is not on the internet — but it costs about
+US$18/month permanently from day one, for protection that option 1
+delivers for $0 as long as one application check is correct and tested.
+It remains the upgrade path if traffic outgrows the Worker allowance or if
+network-level isolation becomes a requirement.
+
+**Option 1's own risk, stated plainly.** Its protection depends on the
+application's secret check being right. That check must be covered by
+tests — a request to `run.app` without the secret returns 403, a forged
+`cf-connecting-ip` is ignored — before the domain cuts over.
+
+## What is required, in order
+
+Nothing later can start before the item above it.
+
+1. **Approve an edge architecture** — option 1 (recommended) or option 2.
+2. **A Cloudflare account** on the Free plan, with `vokr.shop` added as a
+   site. Either do the dashboard steps yourself, or give this environment
+   an API token scoped to the `vokr.shop` zone only: Zone → DNS Edit, Zone
+   Settings Edit, Firewall/WAF Edit, and Account → Workers Scripts Edit,
+   Workers Routes Edit. Do not share the global API key. Nobody should
+   guess a zone ID or account ID.
+3. **Recreate every record above in the Cloudflare zone before delegating**
+   — MX ×3, SPF, `zoho-verification`, `brevo-code`, `_dmarc`, and both
+   Brevo DKIM CNAMEs. The DKIM CNAMEs **must be DNS-only (grey cloud)**: a
+   proxied CNAME answers with Cloudflare's addresses and DKIM lookups
+   fail. Verify each record by querying Cloudflare's assigned nameservers
+   directly.
+4. **Decide what happens to the Hostinger-served site** at `vokr.shop` and
+   `www.vokr.shop`. The cutover replaces it with this application.
+5. **Change the nameservers at Hostinger** to the two Cloudflare assigns.
+   Requires Hostinger access. Irreversible on a timescale of hours (TTL
+   and propagation); mail breaks if step 3 was incomplete.
+6. **Re-verify mail after cutover** — all five Zoho mailboxes, `grievance@`
+   especially — and Brevo's authentication status.
+
+Then the engineering, which needs no further access: the Worker and its
+secret; the origin check and client-IP trust in the application (its own
+branch — it is application code); SSL Full (strict); HSTS (recommended
+without `preload` at first — preload is very slow to undo — then preload
+once stable, as the plan requires); cache rules that bypass `/api/*`,
+`/checkout/*`, `/admin/*` and anything identity-bearing; the keep-warm job
+re-pointed (`cloud-run.md`). The Phase 16 WAF rules and the Google OAuth
+redirect (Phase 20 task 12) remain with their own phases.
 
 ## Status
 

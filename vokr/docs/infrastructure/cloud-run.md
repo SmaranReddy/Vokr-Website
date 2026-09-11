@@ -63,8 +63,31 @@ gcloud run services update-traffic vokr \
 `deploy.yml` performs exactly this automatically when a deploy or its
 smoke test fails, and asserts afterwards that traffic actually moved.
 
-**Not yet practised for real** (Phase 19 task 13). It requires two
-revisions that are both legitimately servable and a deliberate drill.
+A rollback **pins** traffic to a named revision. To return to "latest"
+afterwards, use `--to-latest`, not a named revision — a deploy made while
+traffic is pinned creates its new revision at 0% (`deploy.yml` now routes
+`--to-latest` explicitly and asserts it; see `cicd.md`).
+
+### Drill — practised 11 Sep 2026 (Phase 19 task 13)
+
+Real production traffic, not a tagged zero-traffic URL. Evidence below is
+from the Cloud Run request log, not only from the commands' exit codes.
+
+| Step                                                 | Time (UTC)  | Result                                                   |
+| ---------------------------------------------------- | ----------- | -------------------------------------------------------- |
+| Starting state                                       | 12:00:36.7  | `vokr-00010-rdd` 100%, latest                            |
+| `update-traffic --to-revisions=vokr-00009-vdq=100`   | 12:00:44.4  | exit 0, **7.6 s**; service reports `vokr-00009-vdq` 100% |
+| 6 probes (`/api/health`, `/`, `/api/cart`, twice)    | 12:00:45–50 | all 200; **log: all six served by `vokr-00009-vdq`**     |
+| `npm run smoke-test` against the rolled-back service | —           | PASS 4/4                                                 |
+| `update-traffic --to-latest`                         | 12:00:59.2  | exit 0, **6.5 s**; `vokr-00010-rdd` 100%, latest         |
+| 6 probes                                             | 12:01:00–06 | all 200; **log: all six served by `vokr-00010-rdd`**     |
+| `npm run smoke-test` against the restored service    | 12:01:07.9  | PASS 4/4                                                 |
+
+Time to roll back: **7.6 s** of command time, first request confirmed on
+the old revision 1.6 s later. Production sat on the rollback revision for
+about 15 s and was left exactly as found (`latestRevision: true`).
+`vokr-00009-vdq` is the pre-`49f817f` build; it served `/api/cart` 200
+because the cart schema now exists in production.
 
 ## Keep-warm
 
@@ -103,12 +126,26 @@ recipients; no separate Pub/Sub or monitoring channel is configured.
 
 **An alert has still never been observed firing.** The plan's own standard
 ("an untested alert is not an alert") is therefore not met, and R4 stays
-open on that clause.
+open on that clause. Every threshold is `CURRENT_SPEND`, so an alert can
+only fire once real spend crosses it; forcing one means lowering the
+budget below actual spend, which e-mails the billing admins — a deliberate
+act for a person with billing access, not a side effect of a deploy.
+Re-read 11 Sep 2026: unchanged (₹2,000; 5% / 25% / 100%; project-scoped).
 
-## Origin exposure — open
+## Origin exposure — open (D9)
 
 Ingress is `all`, so `https://vokr-plxgen7xla-el.a.run.app` is reachable
 directly. Phase 20 task 10 requires the origin to be unreachable except
 through Cloudflare, so the WAF cannot be bypassed. That cannot be
-configured before the edge exists — see `domain-and-dns.md`. Tightening
-ingress today would take the only working production URL offline.
+configured before the edge exists — see `domain-and-dns.md`, which also
+records that Cloud Run domain mapping is **not available in
+`asia-south1`**. Tightening ingress today would take the only working
+production URL offline.
+
+**A concrete consequence today:** `src/server/net/client-ip.ts` trusts
+`cf-connecting-ip`, then the first `x-forwarded-for` entry, from any
+caller. Because the origin is reachable without Cloudflare, those headers
+are caller-controlled, and the per-IP half of the R13 rate limiting can be
+sidestepped by varying them. The fix belongs with the D9 edge (trust a
+client IP only on requests proven to come through it) and is application
+code; it is recorded here, not changed by infrastructure work.
