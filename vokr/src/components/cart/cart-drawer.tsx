@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { MAX_CART_ITEM_QUANTITY, MIN_CART_ITEM_QUANTITY } from "@/lib/cart";
@@ -83,6 +84,7 @@ function CartLineRow({ line }: { line: CartLine }) {
 
 export function CartDrawer() {
   const { cart, isOpen, closeCart, error, isLoading } = useCart();
+  const router = useRouter();
 
   // Escape-to-close, matching every other overlay in this codebase's
   // interaction model.
@@ -174,10 +176,12 @@ export function CartDrawer() {
 
             <button
               type="button"
-              aria-disabled="true"
-              title="Checkout launches in a later phase"
+              onClick={() => {
+                closeCart();
+                router.push("/checkout");
+              }}
               disabled={isLoading}
-              className="mt-4 w-full cursor-default bg-foreground px-6 py-3.5 text-sm font-semibold text-background opacity-70"
+              className="mt-4 w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background disabled:opacity-50"
             >
               Checkout
             </button>

@@ -126,7 +126,9 @@ model AppUser {
   /// order's `user_id` may still reference.
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  carts Cart[]
+  carts            Cart[]
+  addresses        Address[]
+  checkoutSessions CheckoutSession[]
 
   @@map("app_users")
 }
@@ -147,7 +149,8 @@ model GuestSession {
   /// pruning job's window, not by extending this column on every request.
   expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
 
-  carts Cart[]
+  carts            Cart[]
+  checkoutSessions CheckoutSession[]
 
   @@index([expiresAt])
   @@map("guest_sessions")
@@ -206,7 +209,8 @@ model Cart {
   /// cart's life on mere reads.
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  items CartItem[]
+  items            CartItem[]
+  checkoutSessions CheckoutSession[]
 
   @@index([updatedAt])
   @@map("carts")
@@ -231,4 +235,130 @@ model CartItem {
 
   @@unique([cartId, variantId])
   @@map("cart_items")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Address + Checkout Foundation. See
+// Vokr-Implementation-Plan.md §5 PHASE 6 for scope, and §3.5 for the
+// entity plan this follows. GST split (CGST+SGST vs IGST) and the
+// pricing snapshot itself are computed in `src/server/pricing/`, never
+// stored redundantly beyond the JSONB snapshot below.
+// ---------------------------------------------------------------------------
+
+/// A shipping address captured at checkout. **Not** a saved address book —
+/// that is explicitly deferred (plan §5 Phase 6, Explicitly Out of Scope).
+/// One row per checkout session's address step; `userId` is recorded for
+/// provenance only, never read to build a "my addresses" list.
+model Address {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String?  @map("user_id") @db.Uuid
+  user   AppUser? @relation(fields: [userId], references: [id])
+
+  /// Encrypted at rest — application-layer AES-256-GCM, same convention as
+  /// `AppUser.phoneEnc` (see `src/server/checkout/crypto.ts`), not pgcrypto.
+  nameEnc  String  @map("name_enc")
+  line1Enc String  @map("line1_enc")
+  line2Enc String? @map("line2_enc")
+  phoneEnc String  @map("phone_enc")
+
+  city    String
+  /// One of the fixed GST-state enumeration's names (`src/lib/gst-states.ts`)
+  /// — matched against the seller's registered state (D3) to decide the
+  /// CGST+SGST vs IGST split. Never a free-text state.
+  state   String
+  pincode String
+  country String @default("IN")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  checkoutSessions CheckoutSession[]
+
+  @@index([pincode])
+  @@map("addresses")
+}
+
+/// `draft → address_captured → priced → reserved → payment_pending →
+/// paid | failed | expired | abandoned` (plan §5 Phase 6, task 8). Phase 6
+/// only ever drives a session through `draft`, `address_captured` and
+/// `priced` — `reserved` is Phase 8 (inventory), `payment_pending`/`paid`/
+/// `failed` are Phase 7 (Razorpay). The full enum exists now so later
+/// phases extend, rather than redefine, this state machine.
+enum CheckoutState {
+  draft
+  address_captured
+  priced
+  reserved
+  payment_pending
+  paid
+  failed
+  expired
+  abandoned
+
+  @@map("checkout_state")
+}
+
+enum CheckoutPaymentMethod {
+  prepaid
+  cod
+
+  @@map("checkout_payment_method")
+}
+
+/// The bridge between cart and order (plan §3.5). Holds the single
+/// server-computed pricing snapshot that Razorpay's amount (Phase 7) and
+/// the order total (Phase 9) both read from, so they cannot disagree.
+/// Bound to exactly one caller identity — the same `userId` XOR
+/// `guestSessionId` shape as `Cart` — enforced by a hand-written CHECK in
+/// this model's migration.
+model CheckoutSession {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  cartId String @map("cart_id") @db.Uuid
+  cart   Cart   @relation(fields: [cartId], references: [id])
+
+  userId String?  @map("user_id") @db.Uuid
+  user   AppUser? @relation(fields: [userId], references: [id])
+
+  guestSessionId String?       @map("guest_session_id") @db.Uuid
+  guestSession   GuestSession? @relation(fields: [guestSessionId], references: [id])
+
+  state CheckoutState @default(draft)
+
+  addressId String?  @map("address_id") @db.Uuid
+  address   Address? @relation(fields: [addressId], references: [id])
+
+  paymentMethod CheckoutPaymentMethod? @map("payment_method")
+
+  /// Accepted on session creation, unique-constrained (plan §5 Phase 6,
+  /// task 10) — the same idempotency key always resolves to the same
+  /// session, never a second one.
+  idempotencyKey String @unique @map("idempotency_key")
+
+  /// The authoritative price breakdown — see `src/server/pricing/`.
+  /// `expiresAt` is always set together with this (15 minutes from
+  /// computation), enforced by a hand-written CHECK.
+  pricingSnapshot Json?     @map("pricing_snapshot")
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("checkout_sessions")
+}
+
+/// PIN serviceability lookup, seeded manually from a Shiprocket export
+/// (plan §5 Phase 6, task 3 — the API integration is deferred). A pincode
+/// absent from this table is **not serviceable** — the lookup fails
+/// closed rather than guessing.
+model ServiceablePincode {
+  pincode String @id
+
+  codEligible           Boolean @map("cod_eligible")
+  estimatedDeliveryDays Int     @map("estimated_delivery_days")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("serviceable_pincodes")
 }

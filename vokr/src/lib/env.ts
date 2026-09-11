@@ -40,6 +40,26 @@ const serverSchema = z.object({
   R2_ACCESS_KEY_ID: optionalString,
   R2_SECRET_ACCESS_KEY: optionalString,
   R2_BUCKET_NAME: optionalString,
+
+  // Phase 6 (Address + Checkout Foundation). Optional here for the same
+  // reason `products.gst_rate_bps` is nullable (decision D2): an unset
+  // value must fail loudly at the point of use, in
+  // `src/server/checkout/crypto.ts` / `src/server/pricing/config.ts`,
+  // never silently default.
+  //
+  // 32-byte AES-256-GCM key, base64-encoded (`openssl rand -base64 32`).
+  ADDRESS_ENCRYPTION_KEY: optionalString,
+  // The seller's registered GST state (must be one of
+  // `src/lib/gst-states.ts`'s names) — blocked on decision D3 (legal
+  // entity + GST registration). Do not set a placeholder value.
+  CHECKOUT_SELLER_STATE: optionalString,
+  // Flat shipping fee (paise) below the ₹4,999 free-shipping threshold,
+  // and the COD handling fee (paise) — published nowhere yet as an exact
+  // figure (terms.html and the cart/PDP copy state only the ₹4,999
+  // threshold and that a COD fee applies, never an amount). Recorded as
+  // decision D11, Vokr-Implementation-Plan.md §0.3.
+  CHECKOUT_FLAT_SHIPPING_FEE_PAISE: optionalString,
+  CHECKOUT_COD_HANDLING_FEE_PAISE: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
