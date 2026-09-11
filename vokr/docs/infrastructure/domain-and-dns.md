@@ -226,6 +226,35 @@ redirect (Phase 20 task 12) remain with their own phases.
 
 ## Status
 
-D9 is decided; execution is blocked on Cloudflare and Hostinger access.
-`https://vokr.shop/` is **not** serving the Vokr application and is not
-verified. Any claim otherwise would be fabricated.
+D9 is decided. **11 Sep 2026, later same day:** `vokr.shop` has been added
+to Cloudflare and its DNS records hand-edited by the domain owner (not by
+this environment, which still holds no Cloudflare API token or account
+ID) to the target state below. Reviewed against a screenshot of the
+Cloudflare "Review your DNS records" screen, not queried live:
+
+- Old Hostinger apex A/AAAA (×4) and the `ftp` A record: **removed.**
+- `brevo1._domainkey` / `brevo2._domainkey`: **DNS-only**, content
+  unchanged.
+- `www` CNAME: repointed from Hostinger's CDN to `vokr.shop`, kept
+  **Proxied**; a redirect rule (`www` → apex) created.
+- Zoho MX ×3, SPF, `zoho-verification`, `brevo-code`, `_dmarc`: present,
+  unchanged, DNS-only.
+- Zoho DKIM: **found** as `zmail._domainkey` (TXT), closing the "selector
+  not found" gap recorded on 11 Sep.
+
+**Nameservers are still Hostinger's** (`aster`/`helios.dns-parking.com`)
+— the Cloudflare zone is not authoritative and is not serving any
+traffic yet. **The Worker has not been deployed** (`wrangler`/API token
+not available in this environment). `https://vokr.shop/` is **not**
+serving the Vokr application and is not verified. Any claim otherwise
+would be fabricated.
+
+**Remaining before cutover:** click Cloudflare's own DNS-safety
+confirmation and "Continue to activation"; change the two nameservers at
+Hostinger (needs Hostinger access this environment does not have); once
+active, deploy `vokr/infra/cloudflare/` with a real `CLOUDFLARE_API_TOKEN`
+/ `CLOUDFLARE_ACCOUNT_ID` and an `ORIGIN_AUTH_SECRET`; ship the
+application-side origin check (`src/proxy.ts`,
+`src/server/net/client-ip.ts` — Phase 3 files, needs its own approval);
+re-verify all five Zoho mailboxes and Brevo's authentication status after
+the nameserver change.
