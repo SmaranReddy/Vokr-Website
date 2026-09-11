@@ -58,6 +58,16 @@ export default defineConfig({
             "prisma/**/*.integration.test.ts",
           ],
           setupFiles: ["./vitest.integration.setup.ts"],
+          // Every integration file shares one real Postgres instance, and
+          // at least one (`prisma/__tests__/catalog.integration.test.ts`)
+          // asserts absolute row counts on tables Phase 5's own
+          // integration tests also write to (`products`,
+          // `product_variants`, `inventory` fixtures) — a race that only
+          // shows up once a second suite writes those tables
+          // concurrently. Files still run in isolation from each other
+          // (a fresh worker per file); only the parallelism across files
+          // is removed.
+          fileParallelism: false,
         },
       },
     ],

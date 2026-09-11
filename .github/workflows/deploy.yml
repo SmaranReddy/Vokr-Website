@@ -1,0 +1,460 @@
+name: Deploy
+
+# Phase 19 tasks 4/5 + Phase 20 task 2 (Vokr-Implementation-Plan.md).
+#
+# The only sanctioned path from a Git commit to the production Cloud Run
+# service (R1). Everything it needs is a repository *variable*; there are
+# no Actions secrets and no service-account JSON key anywhere — GCP access
+# comes from Workload Identity Federation, whose provider is restricted to
+# `assertion.repository == 'SmaranReddy/Vokr-Website'`.
+#
+# Fail-closed by design: the preflight job refuses to run if any required
+# variable is unset, rather than substituting a default and shipping a
+# misconfigured image.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "vokr/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      apply_migrations:
+        description: >-
+          Apply pending, purely additive Prisma migrations to production
+          before deploying. Take a pg_dump first - Phase 18 backups do not
+          exist yet. Without this, pending migrations fail the deploy.
+        type: boolean
+        default: false
+
+concurrency:
+  group: vokr-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  preflight:
+    name: Preflight — required configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every required variable is present
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          AR_REPOSITORY: ${{ vars.AR_REPOSITORY }}
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          CLOUD_RUN_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          for name in GCP_PROJECT_ID GCP_REGION AR_REPOSITORY WIF_PROVIDER \
+                      DEPLOY_SERVICE_ACCOUNT CLOUD_RUN_SERVICE \
+                      CLOUD_RUN_SERVICE_ACCOUNT NEXT_PUBLIC_SITE_URL \
+                      NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
+            if [ -z "${!name:-}" ]; then MISSING="$MISSING $name"; fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "FAIL: missing repository variable(s):$MISSING" >&2
+            echo "Set them with 'gh variable set <NAME>' — see vokr/docs/infrastructure/cicd.md." >&2
+            exit 1
+          fi
+          # Never deploy an image whose canonical URL is unset or localhost
+          # (plan §2.5). The Dockerfile enforces this too; asserting here
+          # fails the run in seconds instead of after a full image build.
+          case "$NEXT_PUBLIC_SITE_URL" in
+            "" | *localhost*)
+              echo "FAIL: NEXT_PUBLIC_SITE_URL is missing or still localhost." >&2
+              exit 1
+              ;;
+          esac
+          # The Vokr project, never another one that happens to be the
+          # active gcloud configuration.
+          if [ "$GCP_PROJECT_ID" != "vokr-website" ]; then
+            echo "FAIL: GCP_PROJECT_ID is '$GCP_PROJECT_ID', expected 'vokr-website'." >&2
+            exit 1
+          fi
+          echo "OK: all required deployment variables are present."
+
+  verify:
+    name: Verify — lint, typecheck, unit tests
+    needs: preflight
+    runs-on: ubuntu-latest
+    # The gates ci.yml runs on the pull request, re-run on the exact commit
+    # being deployed. A commit that reached master without a green PR (an
+    # admin merge, a direct push — master is not branch-protected) still
+    # cannot deploy. The homepage weight budget stays a PR gate only: it is
+    # Phase 14 task 9 (R21), deferred and currently red, and is deliberately
+    # neither duplicated here nor weakened in ci.yml.
+    defaults:
+      run:
+        working-directory: vokr
+    env:
+      # prisma7.config.ts resolves DATABASE_URL at config load; generate
+      # makes no connection, so a syntactic placeholder is enough (as ci.yml).
+      DATABASE_URL: "postgresql://build:build@localhost:5432/build"
+      NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+    steps:
+      - name: Checkout the exact triggering commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: "vokr/.nvmrc"
+          cache: "npm"
+          cache-dependency-path: "vokr/package-lock.json"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+  build:
+    name: Build and push image
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vokr
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - name: Checkout the exact triggering commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Refuse anything but a clean, committed revision
+        working-directory: .
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "${{ github.sha }}" ]; then
+            echo "FAIL: checked-out HEAD ($HEAD_SHA) is not the triggering commit." >&2
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "FAIL: the working tree is dirty — refusing to build an untracked state." >&2
+            git status --porcelain >&2
+            exit 1
+          fi
+          echo "OK: building committed revision $HEAD_SHA."
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build the image, tagged with the commit SHA
+        env:
+          NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          IMAGE_BASE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/vokr
+        run: |
+          set -euo pipefail
+          # Values are passed through the environment rather than
+          # interpolated into the command line, so the runner log shows the
+          # variable name, not the value. NEXT_PUBLIC_* values are public by
+          # definition — they are inlined into every visitor's browser
+          # bundle — but keeping them out of the log keeps the habit intact.
+          docker build \
+            --build-arg NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            -t "$IMAGE_BASE:${{ github.sha }}" \
+            .
+
+      - name: The runtime image carries no environment file
+        env:
+          IMAGE_BASE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/vokr
+        run: |
+          set -euo pipefail
+          # Phase 19 security requirement: the runtime image contains no
+          # build secret. `.dockerignore` excludes .env*, but assert it on
+          # the built artefact rather than trusting the ignore file.
+          CID=$(docker create "$IMAGE_BASE:${{ github.sha }}")
+          if docker export "$CID" | tar -t 2>/dev/null | grep -qE '(^|/)\.env(\.|$)'; then
+            docker rm -f "$CID" >/dev/null
+            echo "FAIL: an environment file is present in the runtime image." >&2
+            exit 1
+          fi
+          docker rm -f "$CID" >/dev/null
+          echo "OK: no environment file in the runtime image."
+
+      - name: No server-only variable name in the image's client bundle
+        env:
+          IMAGE_BASE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/vokr
+        run: |
+          set -euo pipefail
+          # ci.yml asserts this on a PR build; this asserts it on the artefact
+          # that is actually about to ship, before it is pushed.
+          CID=$(docker create "$IMAGE_BASE:${{ github.sha }}")
+          rm -rf /tmp/client-static
+          docker cp "$CID:/app/.next/static" /tmp/client-static
+          docker rm -f "$CID" >/dev/null
+          FOUND=0
+          for key in SUPABASE_SERVICE_ROLE_KEY RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET \
+                     BREVO_API_KEY SENTRY_AUTH_TOKEN R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+                     DATABASE_URL DIRECT_URL; do
+            if grep -rq "$key" /tmp/client-static; then
+              echo "FAIL: $key appears in the image's client bundle." >&2
+              FOUND=1
+            fi
+          done
+          [ "$FOUND" -eq 0 ] || exit 1
+          echo "OK: no server-only variable name in the shipped client bundle."
+
+      - name: Push and resolve the immutable digest
+        id: push
+        env:
+          IMAGE_BASE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}/vokr
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_BASE:${{ github.sha }}"
+          DIGEST=$(gcloud artifacts docker images describe \
+            "$IMAGE_BASE:${{ github.sha }}" \
+            --format='value(image_summary.digest)')
+          if [ -z "$DIGEST" ]; then
+            echo "FAIL: could not resolve a digest for the pushed image." >&2
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE_BASE" >> "$GITHUB_OUTPUT"
+          echo "Pushed $IMAGE_BASE@$DIGEST (tag ${{ github.sha }})"
+
+  deploy:
+    name: Deploy to production
+    needs: build
+    runs-on: ubuntu-latest
+    # Money paths do not auto-deploy (Phase 19 task 5). This environment
+    # must carry a required reviewer in the repository settings; without
+    # one the gate is decorative.
+    environment:
+      name: production
+      url: ${{ steps.deployed.outputs.url }}
+    defaults:
+      run:
+        working-directory: vokr
+    steps:
+      - name: Checkout the exact triggering commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: "vokr/.nvmrc"
+          cache: "npm"
+          cache-dependency-path: "vokr/package-lock.json"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Record the currently serving revision (the rollback target)
+        id: previous
+        run: |
+          set -euo pipefail
+          PREV=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(status.traffic[0].revisionName)')
+          if [ -z "$PREV" ]; then
+            echo "FAIL: no serving revision found — refusing to deploy without a rollback target." >&2
+            exit 1
+          fi
+          echo "revision=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Rollback target: $PREV"
+
+      - name: Migration gate — never deploy code ahead of its schema
+        id: migrations
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          # Read-only on every push. Applying needs an explicit
+          # workflow_dispatch with apply_migrations=true, and still passes
+          # through this environment's required reviewer.
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_migrations && 'apply' || 'check' }}
+        # Phase 19 task 11. Fails closed on pending, failed, drifted or
+        # non-additive migrations — see scripts/migration-gate.sh. Runs
+        # before any revision is created, so a failure here changes nothing.
+        run: bash scripts/migration-gate.sh
+
+      - name: Deploy by digest, never by tag
+        id: deployed
+        env:
+          BREVO_API_KEY_READY: ${{ vars.BREVO_API_KEY_READY }}
+        run: |
+          set -euo pipefail
+          # A tag can be moved, or swept by the registry cleanup policy; a
+          # digest cannot. The service therefore always references an
+          # immutable image.
+          # BREVO_API_KEY (the Phase 4 newsletter/contact forms) is mounted only
+          # once a real key exists and BREVO_API_KEY_READY says so: Cloud Run
+          # refuses a revision that references a secret with no version.
+          # See docs/infrastructure/brevo.md.
+          SECRETS="DATABASE_URL=DATABASE_URL:latest"
+          if [ "${BREVO_API_KEY_READY:-}" = "true" ]; then
+            SECRETS="$SECRETS,BREVO_API_KEY=BREVO_API_KEY:latest"
+          fi
+          gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --image="${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --service-account="${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}" \
+            --set-secrets="$SECRETS" \
+            --min-instances=0 \
+            --max-instances=3 \
+            --cpu=1 \
+            --memory=512Mi \
+            --concurrency=80 \
+            --timeout=300 \
+            --port=3000 \
+            --startup-probe=httpGet.path=/api/health,httpGet.port=3000,initialDelaySeconds=5,timeoutSeconds=5,periodSeconds=10,failureThreshold=12 \
+            --allow-unauthenticated \
+            --quiet
+          # While traffic is pinned to a named revision — which every
+          # rollback leaves it — a new revision receives 0%, and the smoke
+          # test below would pass against the OLD code. Route explicitly.
+          gcloud run services update-traffic "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --to-latest \
+            --quiet
+          URL=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" --format='value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $URL"
+
+      - name: Assert the live configuration matches the plan
+        run: |
+          set -euo pipefail
+          # Phase 20 task 2: max-instances verified by an infrastructure
+          # assertion in the pipeline, not by looking at the console.
+          MAXSCALE=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(spec.template.metadata.annotations["autoscaling.knative.dev/maxScale"])')
+          [ "$MAXSCALE" = "3" ] || {
+            echo "FAIL: max-instances is '$MAXSCALE', expected 3." >&2
+            exit 1
+          }
+
+          SA=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(spec.template.spec.serviceAccountName)')
+          [ "$SA" = "${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}" ] || {
+            echo "FAIL: runtime service account is '$SA', expected the dedicated one." >&2
+            exit 1
+          }
+
+          LIVE_IMAGE=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(spec.template.spec.containers[0].image)')
+          EXPECTED="${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}"
+          [ "$LIVE_IMAGE" = "$EXPECTED" ] || {
+            echo "FAIL: live image is '$LIVE_IMAGE', expected '$EXPECTED'." >&2
+            exit 1
+          }
+
+          # The spec naming the new digest is not the same as the new
+          # revision serving. Assert both halves.
+          LATEST=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)')
+          SERVING=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(status.traffic[0].revisionName)')
+          PERCENT=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(status.traffic[0].percent)')
+          if [ "$SERVING" != "$LATEST" ] || [ "$PERCENT" != "100" ]; then
+            echo "FAIL: 100% of traffic is not on the new revision ($SERVING at $PERCENT%, latest ready is $LATEST)." >&2
+            exit 1
+          fi
+          REV_IMAGE=$(gcloud run revisions describe "$LATEST" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(spec.containers[0].image)')
+          [ "$REV_IMAGE" = "$EXPECTED" ] || {
+            echo "FAIL: serving revision $LATEST runs '$REV_IMAGE', expected '$EXPECTED'." >&2
+            exit 1
+          }
+          echo "OK: max-instances=3, dedicated runtime SA, 100% on $LATEST serving the digest built from ${{ github.sha }}."
+
+      - name: Smoke test
+        env:
+          SMOKE_TEST_BASE_URL: ${{ steps.deployed.outputs.url }}
+        run: npm run smoke-test
+
+      - name: Roll back to the previous revision
+        # Only once a deploy was attempted. A failure before it (for example
+        # the migration gate) created no revision, and pinning traffic to
+        # the already-serving one would only make the next deploy harder.
+        if: failure() && steps.previous.outputs.revision != '' && steps.deployed.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          echo "Deploy or smoke test failed — returning all traffic to ${{ steps.previous.outputs.revision }}."
+          gcloud run services update-traffic "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --to-revisions="${{ steps.previous.outputs.revision }}=100" \
+            --quiet
+          SERVING=$(gcloud run services describe "${{ vars.CLOUD_RUN_SERVICE }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(status.traffic[0].revisionName)')
+          echo "Now serving: $SERVING"
+          [ "$SERVING" = "${{ steps.previous.outputs.revision }}" ] || {
+            echo "FAIL: rollback did not take effect." >&2
+            exit 1
+          }
+
+      - name: Mark the deployed digest as production
+        if: success()
+        run: |
+          set -euo pipefail
+          # The registry cleanup policy keeps anything tagged `production`
+          # indefinitely, so the image the service runs can never be swept
+          # out from under it — see infra/artifact-registry-cleanup-policy.json.
+          gcloud artifacts docker tags add \
+            "${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}" \
+            "${{ needs.build.outputs.image }}:production" --quiet

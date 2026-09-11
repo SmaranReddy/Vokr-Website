@@ -1,7 +1,8 @@
-// Vokr production schema — Phase 2 slice (catalog + inventory only).
-// See Vokr-Implementation-Plan.md §3.5 for the full entity plan and the
-// reasoning behind every constraint below. Carts, orders, users and
-// payments land in later phases.
+// Vokr production schema — Phase 2 (catalog + inventory), Phase 3
+// (authentication + guest sessions) + Phase 5 (server-side cart). See
+// Vokr-Implementation-Plan.md §3.5 for the full entity plan and the
+// reasoning behind every constraint below. Orders and payments land in
+// later phases.
 
 generator client {
   provider = "prisma-client"
@@ -78,6 +79,7 @@ model ProductVariant {
   status CatalogStatus @default(draft)
 
   inventory Inventory?
+  cartItems CartItem[]
 
   @@unique([productId, colorway, sizeLabel])
   @@index([productId, status])
@@ -99,4 +101,134 @@ model Inventory {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("inventory")
+}
+
+/// Application profile, 1:1 with a Supabase Auth user. `id` is literally
+/// the Supabase `auth.users.id` (a UUID minted by GoTrue, not by us) — no
+/// database FK, because `auth` is a separate schema Prisma does not model,
+/// but every write path that creates a row here receives that id from a
+/// verified Supabase session, never from client input. Living in Vokr's
+/// own Postgres (ADR-003) is what makes `orders.user_id` (Phase 9) a real
+/// foreign key and DPDP erasure one system rather than two.
+model AppUser {
+  id String @id @db.Uuid
+
+  email       String  @unique
+  displayName String? @map("display_name")
+
+  /// Encrypted at rest (application-layer encryption, not pgcrypto) —
+  /// see AGENTS.md "Security & privacy". Nullable: phone is collected at
+  /// checkout (Phase 6), not at signup.
+  phoneEnc String? @map("phone_enc")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// DPDP erasure marker (Phase 17). Never a hard delete of a row an
+  /// order's `user_id` may still reference.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  carts Cart[]
+
+  @@map("app_users")
+}
+
+/// Anonymous identity before sign-in. The raw 256-bit token lives only in
+/// an HttpOnly cookie on the customer's device — this table stores a
+/// SHA-256 hash of it, never the raw value, so a database read (or a
+/// backup, or a future read-replica) can never be turned into a working
+/// session token. See `src/server/auth/tokens.ts`.
+model GuestSession {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  tokenHash String @unique @map("token_hash")
+
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  /// 90 days from creation (plan §3.5). Renewed at last-seen time by the
+  /// pruning job's window, not by extending this column on every request.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  carts Cart[]
+
+  @@index([expiresAt])
+  @@map("guest_sessions")
+}
+
+/// Postgres-backed fixed-window rate limiting (ADR-006 — no Redis at
+/// launch). One row per `(route, identifier)` window; `consumeRateLimit()`
+/// in `src/server/rate-limit/` advances or resets the window with a
+/// single atomic `INSERT ... ON CONFLICT` so concurrent requests cannot
+/// race past the limit. Cumulative growth — the Phase 17/18 pruning job
+/// must delete rows older than 24 hours (plan §3.5 retention table).
+model RateLimitCounter {
+  key String @id
+
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  count       Int      @default(0)
+
+  @@index([windowStart])
+  @@map("rate_limit_counters")
+}
+
+/// One open cart per identity — enforced at the database, not just the
+/// application, by the two partial unique indexes added by hand in the
+/// Phase 5 migration (Prisma's schema language has no partial-index
+/// primitive). `closed` marks a cart that has already been merged into a
+/// user's cart on sign-in (see `src/server/auth/upgrade.ts`) and is kept
+/// only for audit; it is never read from again.
+enum CartStatus {
+  open
+  closed
+
+  @@map("cart_status")
+}
+
+/// An *open* cart belongs to exactly one identity — a signed-in user or a
+/// guest session, never both, never neither (see the hand-written CHECK
+/// in the Phase 5 migration). A `closed` cart is a historical record and
+/// may have neither: its guest session is typically deleted moments
+/// later by the sign-in that closed it, which nulls `guestSessionId` via
+/// the FK. See `src/server/cart/service.ts` for how prices are resolved
+/// on every read; this table never stores one.
+model Cart {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String?  @map("user_id") @db.Uuid
+  user   AppUser? @relation(fields: [userId], references: [id])
+
+  guestSessionId String?       @map("guest_session_id") @db.Uuid
+  guestSession   GuestSession? @relation(fields: [guestSessionId], references: [id])
+
+  status CartStatus @default(open)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Bumped on every cart mutation. Drives the 30-day abandoned-cart
+  /// pruning job (plan §3.5 retention table) — never used to extend a
+  /// cart's life on mere reads.
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items CartItem[]
+
+  @@index([updatedAt])
+  @@map("carts")
+}
+
+/// A line in a cart. **Stores no price** — `getCart()` resolves unit
+/// price, line subtotal and per-variant GST server-side on every read
+/// from `product_variants.price_paise` and `products.gst_rate_bps`, never
+/// from this row (R6).
+model CartItem {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  cartId String @map("cart_id") @db.Uuid
+  cart   Cart   @relation(fields: [cartId], references: [id])
+
+  variantId String         @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  quantity Int
+
+  addedAt DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
+
+  @@unique([cartId, variantId])
+  @@map("cart_items")
 }

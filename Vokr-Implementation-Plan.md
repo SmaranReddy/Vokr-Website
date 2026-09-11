@@ -19,20 +19,23 @@ block and the master checklist below are the source of truth for progress.
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 3 — Authentication + Guest Sessions (not started) |
-| **Current status** | Phase 2 COMPLETE (8 Sep 2026) |
-| **Latest relevant commit** | `733eb4f` Phase 2: catalog + database — Prisma, schema, migration, seed, catalog service, API routes |
-| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. 2 open human decisions remain (D2, D3). The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. |
+| **Current phase** | Phase 5 — Server-Side Cart — **CLOSED, 12 Sep 2026** (`carts`/`cart_items` migrated with the §3.5 constraints; server-resolved pricing and per-variant GST on every read; guest→user merge registered on the Phase 3 upgrade hook, idempotent under genuine concurrency; cart UI wired into the header and PDP, closing the cart/Bag and Add-to-Cart half of D5; formal closure audit re-verified every exit/acceptance/security/testing requirement against the committed code from a clean checkout — see Phase 5 Status). **Phase 6 not started.** |
+| **Current status** | Phase 5 engineering complete and verified. **12 Sep 2026: `carts`/`cart_items` added (`20260910084234_cart`) with the two partial unique indexes making "one open cart per identity" a database guarantee, a CHECK scoped to `status='open'` only (a closed/merged cart legitimately outlives its guest session — found by this phase's own merge test, see Phase 5 Status), and RLS enabled with no policies, matching every prior migration's convention. `src/server/cart/` resolves unit price, line subtotal and per-variant GST from `product_variants`/`products` on every read — `cart_items` itself stores no price — and a `.strict()` zod boundary rejects any request body carrying `price`/`total`, closing the legacy client-controlled-pricing defect generically for all five launch SKUs (R6). The guest→user merge handler is registered against the Phase 3 upgrade hook and proven idempotent under a genuinely concurrent double-fired sign-in (a `SELECT ... FOR UPDATE` guard on the guest cart row), not just a sequential retry. **One real defect found and fixed mid-phase:** `completeSignIn()` created the `app_users` row *after* running upgrade handlers, so the cart-merge handler's FK to `app_users(id)` failed on a brand-new user's first sign-in with items in their guest cart — reordered so the profile row exists before any handler runs. Cart UI (drawer, quantity controls, line removal, live totals, out-of-stock-per-line) wired into `src/app/layout.tsx`, the header Bag button and the PDP Add to Cart button, replacing their Phase 4 D5 inert state for real. `npm run verify` green (lint, typecheck, 205/205 unit tests / 23 files, build); `npm run test:integration` green (52/52 / 8 files) against a disposable local Postgres — this sandbox still cannot reach the real Supabase project. Full flow (add, quantity update, remove, R6 price-injection attempt) exercised against a live `next dev` server via real HTTP requests with real cookies; not visually screenshotted in an actual browser window — no browser-automation tool is available in this sandbox. See Phase 5 Status for the full evidence.** |
+| **Latest relevant commit** | Phase 5 closure: `5a783dbd92948a9320c9414878960ec31ff02f8e` (implementation: `6e4f7c78e29222dea24d7cd9b1e670be63b19df8`) |
+| **Phase 4 reconciliation** | **12 Sep 2026: Phase 4 reconciled and re-closed on evidence.** Reconciling it after D6/D7 showed its "no inert form" Exit Criterion had never been met — five approved-legacy marketing forms were inert and unregistered; the manager approved them as an explicit exception (**D8, option A**, no code change) and the criterion is now genuinely closed. The same pass fixed real §2A.7 regressions the Phase 4 harness could not see (missing images, wrong breakpoints) plus two Phase 5 regressions into Phase 4's surface (a PDP wording change failing fidelity on all 5 PDPs; a site-wide serious axe violation). All green — 183/183 e2e. See Phase 4 Status and §2A.9. **Phase 5 remains CLOSED; Phase 6 not started.** |
+| **Blocking issues** | D1 RESOLVED (8 Sep 2026) — see §0.3. **2 open human decisions remain (D2, D3).** D5–D8 are all resolved; none blocks a phase. The real Supabase project task is RESOLVED (8 Sep 2026) — see Phase 2 Status. **D2 does not block Phase 2 or Phase 3** — the schema defers GST rate/HSN via a nullable `gst_rate_bps` plus a trigger that refuses to let any variant go active without one. D2 blocks R11 (compliant invoicing) and therefore live sales. **New: Phase 3's exit criterion (R12 — a confirmation email delivered to an external inbox via Brevo) requires a Brevo account, a verified sending domain, and Google OAuth credentials, none of which exist in this environment — see Phase 3 Status for the exact human checklist.** **Google OAuth is DEFERRED to Phase 4 task 14 (10 Sep 2026, operator instruction, recorded under §12 item 1) and is no longer counted as a Phase 3 blocker — see Phase 3 open item 4.** **D4 RESOLVED (10 Sep 2026): `auth.rate_limit.email_sent` stays at 30/hour by decision. No Phase 3 blocker remains except the scoped commit itself.** |
 | **Launch gate** | NOT PASSED. 0 of 22 blocking requirements verified. |
+| **Standing constraints** | **§2A — Legacy Content Preservation.** The approved legacy structure and content may not be altered during migration without explicit manager approval. Permanent, all phases. Registered exceptions and everything awaiting approval live in §2A.6. |
+| **Domain / DNS** | `vokr.shop`, DNS managed at **Hostinger** (§3.7) — *not* Cloudflare, despite §3.1's target state. Brevo domain authentication is **in progress**: records added in Hostinger, Brevo verification still pending. |
 
 ### 0.1 Master checklist
 
 - [x] **Phase 0** — Current-State Audit + Foundation Corrections
 - [x] **Phase 1** — Foundation Stabilization
 - [x] **Phase 2** — Catalog + Database (real Supabase project now linked and seeded — see Phase 2 Status)
-- [ ] **Phase 3** — Authentication + Guest Sessions
-- [ ] **Phase 4** — Website / Page Migration
-- [ ] **Phase 5** — Server-Side Cart
+- [x] **Phase 3** — Authentication + Guest Sessions (**COMPLETE, 10 Sep 2026** — all acceptance criteria and the Exit Criterion met or deferred under §12 item 1; Google OAuth deferred to Phase 4 task 14. Closed by `f89e7ba` — see Phase 3 Status)
+- [x] **Phase 4** — Website / Page Migration (**CLOSED, 12 Sep 2026** — 26/26 legacy pages migrated (21 marketing/support/legal pages + one dynamic PDP template serving the 5 shop slugs); real forms, robots/sitemap, WCAG AA contrast pass done. **§2A.7 fidelity + axe + responsive screenshots verified for all 26/26 pages**, including the 5 PDP routes against a disposable local-Postgres validation database (§0.2) — this sandbox still cannot reach the real Supabase project. **D5 resolved 12 Sep 2026**: manager approved option B — the header cart/Bag button, PDP "Add to Cart" button, Order Status form and reviews "Write a Review" remain visible-but-inert through Phase 4 as an explicit, time-boxed §2A.6 exception, expiring when Phases 5/7/9 ship the real capability. Reviews Filters/Sort — never part of that exception — are now real (`reviews-list.tsx`). **Open but not closure-blocking, per the plan's own design**: tasks 7/8/9 (🔒, §2A.6 manager approval; Acceptance-Criteria-waivable) and task 14 (Google OAuth, needs external dashboard access this environment doesn't have). See Phase 4 Status.)
+- [x] **Phase 5** — Server-Side Cart (**CLOSED, 12 Sep 2026** — `carts`/`cart_items` migrated with the §3.5 constraints; server-resolved price/GST on every read, no endpoint accepts a client price; guest→user merge idempotent under real concurrency; cart UI live in the header and PDP; formal closure audit confirmed every exit criterion against committed code, 205/205 unit + 52/52 integration from a fresh checkout. See Phase 5 Status)
 - [ ] **Phase 6** — Address + Checkout Foundation
 - [ ] **Phase 7** — Razorpay Payments
 - [ ] **Phase 8** — Inventory + Concurrency Hardening
@@ -64,6 +67,19 @@ dashboard, a restore log. Not an assertion.
 | 0 | 7 Sep 2026 | *(Phase 0 correction commit)* | `npm run lint`, `npm run typecheck`, `npm run build` all pass from a clean checkout with `.next/` deleted; `.next/standalone` produced at 29 MB |
 | 1 | 7 Sep 2026 | `ffb8eb9` (Prettier formatting pass), *(Phase 1 commit)* | `npm run verify` (lint + typecheck + test + build) green from a clean `.next/`; 17/17 tests passing across 4 files; `next dev` boots and serves `GET /` → 200; a deliberately invalid `NEXT_PUBLIC_SITE_URL` makes `src/lib/env.ts` throw one aggregated, readable error before any request is served (reproduced via `npx tsx -e "require('./src/lib/env.ts')"`); `grep` of `.next/static` for every server-only secret name (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`) returns zero matches |
 | 2 | 8 Sep 2026 | `733eb4f` | `npm run verify` green from a clean `.next/` (37/37 unit tests, 7 files); `npm run test:integration` green against Compose Postgres (8/8 tests: idempotent seed at 5/27/27 rows twice, all three `inventory` CHECK constraints, duplicate-`sku` rejection, GST-trigger reject/allow round-trip, RLS enabled on all three tables); manual `psql` reproduction of every constraint and the trigger, independent of the test suite; `next dev` + `curl` against both live catalog routes (200 with exact selected fields, 404 with the typed error contract for an unknown slug); `grep` of `.next/static` for `DATABASE_URL`, `DIRECT_URL`, `vokr_local_dev` returns zero matches |
+| 3 (engineering only — see Phase 3 Status) | 8 Sep 2026 | `7805883` | `npm run verify` green from a clean `.next/` (75/75 unit tests, 13 files); `npm run test:integration` green against Compose Postgres, run 4× consecutively for flake-check (31/31 tests, 5 files: guest-session create/reuse/expiry/UNIQUE/CHECK/RLS, `app_users` idempotent-upsert-under-concurrency/UNIQUE-email/RLS, `rate_limit_counters` limit-and-block/window-reset/20-way-concurrent-race/independent-buckets/CHECK/RLS, `completeSignIn` guest-upgrade-handler/cookie-rotation/idempotent-retry); `next dev` + `curl`/`Invoke-WebRequest` against all five live auth routes plus all four auth pages — every route returns a well-formed `toErrorResponse()` JSON body (or, for the OAuth callback, a 307 redirect) rather than an unhandled crash, confirmed against the actual "Supabase not configured" failure this environment is in; dev-server log inspected for stray stack traces (none); `grep` of a clean `.next/static` production build for `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`, `DATABASE_URL`, `DIRECT_URL` returns zero matches (a regression was found and fixed mid-phase — see Phase 3 Status). **Not evidenced, and cannot be from this environment: R12 (external-inbox email delivery), R13's Google OAuth half (needs a real Google Cloud OAuth client) — these require a human with Brevo/Google Cloud dashboard access.** |
+| 3 — production migration (`20260908102243_auth_guest_sessions`) | 10 Sep 2026 | `f89e7bae83abd53373bf45a70d14dd780e21d25d` | **Migration `20260908102243_auth_guest_sessions` deployed to the real Supabase project `fzjuiocvzqaycchwsjef` (ap-south-1).** Procedure: `npx prisma migrate deploy` with `DATABASE_URL`/`DIRECT_URL` both set to the **session pooler, port 5432** as one-off process env vars (README §"Database — real Supabase project"); never written to `.env.local` or any repository file, deleted after use. **`supabase config push` deliberately not used** (it would set `auth.email.enable_confirmations` true→false). No Auth, SMTP, MFA, SMS, pooler or storage setting altered; no seed run. **Pre-flight:** `prisma migrate status` → `init_catalog` already applied, exactly one pending, no drift/failed/modified-after-apply. **Apply:** exit 0, `Applying migration 20260908102243_auth_guest_sessions` → "All migrations have been successfully applied." **`_prisma_migrations` read back:** both rows `applied_steps_count=1`, `rolled_back_at=null`; the new row `finished_at 2026-09-09 19:56:26 UTC` (= 10 Sep 01:26 IST). `prisma migrate status` → **"Database schema is up to date!"** exit 0. **Objects verified by direct `information_schema`/`pg_catalog` query:** `app_users` (6 cols), `guest_sessions` (5 cols), `rate_limit_counters` (3 cols); 3 PKs; 2 unique indexes (`app_users_email_key`, `guest_sessions_token_hash_key`); 2 plain indexes (`guest_sessions_expires_at_idx`, `rate_limit_counters_window_start_idx`); 2 CHECKs (`guest_sessions_expires_after_created`, `rate_limit_counters_count_non_negative`); **RLS enabled on all three, zero policies in `public`**; no FKs (correct — `app_users.id` is cross-schema by design). **Non-destruction verified:** `products` 5 rows, `product_variants` 27, `inventory` 27 — unchanged; all Phase 2 CHECKs, both FKs, the `catalog_status` enum and the `product_variants_require_gst_rate` trigger intact, trigger **enabled** (`tgenabled='O'`). **GST/HSN untouched (D2 still open):** all 5 products `hsn_code=NULL`, `gst_rate_bps=NULL`; all 27 variants `draft`; **0** active variants on a GST-less product — nothing purchasable, exactly the pre-migration state. **No unexpected objects:** `public` holds exactly 7 tables (6 application + `_prisma_migrations`), 1 trigger, 1 function, 1 enum, 0 views, 0 sequences, 0 policies. **PostgREST anon-key survey:** `app_users`, `guest_sessions`, `rate_limit_counters` all moved `PGRST205` → `42501`, and `products`/`product_variants`/`inventory` still `42501` — present with `anon` correctly denied SELECT. **Containment:** credential file deleted; repo-wide scan for `aws-0-ap-south-1.pooler` returns only pre-existing password-free hits (`.env.example` template, `README.md`, git-ignored `supabase/.temp/pooler-url`); `.env.local` still points at local Compose Postgres on 55432. |
+| 3 — password reset (real-world, cross-browser) | 10 Sep 2026 | `f89e7bae83abd53373bf45a70d14dd780e21d25d` | **One fresh real-world password reset completed end-to-end against `smaranreddy1011@gmail.com`, closing Phase 3 open item 2.** **Send:** `POST /api/auth/reset` at **2026-09-09 20:14:50 UTC** (10 Sep 01:44:50 IST) → **HTTP 200** in 1.674 s. **Send proven genuine, not a swallowed failure:** the route's `classifyResetResult()` splits four ways and logs on three of them — `validation` (400, logged), `operational` (500, logged), `silent-failure` (**200, logged**) and `generic-success` (200, *not* logged). The dev log contains **zero `[auth/reset]` entries**, so the only reachable path is `generic-success`, i.e. `resetPasswordForEmail()` returned `error: null`: Supabase Auth accepted and dispatched via Brevo SMTP with no error. This rules out SMTP failure, provider rejection and the 30/hour cap. **Template confirmed live:** the delivered email's link pointed at `/api/auth/reset/confirm?token_hash=…&type=recovery` — the `{{ .TokenHash }}` template, not the old `{{ .ConfirmationURL }}` PKCE URL. **The decisive step — cross-browser:** the reset was requested in the normal browser and the emailed link **opened in a separate Incognito/private window**, which reached the *Set a new password* form; the new password was set and then signed in successfully. **This is precisely the condition round 3 proved broken** (`AuthPKCECodeVerifierMissingError`, the verifier cookie existing only in the requesting browser), so the server-side `verifyOtp({type:"recovery"})` fix is now confirmed against a genuine PKCE-issued, Brevo-delivered token rather than only an admin-generated one. **`app_users` corroboration (local Compose — the dev server was verified to be on local Postgres, not production):** the sign-in ran `getOrCreateAppUser()` (upsert transaction visible in the dev log, ending `COMMIT`) and produced **no new row** — `b8f70250-0c8b-4d9b-a2ce-280c30bdde8e` / `smaranreddy1011@gmail.com` retains its original `created_at 2026-09-09 09:12:31.342+00`, confirming task 8's idempotent upsert. **`/api/auth/reset/confirm` correctly left no `app_users`/guest trace**, since `completeSignIn()` is deliberately not run on the recovery route (round 3 security property). **Dev-server hygiene verified before the test:** a probe request moved local `rate_limit_counters` 9⇒11 (+2 — independent IP-keyed and email-keyed windows), proving the server was reading **local Compose Postgres, not production**, so the Cause-2 trap was absent. **Not read back:** the project's `auth.users` row (`recovery_sent_at` / `updated_at` / `last_sign_in_at`) — requires the service-role key, which is not present in this environment. The successful sign-in with the *new* password is itself server-side proof the credential changed. |
+| 3 — closure (R13 test, anti-enumeration test, D4, prefetch decision) | 10 Sep 2026 | `f89e7bae83abd53373bf45a70d14dd780e21d25d` | **The last three Phase 3 open items closed; no production configuration changed.** **R13 per-IP verification (new):** `src/server/rate-limit/__tests__/client-ip-bucketing.integration.test.ts`, **6 cases**. Behavioural, against real Postgres: two different forwarded client IPs occupy independent buckets (one exhausting its allowance leaves the other at full remaining) — the failure R13 names, where server-side Auth calls put every customer in Cloud Run's single egress bucket; `cf-connecting-ip` takes precedence over a spoofed `x-forwarded-for`, so a client cannot borrow another visitor's bucket behind Cloudflare; and a **genuinely separate `PrismaClient`** with its own connection pool, standing in for a second Cloud Run instance, observes the counter the first advanced (`count = 5`) rather than receiving its own fresh allowance — the per-instance failure mode an in-memory limiter would exhibit. Structural, by source assertion (route modules sit outside the Vitest `node` project, so this follows the convention of `env-client-inlining.test.ts`): all three limited routes call `getClientIp(request)` and interpolate it into the key, so a regression to a constant key would fail. **The limiter itself was not modified.** **Anti-enumeration (new):** `src/server/auth/__tests__/anti-enumeration.test.ts`, **9 cases**, closing a gap open since the phase began. Tested at the classifier layer — `classifySignupResult()` / `classifyResetResult()` are what actually select the caller-visible outcome, so the long-standing objection (“a meaningful test needs real Supabase responses”) applies to the routes, not to them. Asserts the **caller-visible projection** (status + message) is identical for registered vs unregistered on both surfaces, rather than `outcome.kind` equality — which would wrongly fail on reset, where `silent-failure` and `generic-success` differ internally but are indistinguishable by design. Covers `user_already_exists`, `email_exists`, the confirmations-on duplicate shape, and GoTrue's recovery cooldown (keyed on `recovery_sent_at`, therefore reachable only for a registered address — the sharpest oracle in the phase). Two counter-tests assert the rule is not over-applied: an SMTP failure on either route must still fail loudly. **D4 resolved:** `auth.rate_limit.email_sent` **kept at 30/hour** as an intentional launch decision; **the Supabase dashboard was not touched and `config push` was not used.** **Mail-scanner prefetch:** risk explicitly accepted for launch with current behaviour retained, re-open conditions recorded (open item 8). **Full gate:** `npm run verify` **exit 0** from a deleted `.next` — lint clean, typecheck clean, **189 unit tests / 21 files**, build clean with 16 static pages; `npm run test:integration` **37 / 6** against Compose Postgres. The running dev server (PID 19668) was stopped first, since it shared `.next`. **Bundle secrets:** `grep` of a clean `.next/static` returns **0 matches** for all eight server-secret names (`SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY`, `R2_SECRET_ACCESS_KEY`, `SENTRY_AUTH_TOKEN`, `DATABASE_URL`, `DIRECT_URL`) and 0 for the local DB password literal, while the three `NEXT_PUBLIC_*` values each appear in exactly 1 chunk — both halves of the round-3 inlining regression still correct. |
+| 4 — website / page migration (engineering, see Phase 4 Status for what remains) | 10 Sep 2026 | `3cbcc059d97e06d77efd83300261fd635d1244de` | **26/26 legacy pages migrated** (21 static marketing/support/legal routes + one dynamic `app/shop/[slug]/page.tsx` template serving the 5 launch SKUs), verified by direct crawl of a live `next dev` server: every route (plus `/search`, `/robots.txt`, `/sitemap.xml`) returns **200**; `gift-cards` returns **404** (D1 still the only IA change). **§2A.7 fidelity** (text-content diff + heading/landmark diff against the tracked `vokr-production.zip`, via a purpose-built Playwright/jsdom harness at `e2e/fidelity/extract.ts` + `e2e/phase4-fidelity.spec.ts`): **21/21 non-PDP routes pass** — 20 byte-exact after whitespace/`sr-only` normalisation, 1 (`/reviews`) passes a documented superset check because the legacy's own review-card list is populated by client JS the static extraction never executes, not because any static copy was dropped (see that spec file's doc comment). Six real transcription defects were found and fixed by this harness during the phase (missing `<sup>i</sup>` info-icon markers, two testimonials silently dropped, an unmounted quiz-modal step losing its headings, "Shop Now" substituted for the legacy's actual "Add to Cart" label, a missing "Learn More" link, and `&ldquo;/&rdquo;` smart quotes substituted for the legacy's straight quotes) — evidence the check is load-bearing, not decorative. **Accessibility** (`@axe-core/playwright`, WCAG2A+2AA tags, `e2e/phase4-routes.spec.ts`): **21/21 non-PDP routes, zero serious/critical violations**, after darkening the legacy's `#888/#999/#aaa` greys (2.6–3.5:1 on white) and the review "Verified Buyer" green to WCAG-AA-passing values in `globals.css` and `reviews-summary.tsx` — a colour-only change, not a content change, per §2A.4. **Responsive screenshot spec** (`e2e/phase4-responsive.spec.ts`, 360/768/1024/1440 px) built and proven against the homepage; not run for all 26 routes in this session (time, not a blocker). `npm run verify` **exit 0** from a clean `.next`/`node_modules` state: lint clean, typecheck clean, **190/190 unit tests / 21 files**, production build clean (all 26 content routes + existing API/auth routes compiled; `/shop/[slug]` prerenders 0 params and falls back to on-demand rendering rather than failing the build, see task below). **Legacy source integrity:** `index (7).html` MD5 still `82aa900609d7bae122064c87925308b4` (matches §2A.1 exactly); `git status`/`git diff --stat` on `vokr-production.zip` empty. **Not evidenced from this environment: the 5 PDP routes end-to-end** (route-200, §2A.7, axe) — this sandbox has no network path to the real Supabase project (`ECONNREFUSED` on every `prisma.product.findMany()` call, confirmed both via `next dev` and a full `next build`); the PDP template code is otherwise typechecked, linted and unit-tested like everything else, and `generateStaticParams` was hardened to degrade to on-demand rendering rather than fail the whole build when the database is unreachable at build time. See Phase 4 Status for the full remaining checklist (§2A.6 approvals, Google OAuth, PDP verification). |
+| 4 — PDP verification (all 26/26 routes, D5 opened) | 11 Sep 2026 | `d6d064e241d5dff7c1b378e281303bf2801afd4b` | **The 5 PDP routes verified end-to-end against a disposable local-Postgres database** — this sandbox still cannot reach the real Supabase project (`ECONNREFUSED` reconfirmed), so the project's own documented local-dev path was used instead: Docker Desktop started, a throwaway `postgres:17-alpine` container run on host port 15432 (55432 — `docker-compose.yml`'s port — sits inside a Windows/Hyper-V dynamic port-exclusion range on this machine and could not be bound; a host-networking quirk unrelated to the project, worked around without editing `docker-compose.yml`), `prisma migrate deploy` (both existing migrations applied clean) and `prisma db seed` (the real 5-product/27-variant/27-inventory-row seed — not synthetic data). **`e2e/phase4-fidelity.spec.ts` and `e2e/phase4-routes.spec.ts` both green for all 26 routes in one run each** (previously 21/26): 26/26 route-200, 26/26 §2A.7 fidelity (21 exact, 5 PDP + `/reviews` superset-around-JS-injected-cards), 26/26 axe zero-serious. `npm run build` against the same database **prerenders all 5 `/shop/*` slugs as static pages** (previously 0, on-demand fallback), confirming both the DB-reachable and DB-unreachable code paths. **Two real defects found and fixed by the verification, not invented to justify running it:** (1) `pdp-purchase-panel.tsx` rendered bare `S/M`/`One Size` instead of the legacy's `IN S/M`/`IN One Size` for socks/laces — the seed data only bakes the `IN ` prefix into adult/kids shoe sizes (`prisma/seed-data.ts`), not socks/laces; now normalised for every product. (2) The §2A.7 harness's superset handling for JS-injected review cards (`isolateLegacyContent`/`extractStructure` in `e2e/fidelity/extract.ts`) only ever matched a single contiguous substring, which happened to work for `/reviews` (no legacy text follows the injection point there) and broke on the first PDP (whose "See all 4,059 reviews →" link *does* follow it) — replaced with a sentinel-marked split that verifies every legacy segment around the injection point independently, in order. `npm run verify` (lint, typecheck, 190/190 unit tests, build) green throughout. Temporary container and `.next` removed after verification; `docker-compose.yml`, `.env.local` and the real Supabase project untouched. **D5 opened (§0.3):** the header cart button, PDP "Add to Cart" button, Order Status form and reviews Filters/Write-a-Review/Sort controls are visible-but-inert (Phases 5/9 don't exist yet to make them real) — whether that satisfies Exit Criterion "no inert form" is an unresolved plan-interpretation decision. **Phase 4 remains open pending D5**; tasks 7/8/9 (§2A.6) and task 14 (Google OAuth, external dashboard access) are unchanged from the prior row. |
+| 4 — D5 refined, no new exception invented | 12 Sep 2026 | `c3d63f307f6b0769969b12f43fa04b1d8fe71d70` | **D5 re-read against task 10 and §2A.6 as literally written** (no code changed): task 10 is a strict binary, real endpoint or removed-with-§2A.6-approval, with no third "inert but labelled" option, so the four controls are re-classified individually rather than as one bucket. **Blocked, needs one manager decision each (§0.3 D5):** header cart/Bag button and PDP "Add to Cart" button (real endpoint is Phase 4's own "Explicitly Out of Scope: Cart and checkout UI"; removal needs §2A.6 approval as approved legacy structure, tasks 3/5); Order Status tracking form (real endpoint needs an `Order` model Phase 4's Database Impact explicitly excludes — Phase 9's; removal needs §2A.6 approval); reviews "Write a Review" (same `Order`-model block, plus entangled with R20/task 8, itself still pending). For each, the manager's only two options under existing rules: **(A)** approve a §2A.6 row to remove/hide until the owning phase ships it, or **(B)** approve keeping it inert as a recorded exception to task 10 — not a new automatic rule, an explicit case-by-case grant the manager must make, same authority as D1. **Not blocked — reclassified out of D5:** reviews "Filters"/"Sort" need no `Order` model or cart, operate on data already rendered client-side, and are achievable as a real capability under task 10's already-approved "implementation only" path (§2A.6 table) — this is outstanding implementation work, not a decision, and does not gate Phase 4 closure. **Nothing was removed, hidden, or given a real backend in this pass** — the refinement is documentation only, per instruction not to implement either D5 branch before the required approval exists. `Vokr-Implementation-Plan.md` §0.3 D5 and the Phase 4 Status block both updated; no other file touched. **Phase 4 still not closed.** |
+| **4 — CLOSED**: D5 decided, Filters/Sort real, all evidence re-verified | 12 Sep 2026 | `6408383ce79347d80f6cbca96c973a5556c7b374` | **Manager decided D5: option B for all four controls** (header cart/Bag, PDP Add to Cart, Order Status, reviews Write a Review) — approved as an explicit, time-boxed §2A.6 exception to task 10, expiring per-control when Phases 5/7/9 ship the real capability. Recorded as a new §2A.6 table row and D5 marked RESOLVED in §0.3; nothing removed, hidden or redesigned. **Reviews Filters and Sort implemented for real** (`src/components/shop/reviews-list.tsx`, new client component): Sort reproduces `reviews.html`'s own `rrSortSelect` logic (Highest/Lowest Rated by `rating`, Most Helpful by `helpful`, Most Recent = already-correct order) — manually verified against a live `next dev` server with Playwright: Lowest-Rated and Most-Helpful orderings matched the seed data's `rating`/`helpful` fields exactly, in both cases. Filters reproduces `rrFilterBtn`'s exact-star-rating capability through an accessible control instead of the legacy's `window.prompt()` (same capability, an implementation choice) — verified narrowing 10 reviews to the 1 real 3★ review, with the button label updating to "☰ Filters (3★)" exactly as legacy. Neither touches the still-fabricated `{total} reviews` line (R20 pending) — a new, separate "Showing N of M" line is added instead, only while a filter is active. "Write a Review" stays part of the D5 exception. **Full validation re-run after the change:** `npm run lint`/`typecheck`/`test` (190/190) clean; against a fresh disposable local-Postgres validation database (same procedure as the 11 Sep row — Docker Desktop, `postgres:17-alpine` on port 15432, `prisma migrate deploy` + `prisma db seed`): `e2e/phase4-fidelity.spec.ts` **26/26 pass** (no visible text changed — Filters/Sort's labels were already present, only made real), `e2e/phase4-routes.spec.ts` **53/53 pass** (26 route-200 + gift-cards-404 + 26 axe zero-serious), `npm run build` prerenders all 5 PDP slugs. **`e2e/phase4-responsive.spec.ts` run for the first time across all 26 routes** (previously only proven on the homepage): **104/104 screenshots captured** (26 routes × 4 breakpoints), 16 MB, sane file sizes (100–140 KB each) — closes the one remaining piece of §2A.7 evidence (item 4) that hadn't been run at full scope. Screenshots are git-ignored build evidence (`e2e/screenshots/`, same as `test-results/`), not committed. **Legacy source integrity reverified:** `index (7).html` MD5 `82aa900609d7bae122064c87925308b4`; `vokr-production.zip` clean. Temporary container, `.next` and screenshot output removed after verification. **Phase 4 formally CLOSED** — every Exit Criterion met or explicitly, correctly deferred (tasks 7/8/9 §2A.6-pending, task 14 external-access-pending — neither a closure blocker by the plan's own design). Phase 5 not started. |
+| **4 — RE-CLOSED on evidence**: reference-site audit, D6/D7/D8 resolved | 12 Sep 2026 | `c0bdaee7bb86d4fa35cbb426b36bb2a496b49964` (fidelity fixes), `18b0622b802c193ca60754417b161e73dd9c9a9f` (D6), `e85071816881fdc16ba464c387692ad405698cd1` (reconciliation) | **Why this row exists:** the 12 Sep "4 — CLOSED" row above was recorded before the evidence supported it. Comparing the deployed Cloud Run revision against the reference site (`vokr.shop`, proven byte-identical to `index (7).html`, MD5 `82aa900609d7bae122064c87925308b4`, and serving **only** `/` — every other path 404s) showed the §2A.7 harness diffs text and heading order inside `#main` and therefore cannot see **images** or **breakpoint values**. Behind that: 5 homepage images missing (3 tech-card close-ups rendering as empty grey boxes, both `.tc-imgcard` testimonial photographs dropped); every multi-column section switching at Tailwind's 640px instead of the legacy's 900px (768px page height **8,040px** against the reference's **15,248px**); the hero not swapping image-above-text below 900px; the Instagram strip at 6 columns for 5 square tiles with no hiding rules instead of 5 portrait 2/3 tiles; the header search panel's Popular Searches and Quick Links content absent entirely; and the PDP review photo alt text genericised. **Plus two Phase 5 regressions into Phase 4's surface that Phase 5 closed without detecting**, because it did not re-run Phase 4's suites: the PDP button relabelled "Select a size" / "Add to Cart — IN 8", failing the §2A.7 text diff on all 5 PDPs, and a root-layout `CartDrawer` that wrapped focusable buttons in `aria-hidden` while closed — axe `aria-hidden-focus`, impact **serious**, on **every route**, reproduced against the live deployment. All fixed; approved legacy strings ("Your Cart", "Estimated Total", the `.cart-shipping-note`) restored verbatim. **Decisions resolved:** D6 = B (homepage cards link to their PDP — all three hrefs verified 200 in a browser); D7 = B (reference-site photographs canonical for the 10 differing slots, execution bound to Phase 14 task 2a — verified read-only, all 10 decode cleanly, 14.2 MB, six PNG/four JPEG exactly as §2A.2 recorded, and DOM #8 is a genuinely distinct photograph where the zip duplicates `Antimicrobial_lining.jpg`); D8 = A (the five inert marketing forms excepted explicitly, zero code change). **Closure validation, all re-run on the day:** `npm run verify` green (lint, typecheck, **205/205** unit, build); **52/52** integration against seeded Postgres; **183/183** across `phase4-fidelity` (26/26), `phase4-routes` (route-200 + zero serious/critical axe) and `phase4-responsive` (104/104) — the five PDP fidelity checks and the site-wide axe check passing for the first time since Phase 5; homepage image inventory **15/15 exact** against the canonical zip; sitemap exactly **26** `<loc>` entries all returning 200; `/gift-cards` **404** with **zero** occurrences of `gift-cards` in the built output; legacy artefacts unchanged — `index (7).html` MD5 `82aa9006…`, `vokr-production.zip` blob `02c532940bc1ad1b886c9ad65bedd397e0252423`. Branch `fix/reference-site-fidelity`. |
+| **5 — CLOSED**: server-side cart, guest→user merge, cart UI live | 12 Sep 2026 | `6e4f7c78e29222dea24d7cd9b1e670be63b19df8` | **Schema:** `carts`/`cart_items` added (`prisma/migrations/20260910084234_cart`) with every §3.5 constraint — two hand-written partial unique indexes (`carts_one_open_per_user`, `carts_one_open_per_guest_session`, both `WHERE status = 'open'`) make "one open cart per identity" a database guarantee; `cart_items_quantity_between_1_and_10` CHECK; `carts_has_an_identity` CHECK deliberately scoped to `status <> 'open' OR …` rather than every row (see the defect below); RLS enabled on both tables, no policies, same convention as every prior migration. **Pricing (R6):** `src/server/cart/service.ts`'s `getCart()`/`addItem()`/`updateQuantity()` resolve unit price, line subtotal and per-variant GST from `product_variants.price_paise`/`products.gst_rate_bps` on every read — `cart_items` stores no price column at all. `addItemBodySchema`/`updateQuantityBodySchema` (`src/server/cart/schemas.ts`) are `.strict()`, so a request body carrying `price`/`total` fails validation before the service layer is ever reached — verified three ways: a unit test on the schema directly, an integration test confirming `addItem`'s stored line always matches the catalog price regardless of input, and a live `next dev` server hit with `curl` sending `{"variantId":…,"quantity":1,"price":1,"total":1}` → **HTTP 400** `VALIDATION_ERROR`, nothing stored. **GST math verified live**, not just in tests: adding one Model x (₹9,995, 18% GST) through the real running server returned `lineTaxPaise: 152466` (₹9,995 × 1800 ÷ 11800, half-up) and `totalPaise === subtotalPaise` (999500), confirming GST-inclusive pricing — `terms.html`'s published commitment — end-to-end. **Merge (task 5):** `src/server/cart/merge.ts` registers `mergeGuestCartIntoUserCart` on the Phase 3 upgrade hook via a side-effect import in `complete-sign-in.ts` (the one Phase 3 file this phase had a genuine reason to touch). Sums overlapping variants capped at the per-line maximum; proven idempotent under a **genuinely concurrent** double-fired sign-in (two `prisma.$transaction` calls racing the same merge via `Promise.all`, not just a sequential retry) using a raw `SELECT … FOR UPDATE WHERE status = 'open'` guard — the loser finds zero rows and is a no-op. **One real defect found and fixed mid-phase:** `completeSignIn()` created the `app_users` row *after* running upgrade handlers; the merge handler's `getOrCreateOpenCartId()` writes a `carts.user_id` row with a real FK to `app_users(id)`, which is a foreign-key violation the moment a guest with items in their cart signs in for the first time. Reordered so the profile row is guaranteed to exist first — found by, and reproduced in, `src/server/cart/__tests__/merge.integration.test.ts` before the reorder, passing after. **A second defect found by the same test:** closing a guest cart and then deleting its guest session (immediate on every sign-in) nulls `guest_session_id` via the FK, which failed the original unconditional `carts_has_an_identity` CHECK — fixed by scoping the CHECK to open carts only, since a closed cart is a historical record allowed to outlive its guest session. **Cart UI (task 7):** `src/components/cart/cart-provider.tsx` (context + `/api/cart*` client) and `cart-drawer.tsx` (quantity controls, line removal, live totals, empty state, out-of-stock-per-line) wired into `src/app/layout.tsx`; the header Bag button (`site-header.tsx`) now shows a real count and opens the drawer; the PDP "Add to Cart" button (`pdp-purchase-panel.tsx`) calls the real endpoint — both replace their Phase 4 D5 inert state, closing that half of the exception (§2A.6, §0.3 D5 addendum below). **Infra fix, not scope creep:** `vitest.config.mts`'s `integration` project set to `fileParallelism: false` — this phase is the first to add integration tests that write `products`/`product_variants`/`inventory`, exposing a pre-existing race in `catalog.integration.test.ts`'s absolute row-count assertions when run concurrently with another file touching the same tables. **Full gate:** `npm run verify` green from a clean state — lint clean, typecheck clean, **205/205 unit tests / 23 files**, build clean (cart routes present in the route table: `/api/cart`, `/api/cart/items`, `/api/cart/items/[id]`). `npm run test:integration` **52/52 / 8 files**, run against a disposable local Postgres (Docker port 15432 — port 55432 hit the same Windows/Hyper-V binding issue recorded in the Phase 4 rows; worked around the same way, `docker-compose.yml` untouched), reset and re-run clean after both defect fixes. **Live-server verification:** homepage HTML confirms the Bag button renders enabled with a real count; the PDP for `model-x` renders the size grid with 7/8 sizes correctly disabled (D2 still unresolved — only a manually activated test variant was purchasable) and the Add to Cart button reads "Select a size" pre-selection; the full add → update quantity (1→3) → remove cycle round-tripped correctly through the real `/api/cart/items` routes with real cookies. **Not verified: an actual browser screenshot** — no Playwright/browser-automation tool was available in this sandbox; the HTTP-level round trip through the exact routes the client JS calls was verified instead, and is stated as a limitation, not claimed as full visual proof. Disposable Postgres container and Docker network torn down after verification; `docker-compose.yml`, `.env.local` and the real Supabase project untouched. **Phase 5 formally CLOSED** — every Exit Criterion met (the legacy client-controlled-pricing defect is provably impossible, pinned by a regression test). Inventory *reservation* (Phase 8), checkout (Phase 6) and discount codes remain explicitly out of scope, as planned. |
+| 5 — production migration (`20260910084234_cart`) | 11 Sep 2026 | `49f817fbd8a54dda4d896489f4f735798432649d` (the live code) | **Migration `20260910084234_cart` applied to the real Supabase project `fzjuiocvzqaycchwsjef`**, mirroring the Phase 3 precedent: the connection was derived in-process from Secret Manager `DATABASE_URL` as the **session pooler, port 5432**, never printed or written to disk. **Backup first:** `pg_dump` 17.10 against server 17.6, exit 0, completion marker present, 19,038 bytes, 7 tables whose row counts match an independent pre-survey. It is held in a session temp directory, so it is **not a durable backup**. **Pre-flight:** exactly one pending migration, none failed or modified, no drift; re-checked inside the apply call. **Apply:** started 11:29:27Z, `finished_at` 11:29:34Z, then status "Database schema is up to date!". **Post-checks:** 3 migration rows, all `applied_steps_count=1`; `carts` 6 and `cart_items` 5 columns; enum `open`/`closed`; 2 PK, 4 FK (SET NULL / RESTRICT as written), 2 CHECK, 6 indexes including both partial uniques; RLS on, 0 policies. The pre/post survey diff shows only the cart objects: row counts, the D2 state (5/5 GST and HSN null, 27 variants draft), all 14 pre-existing constraints and the GST trigger are unchanged. PostgREST anon `PGRST205` → `42501`. **Live:** `GET /api/cart` 200 ×2 (previously 500); smoke 4/4; zero `INTERNAL_ERROR` or ERROR-severity log entries since, with a positive control proving the query sees the 4 pre-migration errors. No seed, no `supabase config push`, no Cloud Run change. |
+| 19/20 — deployment completion pass (**R1 still open**) | 11 Sep 2026 | `f858588a9a6e318c453601d034e79e9d96109683`, `1dae190105080f959b7b35cfb8f10147d46bcfa4` | STS API enabled (a WIF prerequisite); the 10 repository variables set; `production` environment with a required reviewer and a `master`-only policy; `deploy.yml` hardened (verify job, image bundle scan, migration gate, `--to-latest` plus a serving-revision assertion, guarded rollback), `actionlint` clean. Migration gate: 12/12 scenarios passed on a throwaway database, and it passed read-only against production (3 applied, 3 in the commit, none ahead). **Rollback drill:** 7.6 s out and 6.5 s back on real traffic, with per-request log evidence. Clean-checkout `verify` (113/113), integration 52/52, and Docker build and boot (health 200, uid 1001, no `.env`, zero server-only names). Live bundle and 24-hour log scans clean. **Not done:** no pipeline run (the `master`/R21 decision), the gate's IAM binding (refused by this environment's permission policy), and all Cloudflare/DNS work (needs D9 approval and access). See Phase 19 and 20 Status. |
+| 19/20 — merge preparation, D9 decided, Secret Manager IAM (**R1 open until the first pipeline deploy**) | 11 Sep 2026 | `ab0deba76e2eaa790a681980d738b333273ae28f`, `5bd0fe8c4f4b83c4049bd2155911bdec50a02c16` | `github-deployer` granted `secretAccessor` on `DATABASE_URL` only, read back. D9 option 1 adopted (ADR-031); no Cloudflare or Hostinger access exists here, so nothing external changed; the Worker is prepared and passes 6/6 tests. The D10 one-time exception is recorded; the weight gate is unchanged and now runs last. The `BREVO_API_KEY` mount is gated on `BREVO_API_KEY_READY`. Clean checkout of `ab0deba`: verify 113/113, integration 52/52, Docker build and boot (health 200, uid 1001, no `.env`, zero server-only names), Worker 6/6, actionlint clean. `*.sh` pinned to LF (`5bd0fe8`). |
 
 ### 0.3 Open decisions requiring a human
 
@@ -75,6 +91,13 @@ than engineering ones, and this plan deliberately does not guess.
 | **D1** | ~~Are gift cards sold at launch?~~ **RESOLVED (8 Sep 2026): NO.** Gift cards are deferred from launch entirely. The gift-card feature is not displayed anywhere on the website — no page, no nav/footer link, no PDP — and no purchasing, redemption or store-credit-ledger functionality is implemented. The launch catalog is **five** SKUs, not six. See §3.6 and §10A. | *(resolved — no longer blocks anything)* | Commercial decision made by the business owner. Stronger than the plan's original recommendation (a): the page itself is withheld, not merely made unpurchasable. |
 | **D2** | **GST rate and HSN code per SKU.** ₹295 laces, ₹495 socks and ₹9,995 shoes are not necessarily in one slab. | R11 (compliant invoicing), and therefore live sales | R11 explicitly says "confirm current footwear slabs with your CA". Inventing a rate is a tax error, not a bug. **Does not block Phase 2** — the schema (§3.5, §3.6) stores `gst_rate_bps` as nullable per product with a `CHECK`/seed-time assertion that refuses an active variant with no rate, so catalog and database work proceeds now and an unanswered D2 fails loudly rather than shipping an invented rate. |
 | **D3** | **Legal entity, PAN, GST registration and bank account** for Razorpay live-mode KYC (R16), plus the registered address printed on tax invoices (R11). | Phase 7 live mode, Phase 23 | Requires the business owner. Test mode works immediately; live mode does not. **Longest lead time in the programme — start now.** |
+| **D5** | ~~Task 10 is a strict "real endpoint or removed" binary; four controls are visible-but-inert, satisfying neither.~~ **RESOLVED (12 Sep 2026): OPTION B for all four.** The header cart/Bag button, the PDP "Add to Cart" button, the Order Status tracking form, and the reviews "Write a Review" button **remain visible and inert through Phase 4**, as an explicit, manager-approved exception to task 10 — not removed, not hidden, not redesigned, and given no fabricated backend. Registered in §2A.6 as its own row (not a content/wording/navigation change — the controls are pixel-identical to the approved legacy). **Each expires when its owning phase ships the real capability:** cart/Bag and Add to Cart at Phase 5–7 close; Order Status at Phase 9 close; Write a Review at Phase 9 close, also still gated on R20 (task 8) separately. **Reviews "Filters"/"Sort" were never part of this exception** — those needed no `Order` model or cart and are now implemented for real in Phase 4 (§0.2). **Header cart/Bag and PDP Add to Cart EXPIRED, 12 Sep 2026: both now call the real Phase 5 cart API — see §0.2 Phase 5 row.** Order Status and Write a Review remain inert, unchanged, still pending Phase 9. | *(resolved — no longer blocks Phase 4 closure on this criterion)* | *Original framing, for the record:* task 10 offers only "real endpoint" or "removed-with-§2A.6-approval"; none of the four could get a real endpoint inside Phase 4's own scope boundaries (cart/checkout is Phases 5–7; order tracking needs the Phase 9 `Order` model; review submission needs both plus R20), and removing approved legacy structure needed its own approval. The choice between (A) remove/hide now or (B) keep inert as a recorded exception was manager-only, the same authority already used for D1 — not an engineering call. The manager chose (B) for all four. |
+| **D4** | ~~**The production value for `auth.rate_limit.email_sent`**~~ **RESOLVED (10 Sep 2026): KEEP AT 30/hour.** Recorded as an intentional launch decision, not an oversight — the setting was deliberately left unchanged and the Supabase dashboard was not touched. **Rationale:** neither this plan nor the PDF ever specified a target above the default, and Brevo’s free allowance of 300 emails/day is ≈**12.5/hour sustained**, so 30/hour already exceeds the sustainable daily rate by more than 2×; raising it would only allow one bad hour to consume a larger share of the day’s budget and silently stop order confirmations. **Revisit if** Brevo is upgraded past the free tier (Phase 11 pre-authorises one month of Starter at $9) or the 200/day alert fires. *Original decision text follows.* — The pre-decision framing: (Supabase Auth email-send cap, per hour). Currently **30**, the post-custom-SMTP default; live-verified 10 Sep 2026. | *(resolved — no longer blocks; R13 verified 10 Sep 2026)* | **Neither this plan nor the PDF specifies a target.** Both say only “raise it from its 30/hour default” (plan Phase 3 task 2 and human-checklist item 2; PDF R13 and the Brevo row, “30/hour and is adjustable in the dashboard”); §6's R13 acceptance is just “Limit raised”. Inventing a number here would be the same class of error as inventing a GST rate (D2). **The envelope the documents do fix:** Brevo free tier is **300 emails/day** shared across transactional *and* marketing; the PDF guardrail alerts at **200/day**; ≈**4 emails/order**, so 300/day binds at roughly **70–75 orders/day**. Supabase's cap is **hourly** while Brevo's is **daily** — 300÷24 ≈ **12.5/hour sustained**, so **30/hour is already above the sustainable daily average** and raising it buys burst headroom at the cost of letting one bad hour consume a large share of the day's Brevo budget (silently stopping order confirmations). That trade-off is a launch-traffic judgement, not an engineering one. **Must be set by hand** in Authentication → Rate Limits → “Rate limit for sending emails”. **`supabase config push` must NOT be used:** `config.toml`'s local value for this key is **`2`**, so a push would *lower* production from 30/hour to 2/hour, on top of flipping `auth.email.enable_confirmations` true→false. |
+| **D6** | ~~The three homepage "Picked for you" product-card `Add to Cart` buttons are visible and inert.~~ **RESOLVED (12 Sep 2026): OPTION B.** The buttons **navigate to their corresponding PDP**, where the customer chooses a size and the real Phase 5 add-to-cart runs. The approved legacy label, position and styling are unchanged; only the interaction changed, and an `.sr-only` suffix names the destination for screen readers without touching visible content or the §2A.7 text diff. **Implemented** — see §2A.6 row D6. | *(resolved — Phase 4 task 10's "no dead affordance" criterion is now closed for these three controls; nothing on the homepage is inert)* | *Original framing, for the record:* D5's Add-to-Cart expiry covered the **PDP** button, which Phase 5 made real; these three were a different control, left behind. They could not simply be switched on — Phase 5 resolves unit price, per-variant GST and stock from a **variant** ID, and a homepage card carries no size selector, so there is no variant to send. Picking a default size would **invent product behaviour**: it would silently choose what the customer is buying, and the legacy button's own `data-price="9995"` attribute is precisely the client-controlled-pricing defect **R6** exists to eliminate, so the legacy markup could not be copied either. Options (b) and (c) both changed approved visible content or its interaction, which §2A.4 reserves to the manager — the same authority already used for D1 and D5. The manager chose **(b)**. |
+| **D8** | ~~Five approved-legacy marketing forms are inert and were never registered.~~ **RESOLVED (12 Sep 2026): OPTION A.** The five forms — `refer-a-friend` ("Get My Link"), `vokr-ambassadors` ("Submit Application"), `wholesale-orders` ("Submit Inquiry"), `discount-program` ("Verify & Get Code") and `analyze-your-shoes` ("Analyze My Shoes") — **remain visible and inert as an explicit, documented exception to Phase 4 task 10**, the same treatment D5 gave its four controls. **They are not to be removed or redesigned, and no backend endpoint is to be built for them** (manager instruction, 12 Sep 2026). No code change was made: the forms are exactly as the approved legacy left them. Registered in §2A.6 as row **D8**. | *(resolved — Phase 4's "no inert form" Exit Criterion is now closed via D5 + D8, and Phase 4 is CLOSED)* | *Original framing, for the record:* each renders `onSubmit={(event) => event.preventDefault()}`, React's exact equivalent of the legacy `onsubmit="return false;"` that task 10 exists to eliminate. Each already carried a code comment explaining why (no account/referral system, no ambassador or wholesale pipeline, no discount engine, no image-analysis service) and an `aria-disabled` button with an explanatory `title`, so none was *silently* dead — but a code comment is not a registered deviation, and **D5 enumerated four controls, not nine**. The choice between (a) except them explicitly, (b) build five backing systems the plan has never scoped, and (c) remove approved content from five pages was manager-only, the same authority used for D1 and D5. The manager chose **(a)**. Found 12 Sep 2026 while reconciling Phase 4 closure after D6/D7; the checklist line *"No inert form — ✅ closed via D5"* had been inaccurate. |
+| **D7** | ~~Which homepage photographs are canonical.~~ **RESOLVED (12 Sep 2026): OPTION B.** `index (7).html`'s photographs — the ones the live reference site shows — are **canonical for the ten homepage slots where the two approved exports differ**, superseding the `cdn.shopify.com` URLs currently in the code. **Execution is bound to Phase 14 / R21 (new task 2a)**, which already re-hosts every homepage image: the ten decode to **14.2 MB** against a **500 KB** homepage budget, so they are only shippable once that phase's AVIF/WebP re-encode exists. Adopting them nothing earlier would blow R21 by ~28×. The five homepage images identical in both artefacts are unaffected. **Nothing replaced, removed or altered yet** — this is a scheduled decision, and until Phase 14 runs, the storefront keeps the zip's photographs. | *(resolved — no longer open; now scope for Phase 14 / R21, task 2a)* | *Original framing, for the record:* §2A.8 recorded the divergence and explicitly refused to settle it by preference: *"if the manager wants a different canonical homepage source, that is their decision to make."* §2A.1 calls `index (7).html` "the newest approved export" while §2A.8 limits its authority to two CSS points — **both artefacts are approved and they disagree**, which no engineer can resolve. R21 governs only *how* an image is delivered, "never which image, what it depicts, or where it sits on the page", so this could not be absorbed into R21 silently; D7 is what authorises it. Worklist and per-image evidence: Phase 14 task 2a. |
+| **D9** | **The production edge architecture, and whether the Cloud Run origin must actually be unreachable.** Phase 20 task 10 requires all traffic to pass Cloudflare, so the WAF cannot be bypassed. **Re-analysed 11 Sep 2026. Two facts removed the cheapest option recorded on 10 Sep.** First, Cloud Run domain mapping is Preview and **not offered in `asia-south1`** (Google's region list). Second, Cloudflare Free **cannot override the `Host` header** (Origin Rules on Free: port override only). So a plain proxied record to `*.run.app` cannot work. The options that remain: **(1) a Cloudflare Worker as the reverse proxy, plus an origin secret the app enforces** — $0 up to 100,000 requests/day, then $5/mo; the origin is closed at the application layer (`run.app` answers 403 without the secret). **(2) A global external ALB with a serverless NEG, ingress `internal-and-cloud-load-balancing`** — the origin is closed at the network, ~US$18+/mo. **(3) Cloudflare Tunnel** — needs an always-on host (the rejected `min-instances`, or a VM). **Recommendation: (1)**, with (2) as the upgrade path. Every option requires delegating `vokr.shop`'s nameservers from Hostinger to Cloudflare, which moves the live Zoho MX and every TXT and DKIM record. **Also found:** with the origin public, `src/server/net/client-ip.ts` trusts caller-supplied `cf-connecting-ip` and `x-forwarded-for`, so per-IP rate limits can be evaded today. | Phase 20 tasks 5–10; `https://vokr.shop/`; **R19**; the client-IP fix | **DECIDED (11 Sep 2026): option (1), the Cloudflare Worker, adopted by the manager; the paid load balancer rejected (ADR-031).** Execution is blocked on access: no Cloudflare or Hostinger credentials exist in this environment (checked 11 Sep). The Worker is prepared in `vokr/infra/cloudflare/`. A cost/security trade-off for the business. Execution also needs a Cloudflare account and Hostinger access, neither of which exists here. Full analysis and the ordered checklist: `vokr/docs/infrastructure/domain-and-dns.md`. |
+| **D10** | ~~`master` cannot advance while CI is red on the deferred Phase 14 weight gate.~~ **RESOLVED (11 Sep 2026): one-time exception, manager-authorised.** PR #1 — the Phases 3–5 and deployment-infrastructure stack — may merge to `master` with exactly **one** failing CI step: `Homepage weight budget` (Phase 14 task 9, R21, deferred). **Scope: this merge only.** Conditions checked before merging: every other CI step green on the PR's final head (the gate now runs last, so it cannot mask the Docker steps); the exact commits reaching `master` listed; no secret in them; clean-checkout reproducibility; the deployed code (`49f817f`) contained. The gate is **not** weakened, relaxed or deleted: same threshold, same logic, and it still fails every PR until Phase 14. | Phase 19 task 3 ("nothing merges red"), for this one merge; R1 | The plan has no built-in exception clause for CI gates. This is recorded the way D5 and D8 were, as a manager decision, with the deferral itself under §12 item 1 (Phase 14 task 9 owns the work). **Any later red merge needs its own decision.** |
 
 ---
 
@@ -128,8 +151,9 @@ Vokr Website/                          ← git root
 ├── Vokr-Zero-Cost-...-Checklist.pdf   ← authoritative architecture (tracked)
 ├── vokr-backend-scope.docx            ← legacy scope, superseded (tracked)
 ├── vokr-production.zip                ← the 27-page legacy site (tracked; Phase 4 source)
-├── vokr-production (1).zip            ← git-ignored: identical but one CSS hex value
+├── vokr-production (1).zip            ← git-ignored: a third homepage export (see §2A.8)
 ├── index (7).html                     ← git-ignored: 19.9 MB base64 homepage variant
+│                                        APPROVED LEGACY REFERENCE — never modify (§2A)
 └── vokr/                              ← the deployable Next.js application
     ├── AGENTS.md  CLAUDE.md  README.md  .env.example
     ├── next.config.ts  tsconfig.json  eslint.config.mjs  postcss.config.mjs
@@ -221,6 +245,330 @@ appears in the §13 launch checklist. Do not lose it.
 
 ---
 
+## 2A. Permanent Project Constraints — Legacy Content Preservation
+
+**Issued by the project manager, 8 September 2026. These constraints are
+permanent and binding on every phase — not a Phase 4 suggestion.** Where
+any earlier wording in this plan could be read as licence to redesign the
+approved site, this section governs.
+
+### 2A.1 The approved legacy homepage is a source of truth
+
+The legacy homepage is an **approved source of truth** for the Vokr
+homepage's layout structure and content. It exists in this workspace in
+three forms:
+
+| Artefact | Size | MD5 | Tracked in git? |
+|---|---|---|---|
+| `index (7).html` (repository root) | 19,927,942 B | `82aa900609d7bae122064c87925308b4` | **No** — excluded by `.gitignore:35` |
+| `vokr-production/index.html` inside `vokr-production.zip` | 109,599 B | `12492fb1f48b2808d5e7ae3a3ab9292e` | **Yes** — inside tracked blob `02c5329` |
+| `vokr-production/index.html` inside `vokr-production (1).zip` | 109,599 B | `7617beef803dec0ce45d53e796021c7d` | **No** — that zip is git-ignored |
+
+It is reference material to be reproduced faithfully. It is **not** a draft
+to be improved, tidied, restructured or modernised.
+
+### 2A.2 Provenance verification — what git can and cannot prove
+
+*Verified 8 September 2026 by direct inspection of the working tree and the
+full commit graph. The commands are recorded so this can be re-checked.*
+
+**Established facts:**
+
+1. **No file named exactly `index.html` exists at the repository root.**
+   The root homepage artefact is named `index (7).html`. Statements in this
+   plan about "the root `index.html`" refer to that file.
+
+2. **No homepage HTML file has ever been tracked in this repository.**
+   `git log --all --oneline --name-only --diff-filter=A` filtered for
+   `index*.html` returns **zero** results across all nine commits
+   (`5dc3b49` → `ba535b9`). The only tracked paths matching `index` are
+   three TypeScript files under `vokr/src/`. `git check-ignore -v
+   "index (7).html"` reports `.gitignore:35` — a rule added in Phase 0
+   (`3ca3c21`).
+
+3. **Therefore git history cannot, by itself, prove that `index (7).html`
+   is unmodified.** An untracked file has no recorded history. This plan
+   states that limitation rather than claiming a certainty it does not
+   have.
+
+**Corroborating evidence that it was not modified during this rebuild —
+strong, but not cryptographic proof:**
+
+| Evidence | Finding |
+|---|---|
+| Working tree | `git status --porcelain` is **empty**. Nothing modified, staged, or untracked-but-unignored. |
+| Commit graph | No commit touches any repository-root path other than `.gitignore`, `Vokr-Implementation-Plan.md` and the three tracked reference artefacts. No commit has ever added, moved or deleted a root HTML file. |
+| Filesystem timestamps | `index (7).html` carries mtime **and** ctime of **2026-09-04 11:08:29 +0530** — identical to the two zips beside it, and **three days before the first commit** in this repository (`5dc3b49`, 2026-09-07 17:00:20 +0530). On NTFS a content write updates both. No write has occurred since before the rebuild began. |
+| Content cross-check | See below — the decisive evidence. |
+
+**Content cross-check.** Strip the ten inlined base64 payloads from
+`index (7).html` and diff the result against the **git-tracked**
+`vokr-production/index.html`. The stripped file is 109,046 B against the
+tracked file's 109,599 B, and the two differ in exactly **three** respects,
+none of them structural or editorial:
+
+1. `.footer-bottom a:hover { color: #fff; }` versus `{ color: #000; }`.
+2. `index (7).html` carries one additional CSS rule the tracked copy lacks:
+   `.footer-btm-links { display: flex; gap: 18px; }`.
+3. Ten `<img src>` values are `data:image/…;base64,…` URIs rather than
+   `cdn.shopify.com` URLs (six PNG, four JPEG — the 19.9 MB weight, and the
+   exact artefact **R21** exists to eliminate). Five remote `src` values
+   remain in both.
+
+**Every section, heading, paragraph, navigation item, product block, CTA
+and legal string is identical.** The approved homepage structure and
+content is therefore independently corroborated by an artefact that *is*
+under version control and *is* provably unchanged: `vokr-production.zip`,
+blob `02c532940bc1ad1b886c9ad65bedd397e0252423`, added in `3ca3c21`
+(7 Sep 2026), appearing in exactly one commit, with
+`git diff HEAD -- vokr-production.zip` clean.
+
+**Recorded conclusion.** The legacy homepage was **not modified by us at
+any point during this rebuild**, and it must remain an untouched legacy
+reference. Git cannot prove this *directly*, because the root artefact was
+never tracked; the claim is nonetheless consistent with every piece of
+evidence available — a clean tree, a commit graph that never touches it,
+pre-rebuild timestamps on both mtime and ctime, and a byte-level content
+match against a tracked, provably unchanged copy of the same page.
+
+### 2A.3 The homepage artefact must not be modified
+
+- **Do not modify `index (7).html` now.**
+- **Do not modify it during Phase 4 or any future migration work.**
+- Do not reformat it, re-minify it, strip its base64 payloads in place,
+  "fix" its CSS, or regenerate it from the Next.js build.
+- R21's base64 elimination happens **in the new Next.js implementation**
+  (Phase 14). The legacy artefact keeps its base64 payloads permanently, as
+  the evidence of the finding.
+
+### 2A.4 Design and content preservation — mandatory
+
+During migration of the legacy Vokr website into Next.js, the following are
+**prohibited without explicit manager approval**:
+
+- Changing the layout structure of the legacy pages.
+- Changing content or wording.
+- Changing, merging, splitting, reordering or removing sections.
+- Changing navigation structure.
+- Changing product presentation.
+- Changing legal copy.
+- Changing the information architecture.
+- Removing, rewriting, rearranging or adding visible content **merely to
+  make the implementation cleaner**.
+- Redesigning any page based on personal or engineering preference.
+- "Improving" the approved design.
+
+The goal, stated exactly:
+
+> **ORIGINAL APPROVED LEGACY STRUCTURE + CONTENT**
+> → faithfully reproduced in the new Next.js implementation
+> → with improved engineering, maintainability, performance and backend
+> integration underneath.
+
+**Technical migration is allowed. The visible structure and approved
+content must remain faithful.** Replacing 27 copy-pasted stylesheets with
+one Tailwind theme, five near-identical PDP files with one dynamic route,
+or a dead `onsubmit="return false;"` with a real endpoint are all
+implementation changes — provided the rendered page still shows the same
+sections, in the same order, with the same words.
+
+**Scope.** This constraint applies to the homepage, every other legacy page
+being migrated, navigation and information architecture, and the approved
+legal and content sections.
+
+**When a legacy element appears wrong.** If a legacy element looks
+incorrect, outdated, technically awkward, or conflicts with a production
+requirement:
+
+1. **Do not silently alter it.**
+2. Flag it for explicit approval.
+3. Record the issue and the proposed change in §2A.6 **before** any code
+   changes.
+
+**The legacy files are reference and source material. They are not
+permission to redesign.**
+
+### 2A.5 Legacy source file handling
+
+Preserve the original legacy source files as reference material.
+
+- Do **not** overwrite or "clean up" `index (7).html`, the other legacy
+  HTML files, or the source/reference archives (`vokr-production.zip`,
+  `vokr-production (1).zip`, `vokr-backend-scope.docx`).
+- All migration work occurs inside the new Next.js application (`vokr/`).
+- When recreating a legacy page in Next.js: **inspect the original source
+  first**, preserve the approved structure and content, replace only the
+  underlying implementation, and keep the original legacy file available
+  for comparison and regression checking.
+
+### 2A.6 Registered exceptions and conflict register
+
+Every deviation from the approved legacy content — planned or proposed — is
+registered here. **Nothing marked PENDING may be implemented until a
+manager approves it.**
+
+| Ref | Proposed change to approved legacy content | Why it was raised | Status under §2A |
+|---|---|---|---|
+| **D1** — gift cards | `gift-cards.html` not migrated, not linked from nav/footer/anywhere, unreachable by any route or sitemap entry | Commercial decision: gift cards deferred from launch | **APPROVED** — decided by the business owner, 8 Sep 2026, recorded in §0.3. Currently the only authorised change to the approved information architecture. |
+| **D5** — Phase 4 task 10 exception | Four approved-legacy controls stay **visible and inert** through Phase 4 rather than getting a real endpoint or being removed: the header cart/Bag button, the PDP "Add to Cart" button, the Order Status tracking form, and the reviews "Write a Review" button. No wording, layout, section, navigation or product-presentation content changes — the controls are pixel-identical to the approved legacy, just not yet wired to a backend that doesn't exist yet. | Task 10 is otherwise a strict "real endpoint or removed" binary; none of the four can get a real endpoint inside Phase 4 (cart/checkout is Phases 5–7, order tracking needs the Phase 9 `Order` model, review submission needs both), and removing approved legacy structure needs approval of its own. | **APPROVED (option B for all four) — manager decision, 12 Sep 2026, recorded in §0.3 D5.** Not a content, wording or navigation change — an explicit, time-boxed exception to task 10's binary, expiring control-by-control when its owning phase ships: cart/Bag and Add to Cart at Phase 5–7 close, Order Status at Phase 9 close, Write a Review at Phase 9 close (also still gated on R20). **Cart/Bag and Add to Cart EXPIRED, 12 Sep 2026 (Phase 5 closed) — both now real, see §0.2 Phase 5 row.** Order Status and Write a Review remain under this exception. |
+| **D6** — homepage "Picked for you" Add to Cart | The three product-card `Add to Cart` buttons **navigate to their corresponding PDP** instead of staying inert. Label, position and styling are unchanged from the approved legacy; the control's destination is what changed. | D5's Add-to-Cart expiry (12 Sep 2026) covered the **PDP** button, which Phase 5 made real. These three are a different control: the card has no size selector, and Phase 5 resolves price, GST and stock from a **variant** ID, so there is no variant to send from a homepage card without inventing a default size — which would be fabricating product behaviour, and the legacy's own `data-price="9995"` attribute is the client-controlled-pricing defect R6 exists to eliminate. | **APPROVED (option B) — manager decision, 12 Sep 2026, recorded in §0.3 D6.** An interaction change only: no wording, layout, section, navigation or product-presentation content changed, so §2A.7 fidelity is untouched (verified — the homepage text and heading diffs stay empty; the added `.sr-only` destination hint is excluded by the extractor, the same treatment task 12's other accessibility additions get). Closes Phase 4 task 10's "no dead affordance" criterion for these three controls. |
+| **D8** — five inert marketing forms | `refer-a-friend`, `vokr-ambassadors`, `wholesale-orders`, `discount-program` and `analyze-your-shoes` keep their approved legacy forms **visible and inert** (`onSubmit={(e) => e.preventDefault()}`), with `aria-disabled` and an explanatory `title` on each submit button. No wording, layout, section or navigation change — the forms are as the approved legacy left them. | Task 10 is a strict "real endpoint or removed" binary. None of the five has a backing system, and none of those systems is scoped in any phase — an account/referral ledger, an ambassador pipeline, a wholesale pipeline, a discount engine, an image-analysis service. Removing an approved form needs approval of its own. This is the same shape as D5, but these five were never included in it. | **APPROVED (option A) — manager decision, 12 Sep 2026, recorded in §0.3 D8.** An explicit, documented exception to task 10's binary, exactly as D5 is — not a content, wording, navigation or product-presentation change, so §2A.7 fidelity is untouched. **Standing instruction with the approval: do not remove them, do not redesign them, and do not build backend endpoints for them.** **Unlike D5, this exception carries no scheduled expiry**, because no phase scopes any of the five backing systems — inventing an expiry phase here would be inventing scope. It is revisited only if and when a phase is written that scopes one of those systems; at that point the corresponding form graduates to a real endpoint under that phase, and this row is amended then, not before. Zero code changed to apply this decision. |
+| **D7** — homepage photographs | Ten homepage `<img src>` values differ between the two approved exports: `index (7).html` (= the live reference site) carries base64 payloads of **different photographs** from the `cdn.shopify.com` URLs in the tracked `vokr-production.zip` — hero, explore image, both testimonial thumbs, the outsole card, all five Instagram tiles. **`index (7).html`'s are now canonical for those ten slots.** | §2A.8 recorded the divergence and declined to resolve it; the reference-site comparison audit (§2A.9) made its visual consequence concrete — the deployed homepage does not look like `vokr.shop` in ten places, and one of the ten (the outsole card) is a duplicate in the zip but a distinct photograph in the reference. | **APPROVED (option B) — manager decision, 12 Sep 2026, recorded in §0.3 D7.** A *which-image* change, so it is authorised by this row, **not** by R21, which governs delivery only. **Execution is deferred to Phase 14 / R21 task 2a** — the ten sources decode to 14.2 MB against a 500 KB homepage budget, so they ship only after that phase's AVIF/WebP re-encode. **Not yet implemented; no photograph replaced, removed or altered, and `index (7).html` is read-only as always (§2A.3).** Until Phase 14 runs, the storefront keeps the zip's photographs — a known, approved, scheduled difference from the reference site. |
+| **R14** — Phase 4 task 7 | Amend the "order confirmation email/SMS" wording in `terms.html` to "email" | SMS is deferred (TRAI DLT registration, ~₹5,900 and 3–7 days). Leaving the copy publishes a contractual promise the launch cannot honour. | **PENDING APPROVAL.** This is legal copy — §2A.4 forbids changing it unilaterally. Recommended; the alternative is to implement SMS. Do not apply until approved. |
+| **R20** — Phase 4 task 8 | Delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description; replace with an honest empty state | Consumer Protection Act 2019 exposure for fabricated reviews and ratings | **PENDING APPROVAL.** Visible content removal. Strongly recommended — this is legal exposure rather than preference — but it remains a manager's call, not an engineer's. |
+| **Phase 4 task 9** | Audit and correct unverifiable marketing claims ("250,000+ people", review counts, ratings, delivery promises) | Same statute; claims must be substantiable at launch | **PENDING APPROVAL, item by item.** Each proposed change is to be added to this table with its exact before/after text before it is made. |
+| **Phase 4 task 2** | Extract the duplicated legacy CSS into one Tailwind theme | Removes ~2 MB of 27-fold duplication that has already caused a defect | **ALLOWED — implementation only.** No approval needed, subject to the §2A.7 evidence requirement: the rendered page must not change. |
+| **Phase 4 task 5** | Five near-identical PDP HTML files become one dynamic `app/shop/[slug]/page.tsx` | Same page, one template, data-driven | **ALLOWED — implementation only**, subject to §2A.7. |
+| **Phase 4 task 10** | Dead `onsubmit="return false;"` forms bound to real endpoints | A form that silently discards customer input is a defect, not a design | **ALLOWED — implementation only** where the form is preserved and made to work. **Removing** a form is a visible-content change and needs approval. |
+| **R21** — Phase 14 | Replace `cdn.shopify.com` and base64 `data:` image sources with R2-hosted WebP/AVIF | Homepage weight budget under 500 KB | **ALLOWED — implementation only.** Changes how an image is delivered, never which image, what it depicts, or where it sits on the page. |
+
+### 2A.7 Regression evidence requirement
+
+Because "faithful" is otherwise an assertion, each migrated page carries
+comparison evidence proving the approved structure and content did not
+change:
+
+1. **Text-content diff.** Extract the visible text of the legacy page and
+   of the rendered Next.js route, normalise whitespace, and diff. The diff
+   must be empty, or every line in it must trace to an approved row in
+   §2A.6.
+2. **Structural diff.** Compare the ordered list of landmark and heading
+   elements (`header`, `nav`, `main`, `section`, `footer`, and `h1`–`h6`
+   with their text) between legacy and migrated. Section order and heading
+   text must match.
+3. **Snapshot tests** for the legal pages, so an accidental edit fails CI
+   rather than reaching production. Phase 4 already requires this; §2A
+   makes it non-negotiable and extends it to structure.
+4. **Responsive screenshots** at 360/768/1024/1440 px, retained alongside
+   the legacy rendering for visual comparison.
+
+The legacy files stay in place precisely so these checks remain runnable
+after the migration lands.
+
+### 2A.8 Correction to an earlier claim in this plan
+
+§2.1 and **ADR-017** describe `vokr-production (1).zip` as "identical but
+one CSS hex value". Direct comparison on 8 September 2026 shows that is
+**understated** for the homepage. `vokr-production/index.html` differs
+between the two zips in six hunks: the `.footer-bottom a:hover` hex (`#000`
+vs `#fff`), the `.ig-item` aspect ratio (`2/3` vs `1/1`) and its
+flex/padding declarations, `.ig-handle` positioning (`relative` vs
+`absolute` with offsets), one image `src` together with its `alt` text
+("Vokr outsole detail close-up" vs "Vokr lightweight foam midsole side
+profile"), and two Instagram-strip image `src` values. The three artefacts
+are three distinct homepage exports, not two identical ones plus a typo.
+
+`index (7).html` is closest to the **tracked** `vokr-production.zip` copy:
+it matches that copy on every one of those points except the
+`.footer-bottom a:hover` hex and the extra `.footer-btm-links` rule.
+
+**Consequence for Phase 4.** `vokr-production.zip` (tracked, blob
+`02c5329`) remains the canonical migration source for the 26 pages, but
+**for the homepage specifically `index (7).html` is the newest approved
+export**, and is authoritative where the two disagree on those two CSS
+points. Neither file is to be edited. This discrepancy is recorded rather
+than resolved by preference; if the manager wants a different canonical
+homepage source, that is their decision to make.
+
+*(The `.gitignore` comment block carries the same understated wording. It
+is left untouched here because this task is documentation-only; correcting
+it is a one-line follow-up.)*
+
+### 2A.9 Reference-site comparison audit — 12 Sep 2026
+
+The deployed Cloud Run revision (`vokr-plxgen7xla-el.a.run.app`, built from
+`29e5b30`) was compared against the reference site `https://vokr.shop/`.
+Branch `fix/reference-site-fidelity`.
+
+**First finding — what the reference site actually is.** `GET https://vokr.shop/`
+returns **19,927,942 B, MD5 `82aa900609d7bae122064c87925308b4`** — byte-for-byte
+`index (7).html`. Every other path (`/about-vokr`, `/terms`, `/shop-model-x.html`,
+`/gift-cards.html`, with and without `.html`) returns **404**. The reference site
+is the approved legacy homepage served as a single static file and nothing else.
+The deployed application serves all 26 migrated routes plus `/search`, the Phase 3
+auth routes, `robots.txt`, `sitemap.xml` and `/api/health` — all 200, with
+`/gift-cards` correctly 404 per D1. **The comparison therefore reduces to the
+homepage**; on every other route the deployment is ahead of the reference, not
+behind it.
+
+**Second finding — §2A.7's evidence requirement has two blind spots.** The
+Phase 4 harness (`e2e/phase4-fidelity.spec.ts`) compares *visible text* and
+*heading tag/order* inside `#main`. It therefore cannot see (a) **images** —
+an `<img>` replaced by an empty placeholder `<div>` changes no text and no
+heading — or (b) **breakpoint values**, since the responsive spec captured
+screenshots without diffing them against a legacy rendering. Both gaps hid
+real regressions, listed below. Neither the harness nor Phase 4's conclusions
+were wrong about what they measured; they measured less than "faithful" needs.
+
+**Regressions found and fixed (implementation-only under §2A.4 — restoring
+approved content and layout, changing no wording, section or navigation):**
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | The three `.tech-card` material close-ups ("Every millimetre. Every material. Every detail.") rendered as **empty grey boxes** — the `<img>` was never migrated, and `.tech-card-img`'s `aspect-ratio: 1/1` had become `4/3`. | Images restored from the canonical zip with the legacy's own square ratio. |
+| 2 | Both `.tc-imgcard` testimonial cards (Arjun Nair, Sneha Krishnan) lost their tilted-shoe photograph, including the legacy's 4/3 and 16/9 thumb ratios and `rotate/scale` transforms. The migration's own code comment already named them "image card". | Images and transforms restored. |
+| 3 | **Every multi-column section switched at Tailwind's 640px instead of the legacy's 900px.** Between 641–900px the migrated homepage showed a desktop layout where the approved page shows one column. Full-page height at 768px: reference **15,248px**, deployment **8,040px**. | Legacy breakpoints (541/701/901px) named in `globals.css` and applied to hero, feature strip, explore, testimonials, product grid, tech cards, comfort accordion, footer and newsletter row. Height at 768px now **15,370px**. |
+| 4 | The hero did not swap order below 900px; the legacy puts the image **above** the text (`.hero-img { order: 1 }`). | Visual order swapped; source order kept for reading order. |
+| 5 | The Instagram strip used **6 columns for 5 tiles**, square tiles, and never hid overflow. Legacy: 5 tiles at ≥901px, 3 at 541–900px, 2 at ≤540px, all `aspect-ratio: 2/3`. | Column counts, tile ratio and the `nth-child` hiding rules reproduced. |
+| 6 | The header search panel dropped the legacy's **`Popular Searches`** (6 chips) and **`Quick Links`** (5 chips) content entirely. | Restored verbatim, wired to the real `/search` route; `Gift Cards` omitted per D1, as in the footer and hamburger nav. |
+| 7 | The cart drawer relabelled approved copy: **"Your Cart" → "Your Bag"**, **"Estimated Total" → "Total"**, and dropped `.cart-shipping-note` ("Free shipping on orders over ₹4,999. Taxes and final shipping calculated at checkout.") — a Phase 5 wording change to approved content. | Legacy strings restored verbatim. Phase 5's per-variant GST line is kept *in addition*, not as a replacement. |
+| 8 | The five PDPs' `.rr-photo-strip` alt text was genericised to "Customer photo", losing the legacy's "— Vokr shoes on sand / on carpet / outdoors". (`reviews.html` genuinely does use the generic form.) | Alt text is now per-caller, like the existing `recommendText`/`summaryText` split. |
+| 9 | **The PDP Add-to-Cart button read "Select a size" / "Add to Cart — IN 8"** instead of the approved "Add to Cart" — a Phase 5 wording change that fails the §2A.7 text diff on all five PDPs. | Label restored unconditionally; the size requirement is carried by the disabled state plus an `.sr-only` description, which the §2A.7 extractor already excludes. |
+| 10 | **Site-wide serious axe violation.** Phase 5's `CartDrawer` sits in the root layout and, while closed, is `aria-hidden="true"` around focusable buttons — `aria-hidden-focus`, impact *serious*, on **every route**, reproduced against the live deployment. Phase 4 closed with zero serious violations; Phase 5 broke it and did not re-run that suite. | The closed drawer is now `inert`. |
+
+**Differences left in place deliberately** — each already governed by an
+existing decision, none of them a defect:
+
+- **Ten homepage photographs differ between the reference site and the
+  migration.** `index (7).html` carries base64 payloads where the tracked
+  `vokr-production.zip` carries `cdn.shopify.com` URLs of *different*
+  photographs — the hero, the explore image, both testimonial thumbs, the
+  outsole card and all five Instagram tiles. This is exactly the divergence
+  §2A.2 recorded and §2A.8 declined to resolve by preference: the zip
+  remains the canonical migration source, so the deployment follows it. The
+  five images that are CDN URLs in *both* artefacts match exactly.
+  **RESOLVED 12 Sep 2026 — §0.3 D7, option B:** `index (7).html`'s
+  photographs are canonical for those ten slots, and execution is bound to
+  **Phase 14 / R21 task 2a**, which carries the verified worklist. They
+  decode to 14.2 MB against a 500 KB budget, so they are shippable only
+  after that phase's re-encode; until then the storefront keeps the zip's
+  photographs as an approved, scheduled difference from the reference site.
+- The legacy's slide-over **account panel** (`Continue with Google`,
+  `Welcome back`, `Saved Addresses`, `Payment Methods`, `Wishlist`,
+  `Sign out`) stays replaced by a link to the real `/sign-in` — Phase 4
+  task 3/task 14, with Google OAuth still deferred pending console access.
+  Saved addresses are Phase 6, payment methods Phase 7.
+- The drawer's **Checkout** button stays inert — Phase 6.
+- The **Order Status** form and **Write a Review** button stay inert — D5,
+  expiring at Phase 9 close (the latter also gated on R20).
+- ~~The homepage **Add to Cart** cards stay inert.~~ **RESOLVED 12 Sep 2026
+  — §0.3 D6, option B:** they now navigate to their PDP, where a size can be
+  chosen. Nothing on the homepage is inert any more.
+- Footer column headings are `<h2>` where the legacy used `<h4>`. A footer
+  `h4` with no `h3` above it skips a heading level; task 12's accessibility
+  pass is explicitly allowed to correct that, and heading *level* is not
+  visible content. Heading **text and order** are unchanged.
+- Tasks 7, 8 and 9 (R14, R20, the marketing-claims audit) remain untouched
+  and pending, exactly as Phase 4 left them.
+
+**Validation:** `npm run lint`, `npm run typecheck`, `npm run build` clean;
+`npm run test` 205/205; `npm run test:integration` 52/52 against a seeded
+Postgres (the documented `docker-compose` path, on host port 15432 — 55432
+is still inside this machine's Hyper-V dynamic port-exclusion range, the
+same quirk Phase 4 recorded); `e2e/phase4-fidelity.spec.ts` +
+`e2e/phase4-routes.spec.ts` **79/79** (26 fidelity, route-200, zero
+serious/critical axe — the five PDP fidelity checks and the site-wide axe
+check pass for the first time since Phase 5); `e2e/phase4-responsive.spec.ts`
+**104/104**. Homepage image inventory against the canonical zip: **15 vs 15,
+exact match**; the PDP/`/reviews` surplus is only the JS-injected review-card
+photographs the `supersetOk` cases already document. Full-page height,
+reference vs remediated: 360px 13,086/12,959 · 768px 15,248/15,370 ·
+1024px 8,278/8,207 · 1440px 8,984/8,849.
+
+**Legacy sources untouched:** `index (7).html` MD5 re-verified
+`82aa900609d7bae122064c87925308b4`; `vokr-production.zip` clean.
+
+---
 ## 3. Target Production Architecture
 
 Taken from PDF §1. Every row is a decision already made; §11 records why
@@ -248,7 +596,7 @@ each must not be casually changed.
 | Backups | Self-managed `pg_dump` → R2 | Every 6 hours. Supabase Free has no backups and no PITR. |
 | CI/CD | GitHub Actions → Artifact Registry → Cloud Run | Registry cleanup policy from the first commit |
 | Secrets | Google Secret Manager | Exactly 6 active versions, loaded once at process boot |
-| Domain | Cloudflare Registrar — `vokr.shop` | The only unavoidable fixed recurring cost |
+| Domain | `vokr.shop` — **target**: Cloudflare Registrar. **Actual today: registered and DNS-managed at Hostinger (§3.7).** | The only unavoidable fixed recurring cost. The move to Cloudflare has not happened; until it does, every DNS instruction in this plan means Hostinger. |
 
 ### 3.2 Explicitly rejected at launch
 
@@ -421,6 +769,76 @@ mis-charging tax.
 
 ---
 
+### 3.7 Domain and DNS — permanent infrastructure context
+
+*Recorded 8 September 2026. This section describes the **current
+operational reality**, which is not the same as §3.1's target state.*
+
+| Field | Value |
+|---|---|
+| **Domain** | `vokr.shop` |
+| **DNS management location** | **Hostinger** |
+| **Authority** | Hostinger is where domain records are managed **unless explicitly changed later**. Any task that says "add a DNS record" means "add it in Hostinger". |
+
+**Conflict with §3.1 and Phase 20, recorded rather than resolved.** §3.1's
+stack table names *Cloudflare Registrar* for the domain, and Phase 20
+assumes *Cloudflare managing DNS for `vokr.shop`*. That is a target-state
+decision that **has not happened**. Today the domain and its DNS live at
+Hostinger. Phase 20 must therefore treat "move DNS to Cloudflare" as an
+explicit, planned migration step with its own cutover — not as a
+precondition it can assume is already true. Until that migration is
+executed and verified, **every DNS instruction in this plan resolves to
+Hostinger.**
+
+This is relevant to: domain verification, email authentication, the Brevo
+DNS records, future production DNS configuration, and SSL/domain setup.
+
+#### 3.7.1 Brevo domain authentication — in progress
+
+The intended chain, end to end:
+
+```
+vokr.shop
+  → Hostinger DNS
+    → Brevo domain authentication (SPF / DKIM / DMARC)
+      → Supabase Auth custom SMTP
+        → real external email verification   ← this is what closes R12
+```
+
+**Current state (8 September 2026):**
+
+- The required Brevo DNS records **have been added in Hostinger**.
+- Brevo domain verification is **still pending** propagation and Brevo's
+  own verification check.
+- **Brevo domain authentication is NOT complete, and must not be recorded
+  as complete until Brevo itself reports the domain as verified.** Records
+  existing in a DNS zone is not the same as a provider accepting them.
+  R12 stays open until an email actually arrives in an external inbox.
+
+**Rules attached to this work:**
+
+- Do **not** modify the existing Zoho Mail DNS records unnecessarily. The
+  five `@vokr.shop` inbound mailboxes (`support@`, `grievance@`,
+  `privacy@`, `legal@`, `careers@`) depend on them, and `grievance@` is a
+  statutory requirement under §9.
+- SPF is the one record where inbound (Zoho) and outbound (Brevo) collide:
+  a domain may publish only **one** SPF TXT record. It must be a single
+  merged record covering both senders, never two competing records.
+- No DNS or domain change was made as part of this documentation update.
+
+**Correction (11 Sep 2026).** The SPF rule above assumed Brevo sends under
+`vokr.shop`'s SPF. Brevo's help centre says otherwise: "The SPF and MX
+records are not required to authenticate a domain. We only provide these
+records when setting up a dedicated IP." Brevo authenticates with the Brevo
+code, DKIM and DMARC, and all three are published (measured 11 Sep:
+`brevo-code:` TXT, `brevo1`/`brevo2._domainkey` CNAMEs, `_dmarc` with
+`p=none`). **No merged SPF record is needed; the published
+`v=spf1 include:zoho.in ~all` stays as it is.** Brevo authentication is
+still **not** recorded as complete, because only Brevo's dashboard can say
+that.
+
+---
+
 ## 4. Current Gaps
 
 The distance from §2 to §3, grouped by the phase that closes it.
@@ -429,6 +847,15 @@ The distance from §2 to §3, grouped by the phase that closes it.
 
 The 27 static pages are **reference material, not a starting point.** Each
 of these is confirmed present in `vokr-production.zip` by direct inspection:
+
+> **Read this section together with §2A.** "Not a starting point" is a
+> statement about the *implementation* — the copy-pasted CSS, the dead
+> forms, the DOM-attribute pricing. It is **not** licence to change the
+> approved layout, sections, wording, navigation or information
+> architecture. Every row below that touches **visible content or legal
+> copy** (fabricated reviews, the terms wording, unverifiable claims) is
+> registered in §2A.6 and is **pending explicit manager approval**, not
+> pre-authorised by appearing in this table.
 
 | Legacy defect | Measured | Killed by |
 |---|---|---|
@@ -823,7 +1250,19 @@ exporting anything price-shaped.
 ### PHASE 3 — Authentication + Guest Sessions
 
 #### Status
-**NOT STARTED**
+**CODE COMPLETE — 8 Sep 2026. Exit criteria NOT met.** Every task that is
+pure engineering (schema, session/identity resolution, guest tokens, the
+guest→user transition, Postgres-backed rate limiting, the five API
+routes, four auth pages, real Google button) is implemented, tested and
+validated live. Tasks 1–3 are Supabase-dashboard and Google-Cloud-console
+actions that require a Brevo account and Google OAuth credentials — **no
+such credentials exist in this environment**, so R12 (the phase's actual
+exit criterion) cannot be closed here. **Update 10 Sep 2026: the
+Google-Cloud-console half of task 1 and all of human-checklist item 3 are
+DEFERRED to Phase 4 task 14 by operator instruction, recorded under §12
+item 1 — see Phase 3 open item 4 for the reason, the live evidence
+(`"google": false`) and the resume point.** See "Human checklist to close this
+phase" below the Implementation Tasks.
 
 #### Objective
 Real authentication via Supabase Auth (email/password + Google), real guest
@@ -854,21 +1293,60 @@ transition). Saved addresses (Phase 6). Order history (Phase 9). SMS/phone
 OTP (**deferred**, §10).
 
 #### Implementation Tasks
-1. Enable email/password and Google providers in Supabase. Configure the OAuth consent screen and redirect URLs for dev, staging and production.
-2. **Configure Brevo as custom SMTP in Supabase Auth before creating any real account.** Then raise the email rate limit from its 30/hour default (R13).
-3. Send a real signup confirmation to an address **outside** the project team and confirm delivery. Until that email lands in an external inbox, R12 is not done.
-4. Add `app_users` and `guest_sessions` migrations. `app_users.id` = the Supabase `auth.users.id`.
-5. Build `src/server/auth/session.ts`: `getSession()`, `requireUser()`, `getOrCreateGuestSession()`. Guest tokens are 256-bit random, stored **hashed**, set as `HttpOnly; Secure; SameSite=Lax; Path=/` with a 90-day expiry.
-6. Ensure **every** request resolves to exactly one identity — an `app_user` or a `guest_session`, never both, never neither.
-7. Implement the guest → authenticated transition: on sign-in, look up the guest session, run the registered upgrade handlers (Phase 5 registers the cart merge here), then invalidate the guest token and rotate the cookie. **Session fixation is prevented by rotating on every privilege change.**
-8. Create the `app_users` row on first authenticated request, idempotently, so a Supabase user without a profile is impossible.
-9. Password reset and email-change flows, both through Brevo.
-10. **Forward the real client IP** to Supabase Auth, or call Auth from the browser (R13). Without this every customer shares Cloud Run's egress IP and one 30-per-5-minute token bucket — an effective global cap of ~6 sign-ins/minute. Decide explicitly and record it in the ADR log.
-11. Application-layer rate limiting on sign-in, sign-up and password reset using `rate_limit_counters`.
-12. Delete every trace of the cosmetic auth pattern; ensure nothing resembling `signIn('you@vokr.shop')` can exist.
+1. ◑ **Split — email/password DONE, Google DEFERRED (updated 10 Sep 2026).** The original task bundled two providers; they have diverged and are now tracked separately.
+   - ✅ **Email/password: complete and verified live.** Enabled in Supabase → Authentication → Providers. Read back from the project's own `/auth/v1/settings` on 10 Sep 2026: `"email": true`, `"disable_signup": false`, `"mailer_autoconfirm": false` — i.e. email signup enabled with confirmation required, the intended launch configuration. Proven end-to-end by five real accounts created, confirmed through Brevo-delivered emails and signed in (see "Defect log round 3").
+   - ⏸️ **Google OAuth: DEFERRED to Phase 4 task 14** by operator instruction, recorded under §12 Definition-of-Done item 1. The OAuth consent screen, Google Cloud OAuth 2.0 client, client ID/secret and the dev/staging redirect URLs all move there; the production redirect URL moves to Phase 20 task 12. Still unconfigured — `/auth/v1/settings` reports `"google": false` (re-read live 10 Sep 2026). Full recorded reason, evidence and resume point: Phase 3 open item 4.
+
+   Neither half is a Phase 3 blocker any longer: the email/password half is done, and the Google half is deferred rather than pending.
+2. ⛔ **BLOCKED — human required.** **Configure Brevo as custom SMTP in Supabase Auth before creating any real account.** Then raise the email rate limit from its 30/hour default (R13). Needs a Brevo account with a verified sending domain.
+3. ⛔ **BLOCKED — human required.** Send a real signup confirmation to an address **outside** the project team and confirm delivery. Until that email lands in an external inbox, R12 is not done. Depends on tasks 1–2.
+4. ✅ Added `app_users`, `guest_sessions` and `rate_limit_counters` migrations (`prisma/migrations/20260908102243_auth_guest_sessions/`). `app_users.id` = the Supabase `auth.users.id`, stored with no DB-level FK (cross-schema — `auth` is not Prisma-modelled) but only ever written from a verified Supabase session. Hand-added CHECK constraints (`rate_limit_counters.count >= 0`, `guest_sessions.expires_at > created_at`) and RLS enabled on all three tables, same convention as the Phase 2 migration.
+5. ✅ Built `src/server/auth/session.ts` (`getSession()`, `requireUser()`) and `src/server/auth/guest.ts` (`getOrCreateGuestSession()`, `invalidateGuestSession()`, `clearGuestCookie()`). Guest tokens are 256-bit random (`src/server/auth/tokens.ts`, `crypto.randomBytes(32)`), stored as a SHA-256 hash only, cookie set `HttpOnly; Secure; SameSite=Lax; Path=/`, 90-day expiry.
+6. ✅ `getSession()` always resolves to exactly one identity: an authenticated user (verified via `supabase.auth.getUser()`, never a decoded-but-unverified JWT) or a guest session, and proactively clears a stale guest cookie found alongside a valid user session rather than trusting it. Integration-tested.
+7. ✅ Guest → authenticated transition built as `src/server/auth/upgrade.ts` (a handler registry — `registerGuestUpgradeHandler()` / `runGuestUpgradeHandlers()`) plus `src/server/auth/complete-sign-in.ts`, which runs the registered handlers and the guest-session deletion in one Postgres transaction, then clears the guest cookie on the response. Phase 5 registers the actual cart-merge handler here, per this phase's own Explicitly-Out-of-Scope line — Phase 3 ships the mechanism and proves it with a no-op test handler. Integration-tested for the idempotent-retry case (task 7's own requirement: "a double-fired sign-in must not double" the handler's effect).
+8. ✅ `src/server/auth/app-user.ts` (`getOrCreateAppUser()`) — a single `upsert` on the primary key, called from both the sign-in route and the OAuth callback. Integration-tested under 10-way concurrent duplicate calls: exactly one row results.
+9. ◑ **Partially done.** Password reset is fully implemented end-to-end: `POST /api/auth/reset` → Supabase → Brevo → `GET /api/auth/reset/confirm`, which redeems the link's `token_hash` with `verifyOtp({ type: "recovery" })` **on the server** and establishes the recovery session as cookies → `/reset-password` page (`src/components/auth/reset-password-form.tsx`) collects the new password and calls `auth.updateUser({ password })` client-side. **Corrected 9 Sep 2026:** the page used to call `exchangeCodeForSession(code)` in the browser, which needs the PKCE verifier cookie and therefore only ever worked in the browser that requested the reset — see the Phase 3 defect log round 3. **Email-change is deferred**, not built: it has no UI entry point yet, because the account/profile area it would live in is Phase 4's "account affordances" (SiteHeader) and doesn't exist. Building an isolated email-change route with nowhere in the app to reach it would be scope invented ahead of its owning phase. Revisit when Phase 4 adds an account page.
+10. ✅ **Decided explicitly — ADR-025 (§11).** Every server-to-Supabase-Auth call carries the real client IP as `X-Forwarded-For` (best-effort; hosted GoTrue's trust of the header is unverifiable from here), but this app's own IP-and-email-keyed `rate_limit_counters` limiting (task 11) is the limiting this project actually relies on, not Supabase's.
+11. ✅ `src/server/rate-limit/index.ts` (`consumeRateLimit()`, `assertWithinRateLimit()`) — a single `INSERT ... ON CONFLICT` fixed-window counter, atomic under concurrency (integration-tested with 20 simultaneous requests against one key: exactly `limit` succeed). Wired into all three of `/api/auth/signup`, `/signin` and `/reset`, each keyed by IP *and* by the submitted email independently.
+12. ✅ Verified by `grep` — the Next.js application (`vokr/src/`) has never contained the legacy cosmetic-auth pattern; it exists only in the reference `vokr-production.zip`, which Phase 4 replaces rather than migrates.
 
 #### Files / Areas Affected
-`vokr/prisma/schema.prisma` · `vokr/src/server/auth/*` · `vokr/src/app/api/auth/**` · `vokr/src/app/(auth)/**` · `vokr/src/middleware.ts`
+`vokr/prisma/schema.prisma` · `vokr/prisma/migrations/20260908102243_auth_guest_sessions/` · `vokr/src/server/auth/*` · `vokr/src/server/rate-limit/*` · `vokr/src/server/net/*` · `vokr/src/app/api/auth/**` · `vokr/src/app/(auth)/**` · `vokr/src/components/auth/**` · `vokr/src/lib/env.ts` (split into `vokr/src/lib/env.ts` + `vokr/src/lib/env-client.ts` — see "A regression found and fixed mid-phase" below) · `vokr/src/lib/supabase-browser.ts` · `vokr/src/lib/errors.ts` (added `UnauthorizedError`, 401) · `vokr/src/proxy.ts` (Next.js 16 renamed `middleware.ts` → `proxy.ts`; see below)
+
+##### A regression found and fixed mid-phase
+Two defects surfaced by the phase's own tests, not by inspection —
+recorded here because the plan's own principle (§12 DoD item 2) is that a
+bug found during a phase gets a regression test, not a quiet fix:
+- **`src/lib/env.ts` leaking server variable *names* into the client
+  bundle.** Adding the first browser-side Supabase code
+  (`supabase-browser.ts`, used by the Google button and the
+  reset-password page) pulled the *entire* `env.ts` module — including
+  the server schema's key list (`SUPABASE_SERVICE_ROLE_KEY` etc., not
+  values) — into `.next/static`, breaking the zero-server-secret-names
+  bundle check every phase since Phase 1 has relied on. Fixed by
+  splitting the client schema into its own module (`env-client.ts`);
+  `supabase-browser.ts` imports only that. Re-verified with a clean
+  production build: zero matches.
+- **Two integration test files racing each other's cleanup.** `guest`,
+  `app-user`, `complete-sign-in` and `rate-limit`'s integration suites
+  share the `guest_sessions` and `app_users` tables and run in parallel;
+  each file's `afterEach` originally did a table-wide `deleteMany({})`,
+  which — run concurrently — could delete another file's row before that
+  file's own assertion read it back (reproduced: `complete-sign-in`
+  failed intermittently depending on run order). Fixed by scoping every
+  file's cleanup to the exact row IDs it created. Re-run 4× consecutively
+  with zero failures after the fix.
+- **A Route Handler crash path.** In every `/api/auth/*` route,
+  `createRouteSupabaseClient(request)` was originally called *before* the
+  `try` block — meaning a missing `NEXT_PUBLIC_SUPABASE_ANON_KEY` (this
+  environment's actual state) threw an unhandled error instead of
+  returning through `toErrorResponse()`, violating DoD item 4. Fixed by
+  moving construction inside `try`, with `cookiesToSet` initialised
+  before it so the `catch` block can still apply any cookies queued
+  before the failure. Verified live: every JSON route now returns a
+  well-formed 500 body under exactly this condition instead of Next.js's
+  raw error page; the OAuth callback (a redirect, not JSON) degrades to a
+  307 to `/sign-in?error=oauth` instead.
 
 #### Database Impact
 Adds `app_users`, `guest_sessions`, `rate_limit_counters`.
@@ -883,49 +1361,1110 @@ Real sign-in / sign-up / reset forms with actual password fields, validation
 and error states. A real Google button.
 
 #### Security Requirements
-- Service-role key never reaches the browser — asserted by a bundle test.
-- Guest tokens: cryptographically random, stored hashed, HttpOnly, Secure, SameSite.
-- Session identifier rotates on every privilege change.
-- Rate limits on all three auth endpoints.
-- Sign-in and password-reset responses must not reveal whether an address is registered.
-- Password minimum length and a breach-list check if available; no arbitrary composition rules.
+- ✅ Service-role key never reaches the browser — `grep` of a clean `.next/static` production build for every server secret name returns zero matches (re-verified after the mid-phase `env.ts` regression, see above). No dedicated automated bundle test was added — Phase 1 and 2 both verify this the same way (manual `grep` after a clean build, recorded as evidence), and this phase follows that established convention rather than inventing a different mechanism.
+- ✅ Guest tokens: cryptographically random (`crypto.randomBytes(32)`), stored as a SHA-256 hash, `HttpOnly; Secure; SameSite=Lax; Path=/`. Unit-tested (entropy/format/never-equals-raw) and integration-tested (hash round-trips correctly against the persisted row).
+- ✅ Session identifier rotates on every privilege change: Supabase issues a fresh access/refresh token pair on sign-in (inherent to `signInWithPassword`), and the guest cookie is explicitly cleared on the same response.
+- ✅ Rate limits on sign-up, sign-in and reset (the task list's "all three auth endpoints" — sign-out needs none, it has no enumerable target).
+- ✅ Sign-in and reset responses are identical regardless of whether the address is registered — Supabase's own anti-enumeration behaviour (empty-`identities`-array on duplicate signup, generic "Invalid login credentials") is relied on rather than re-implemented; documented in the route files' own comments rather than asserted by a test that would need real Supabase responses to be meaningful.
+- ✅ `MIN_PASSWORD_LENGTH = 8`, no composition rules, plus a real Have I Been Pwned k-anonymity breach check (`src/server/auth/password.ts`) — free, no API key, fails open on any network/timeout error (unit-tested for both the true/false and fail-open cases).
 
 #### Testing Requirements
-- Unit: guest token generation, hashing, cookie attributes.
-- Integration: signup → `app_users` row created exactly once, even on concurrent duplicate requests.
-- Integration: guest session created, upgraded on sign-in, old token invalidated.
-- Integration: rate limiter returns 429 at the threshold and recovers after the window.
-- Security: no user enumeration through timing or message differences.
-- **Manual, mandatory: a confirmation email delivered to an external address via Brevo, screenshotted.**
+- ✅ Unit: guest token generation, hashing, cookie attributes (`src/server/auth/__tests__/tokens.test.ts`, `guest.test.ts`).
+- ✅ Integration: `app_users` row created exactly once under 10-way concurrent duplicate calls (`app-user.integration.test.ts`).
+- ✅ Integration: guest session created, upgraded on sign-in via the handler registry, old token invalidated and cookie cleared, retried sign-in does not re-run the handler (`complete-sign-in.integration.test.ts`).
+- ✅ Integration: rate limiter blocks at the threshold, recovers after the window elapses, and serializes 20 concurrent requests against one key to exactly `limit` successes (`rate-limit/__tests__/index.integration.test.ts`).
+- ✅ Security: no user enumeration through message differences — **now covered by an automated test** (`src/server/auth/__tests__/anti-enumeration.test.ts`, 9 cases), asserting the caller-visible projection is identical for registered and unregistered addresses on both signup and reset, including GoTrue's registered-only recovery cooldown. Closed 10 Sep 2026; see open item 6 for why the classifier layer is the right place to test it.
+- ✅ **Manual, mandatory: DONE.** A confirmation email was delivered via Brevo to inboxes **outside** the Supabase project team, on two unrelated domains (`iiitr.ac.in`, `gmail.com`), and both reached `email_confirmed_at` — which GoTrue sets only when the emailed link is followed (round 3 evidence table, 9 Sep 2026). Five real accounts in total. **This is R12's exit criterion and it is met.** Additionally, a real Brevo-delivered *recovery* email completed the fixed reset flow cross-browser on 10 Sep 2026 (§0.2).
+
+#### Defect log — manual signup returned HTTP 500 (9 Sep 2026)
+
+**Symptom.** A manual signup at `http://localhost:3000/sign-up` with a
+real external address returned the client's generic
+"Something went wrong. Please try again." — the `INTERNAL_ERROR` branch of
+`toErrorResponse()`. Reproduced directly:
+`POST /api/auth/signup` → **HTTP 500**,
+`{"error":{"code":"INTERNAL_ERROR","requestId":"93c67803-…"}}`.
+
+**Root cause 1 of 3 (the one that fired first).** `NEXT_PUBLIC_SUPABASE_ANON_KEY` was present but
+**empty** in `vokr/.env.local` — human checklist item 4 below had not been
+done. The client schema types it `z.string().optional()`, which accepts
+`""`, so boot-time env validation passed and the failure surfaced later:
+`requireSupabasePublicConfig()` (`src/server/auth/supabase.ts`) threw
+inside `createRouteSupabaseClient()` **before any Supabase call was
+made**. Confirmed independently: `GET /auth/v1/settings` against the
+linked project with that value returns `401 {"message":"Invalid API
+key"}`. The request never reached Supabase Auth, so this was **not** an
+Auth-configuration, SMTP, confirmation-requirement or redirect-URL fault.
+
+**Root cause (secondary — why it could not be diagnosed).** *No route
+logged anything.* `errors.ts` documents that "the caller is responsible
+for the actual logging call; this function only assigns the ID", and no
+caller ever made it. The failing request left **zero** entries in
+`.next/dev/logs/next-development.log` — the `requestId` in the response
+body pointed at nothing. This is why the terminal appeared silent.
+
+**Third defect found while fixing (latent, would have hit R12 directly).**
+`src/app/api/auth/signup/route.ts` destructured only `data` from
+`supabase.auth.signUp()` and **discarded `error` entirely**. Every
+Supabase-side failure — including `unexpected_failure /
+"Error sending confirmation email"` when SMTP is not configured — was
+converted into **HTTP 200 "a confirmation link is on its way."** That is
+verbatim the failure signature §6 calls "the single most dangerous item in
+the programme" (`signUp()` succeeds, the email never arrives, no client
+error), reproduced by the application itself regardless of SMTP state.
+
+**Fixes applied.**
+1. `src/lib/log.ts` (new) — `logServerError(scope, requestId, error)`.
+   Expected `AppError`s log one compact `warn`; anything else logs at
+   `error` with the full stack and up to three levels of `cause`. Wired
+   into every `toErrorResponse()` call site (5 auth routes + 2 catalog
+   routes), passing the same `requestId` that reaches the client.
+2. `src/server/auth/signup-error.ts` (new) — `classifySignupResult()`.
+   Anti-enumeration is preserved but narrowed to the one fact it actually
+   requires hiding: `user_already_exists` / `email_exists` still collapse
+   into the generic success message. Everything else is now honest —
+   `over_email_send_rate_limit` → 429, `weak_password` /
+   `email_address_invalid` → 400, and **every other error (SMTP, provider
+   disabled, config, outage) → logged 500, never a fake success.** A null
+   error with no user is also treated as operational.
+3. `src/app/api/auth/signup/route.ts` — consumes the classifier; the
+   Supabase `error` is no longer discarded.
+
+**Evidence.** After the logging fix the same request produces, in
+`.next/dev/logs/next-development.log`:
+`[auth/signup] INTERNAL_ERROR requestId=f7f821fc-… : Error:
+NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set.
+at requireSupabasePublicConfig → createRouteSupabaseClient → POST
+(src/app/api/auth/signup/route.ts)` — the exact underlying cause, where
+previously there was no log line at all.
+
+**Two further causes, found only after the logging fix made them visible.**
+The empty anon key was the *first* of three stacked failures — each one
+masked the next, which is why the single generic 500 was so opaque.
+
+*Cause 2 — the running dev server was connected to the real Supabase
+database, not local Compose Postgres.* With the anon key in place, signup
+and sign-in still returned 500. The new log line gave the reason directly:
+`PrismaClientKnownRequestError … Raw query failed. Code: 42P01. Message:
+relation "rate_limit_counters" does not exist`, thrown from
+`consumeRateLimit → assertWithinRateLimit → POST` — the rate limiter runs
+*before* the Supabase call in both routes, so it gated signup too.
+
+The table was not missing locally: `prisma migrate status` reported
+"Database schema is up to date", `\dt` on the Compose container listed all
+seven tables, and a direct `pg` connection using the app's own
+`DATABASE_URL` ran `select count(*) from rate_limit_counters` successfully.
+The catalog route also worked and returned the expected products — but the
+seed hardcodes product ids (`prisma/seed-data.ts`), so matching ids proved
+nothing about *which* database was answering.
+
+Confirmed against the real project's PostgREST with the anon key:
+
+| Table | Real Supabase project |
+| --- | --- |
+| `products` | exists (HTTP 401 `42501` — table present, `anon` lacks SELECT) |
+| `rate_limit_counters` | **absent** (HTTP 404 `PGRST205`) |
+| `guest_sessions` | **absent** (HTTP 404 `PGRST205`) |
+| `app_users` | **absent** (HTTP 404 `PGRST205`) |
+
+That is exactly the observed behaviour — catalog works, rate limiter
+throws 42P01 — so the dev server was reading a `DATABASE_URL` exported in
+its launching shell, which Next.js gives precedence over `.env.local`.
+This is the documented ad-hoc mechanism for one-off `prisma migrate
+deploy` / `db seed` runs against the real project (README, and the
+`.env.local` comment block); leaving it exported in the shell that then
+runs `npm run dev` silently repoints the whole application at production.
+**Verified fixed:** the same sign-in request against a clean-environment
+production build (`next start -p 3001`, reading only `.env.local`) returns
+`401 UNAUTHORIZED "Invalid email or password."` — the rate limiter,
+Supabase client construction and the Auth round-trip all succeed.
+
+*Cause 3 — the Phase 3 migration was never deployed to the real Supabase
+project.* The table survey above is not only a dev-environment artefact:
+`20260908102243_auth_guest_sessions` has been applied to local Compose
+Postgres but **not** to `fzjuiocvzqaycchwsjef`, which carries only Phase
+2's `init_catalog`. **This is an open production gap, not a local one.**
+Deliberately NOT deployed as part of this bug fix — a schema write to the
+production database is out of scope for a defect investigation and needs
+its own decision. **Action required before Phase 3 can be considered
+deployable:** run `prisma migrate deploy` against the real project per the
+README's session-pooler instructions, then re-run the table survey above
+and confirm all three tables report something other than `PGRST205`.
+
+> **RESOLVED 10 Sep 2026.** That action was carried out exactly as
+> specified: `prisma migrate deploy` against the session pooler on port
+> 5432, and the table survey re-run — all three tables now report `42501`
+> instead of `PGRST205`. The `PGRST205` table immediately above is a
+> record of the 9 Sep state and is retained as the defect evidence; it no
+> longer describes production. See Phase 3 open item 5 and the §0.2
+> evidence log.
+
+**Regression tests.** `src/server/auth/__tests__/signup-error.test.ts`
+(11 cases, incl. "reports a failed confirmation-email send as operational,
+never as a success") and `src/lib/__tests__/log.test.ts` (4 cases).
+`npm run test` **94/94 passed, 15 files** (was 75/75, 13 files).
+`npm run lint`, `npm run typecheck` and `npm run build` all clean.
+
+**Status (9 Sep 2026).** The anon key is now written to `.env.local`
+(208 chars, from the linked project). Live Auth config read back from
+`/auth/v1/settings` on the real project: `email: true`,
+`disable_signup: false`, `mailer_autoconfirm: false` — i.e. email signup
+enabled and **confirmation required**, the intended launch configuration.
+**`google: false` — Google OAuth is still not configured** (human
+checklist item 3, still open). Brevo domain verification and custom SMTP
+(items 1–2) are reported done by the operator as of this date.
+
+**Three defects fixed; end-to-end signup still NOT verified.** The
+remaining blockers are (a) a dev server that must be started from a shell
+with no `DATABASE_URL` exported, and (b) the manual external-inbox test
+itself, which needs a human inbox. **R12 remains open. Phase 3 remains
+incomplete. Phase 4 not started.**
+
+#### Phase 3 verification round 2 — 9 Sep 2026 (post-fix)
+
+With the anon key in place and the dev server started from a shell with no
+`DATABASE_URL` export (`env -u DATABASE_URL -u DIRECT_URL npm run dev`), a
+real signup was performed by the operator against two external addresses.
+The evidence below is read back from the live systems, not inferred.
+
+**1. ✅ Supabase Auth users created and confirmed.** Read from the
+project's admin API (`GET /auth/v1/admin/users`; the service-role key was
+used transiently in memory and never written to disk or printed):
+
+| field | user A | user B |
+| --- | --- | --- |
+| id | `cf9a05dc-8b99-4ba6-9406-5b8a8aa8a116` | `b8f70250-0c8b-4d9b-a2ce-280c30bdde8e` |
+| email | `cs23b1011@iiitr.ac.in` | `smaranreddy1011@gmail.com` |
+| created_at | 09:06:53Z | 09:08:31Z |
+| **email_confirmed_at** | **09:07:12Z** | **09:08:45Z** |
+| last_sign_in_at | **null** | 09:12:31Z |
+| provider | email | email |
+
+**✅ R12 — a confirmation email was delivered to external inboxes via
+Brevo.** Both addresses are outside the Supabase project team, on two
+unrelated domains (`iiitr.ac.in`, `gmail.com`), and both reached
+`email_confirmed_at` — which GoTrue sets only when the emailed link is
+actually followed. The mail therefore left Brevo, was accepted by two
+independent receiving domains, and the link resolved. **This is the first
+real evidence for R12 in the programme.**
+
+**2. ✅ The `app_users` row exists.** From local Postgres:
+`b8f70250-0c8b-4d9b-a2ce-280c30bdde8e | smaranreddy1011@gmail.com |
+2026-09-09 09:12:31.342+00`. User A has **no** `app_users` row, which is
+correct by design rather than a defect: the row is created on the first
+*authenticated* request (task 8), and user A confirmed but never signed in.
+
+**3. ❌ The confirmation callback does NOT establish an authenticated
+session.** This is a real, reproducible defect, and it blocks an
+acceptance criterion.
+
+*Evidence.* User A was confirmed at 09:07:12Z yet still has
+`last_sign_in_at: null` and no `app_users` row — a successful callback
+would have produced both, since `/api/auth/callback` runs
+`completeSignIn()` on success. User B's `app_users` row was written at
+09:12:31.342, matching `last_sign_in_at` 09:12:31.128 (the *password
+sign-in*), not the confirmation at 09:08:45. Neither confirmation created
+a session.
+
+*Root cause.* `/api/auth/callback` calls `exchangeCodeForSession(code)`,
+which requires the PKCE **code-verifier cookie written by the browser that
+started the signup**. Instrumenting the route surfaces the exact error:
+
+`AuthPKCECodeVerifierMissingError: PKCE code verifier not found in
+storage. This can happen if the auth flow was initiated in a different
+browser or device, or if the storage was cleared.`
+
+The cookies themselves are set correctly — a signup response carries
+`sb-<ref>-auth-token-code-verifier` (plus the per-flow and legacy names)
+with `Path=/` and `SameSite=lax` — so the mechanism is sound *within the
+originating browser only*. Confirmation links are routinely opened
+elsewhere: another browser, a phone, or a mail-provider link scanner. Both
+confirmations here landed 19 s and 14 s after signup, which is fast for a
+human and consistent with an automated scanner consuming the one-time
+token.
+
+*Consequence.* Email confirmation marks the address verified but silently
+fails to sign the customer in; they are redirected to
+`/sign-in?error=oauth` and must enter their password. **Not fixed here.**
+The durable fix is Supabase's documented email-confirmation pattern —
+`verifyOtp({ token_hash, type })`, which needs no verifier and works from
+any device — and it requires **both** a code change and a Supabase
+dashboard email-template change (`{{ .TokenHash }}` in place of
+`{{ .ConfirmationURL }}`). Raised as an open item rather than applied
+mid-verification.
+
+**Defect fixed during this round — `NEXT_PUBLIC_*` never reached the
+browser.** `src/lib/env-client.ts` passed `process.env` wholesale to
+`parseEnvSection()`. Next.js inlines a `NEXT_PUBLIC_*` value only where
+the source contains a *static* `process.env.NAME` member expression, so
+nothing was substituted: a clean production build contained the Supabase
+URL and anon key in **zero** `.next/static` files, and the compiled chunk
+read `parseEnvSection(schema, process.env, "Client environment")` against
+the browser's empty `process` shim. Every client variable was `undefined`
+in the browser, so `createSupabaseBrowserClient()` threw
+"NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set",
+breaking the **Google sign-in button** and the **password-reset form** —
+both Phase 3 surfaces. The server half kept working, which is why it went
+unnoticed. Fixed by reading each variable as an explicit member expression
+into `CLIENT_ENV_SOURCE`. **Verified:** the same grep now finds the URL,
+anon key and site URL in the client chunk (1 file each), while all eight
+server-secret *names* still return zero matches. Guarded by
+`src/lib/__tests__/env-client-inlining.test.ts`, which asserts on the
+source text — a runtime test cannot catch this, because under Vitest
+`process.env` is fully populated and both the correct and the broken form
+pass.
+
+**Observability gap closed — `/api/auth/callback` now logs.** Every
+failure path in that route returned a bare redirect to
+`/sign-in?error=oauth` with nothing written anywhere, which is precisely
+why defect 3 was invisible. All three paths (missing `code`, failed
+exchange, unexpected throw) now call `logServerError()` with the cause
+chain.
+
+#### Validation run — 9 Sep 2026
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `npm run test` | **100 passed, 16 files** (was 75 / 13 at phase code-complete) |
+| `npm run test:integration` | **31 passed, 5 files**, against Compose Postgres |
+| `npm run build` | clean, 13 routes |
+| Bundle secret-name grep | 0 matches for all 8 server-secret names |
+| Client public-value inlining | URL / anon key / site URL each present in 1 chunk |
+
+#### Fix — `token_hash` + `verifyOtp` confirmation flow (9 Sep 2026)
+
+Closes the defect recorded in verification round 2: email confirmation
+marked the address verified but never signed the customer in.
+
+**What changed.**
+
+- **`src/app/api/auth/confirm/route.ts` (new).** Supabase's documented
+  server-side confirmation flow. Reads `token_hash` + `type` from the
+  link, calls `supabase.auth.verifyOtp()`, and on success runs the *same*
+  `completeSignIn()` the password sign-in and OAuth callback run — guest
+  upgrade, guest cookie cleared, `app_users` row created — so a confirmed
+  customer arrives with exactly the identity every other authenticated
+  path produces. The existing session architecture is reused, not
+  bypassed.
+- **`src/server/auth/confirm.ts` (new).** `parseConfirmParams()` and
+  `safeNextPath()`, kept out of the route file because the Vitest `node`
+  project covers `src/server/**` and `src/lib/**`, not `src/app/**` — the
+  route itself would otherwise be untestable.
+- **`src/app/api/auth/signup/route.ts`.** `emailRedirectTo` now points at
+  `/api/auth/confirm`, and builds on `siteConfig.url` rather than the raw
+  env var so an unset `NEXT_PUBLIC_SITE_URL` cannot produce a relative
+  redirect target.
+- **`/api/auth/callback` is unchanged** and still owns the OAuth `?code=`
+  exchange, which genuinely is PKCE and genuinely does begin in the same
+  browser.
+
+**Why this fixes it.** `exchangeCodeForSession()` needs the PKCE code
+verifier cookie belonging to the browser that *started* the signup;
+`verifyOtp()` needs nothing from the browser, so confirmation works from a
+phone, from webmail, or from any device that is not the one that signed
+up.
+
+**Security properties, each covered by a test.**
+
+- **`signup` is the only accepted OTP type.** `recovery` is refused
+  specifically: a recovery token legitimately mints a session (that is how
+  `/reset-password` works), so accepting it here would land the visitor at
+  `next` holding a full session having never set a password — turning any
+  reset email into a sign-in. `email_change`, `email`, `magiclink` and
+  `invite` are refused as flows this phase does not offer.
+- **No open redirect.** `next` must be a single-slash-prefixed path;
+  `//evil.example`, `/\evil.example`, absolute URLs and scheme-only values
+  all fall back to `/`. A test asserts every accepted value resolves to
+  our own origin.
+- **No CR/LF** in `next`, so nothing can be injected into the `Location`
+  header.
+- **`token_hash` is charset- and length-constrained** before it reaches
+  Supabase or a log line.
+- **Failures are uniform.** Every rejection returns the same
+  `/sign-in?error=confirm` redirect; the specific reason goes only to the
+  server log, so a forged link learns nothing.
+
+**End-to-end evidence (9 Sep 2026).** Exercised against the running dev
+server and the real Supabase project using an admin-generated
+`token_hash` (`POST /auth/v1/admin/generate_link`), which produces a
+genuine one-time token without sending mail. One throwaway Auth user was
+created and deleted again; cleanup was asserted, and the project is back
+to its two real test users. **14/14 checks passed:**
+
+| Check | Result |
+| --- | --- |
+| `GET /api/auth/confirm?token_hash=…&type=signup` | HTTP 307 → `http://localhost:3000/` |
+| Session cookie issued | `sb-<ref>-auth-token` present on the redirect |
+| `app_users` row created by `completeSignIn()` | yes, matching the Auth user id |
+| `email_confirmed_at` set | yes |
+| **`last_sign_in_at` set by the confirmation** | **yes — this is the defect fixed** |
+| Replay of the same `token_hash` | refused → `?error=confirm` |
+| `type=recovery` / `type=email_change` | both refused |
+| `next=//evil.example` / `next=https://evil.example` | both refused, no external redirect |
+| Missing `type` / malformed `token_hash` | both refused |
+| Cleanup (Auth user + `app_users` row) | verified removed |
+
+The contrast with round 2 is the point: there, a confirmed user had
+`last_sign_in_at: null` and no `app_users` row. Here the confirmation
+alone produces both.
+
+**Validation.** `npm run lint` clean · `npm run typecheck` clean ·
+`npm run test` **132 passed, 17 files** · `npm run test:integration`
+**31 passed, 5 files**, run 4× consecutively for flake-check ·
+`npm run build` clean, and `/api/auth/confirm` registers as a dynamic
+route.
+
+**REMAINING — the dashboard step this depends on.** *(Completed 9 Sep
+2026 — the template below is in place, and round 3 confirms real emails
+now sign the customer in. Retained for the exact markup.)* The endpoint
+is live and proven, but the *email* linked to the old PKCE URL until the
+**Confirm signup** template was changed (Authentication → Emails):
+
+```html
+<h2>Confirm your signup</h2>
+<p>Follow this link to confirm your Vokr account:</p>
+<p><a href="{{ .SiteURL }}/api/auth/confirm?token_hash={{ .TokenHash }}&type=signup">Confirm your email</a></p>
+```
+
+`{{ .SiteURL }}` is used rather than `{{ .RedirectTo }}` because the
+project's `additional_redirect_urls` is empty, so a `RedirectTo` outside
+the allow-list would silently fall back to the site URL. Site URL is
+currently `http://localhost:3000` and must become the production origin
+at deploy.
+
+**`supabase config push` must NOT be used to apply this.** `supabase
+config diff` against the project reports 19 differences, and pushing
+`config.toml` as it stands would **set `auth.email.enable_confirmations`
+from `true` to `false`** — disabling email confirmation in production
+outright — as well as reverting `site_url`, `otp_length` (8→6),
+`max_frequency` (1m→1s), TOTP MFA, Twilio SMS, storage analytics and the
+pooler sizes. The CLI's own help warns that a non-interactive run proceeds
+by default. Apply the template by hand in the dashboard.
+
+**Confirmed by the same diff:** Brevo SMTP is live on the project —
+`auth.email.smtp.enabled: true`, `host: smtp-relay.brevo.com`,
+`port: 587`, `sender_name: Vokr` (credentials masked by the API). That
+closes the configuration half of R12 with direct evidence rather than
+operator report. Note `auth.rate_limit.email_sent` is reported as
+*unmanaged* by the diff and so remains **unverified** — human checklist
+item 2's "raise the email rate limit" step still needs confirming in the
+dashboard.
+
+**Residual risk, not fixed and not caused by this change.** A mail
+provider that pre-fetches links will consume the one-time token before
+the customer clicks, leaving them at `?error=confirm`. The round-2
+timings (confirmations 19 s and 14 s after signup) are consistent with
+exactly that. This affected the previous flow identically. The usual
+mitigation is a landing page that requires a human interaction before the
+token is spent; that is a UX change beyond this fix and is left as an open
+item.
+
+#### Configuration audit — 9 Sep 2026 (read directly from the project)
+
+Read with `supabase config pull --dry-run` (read-only; `config.toml` was
+byte-compared before and after and is unchanged) and the project's
+PostgREST/admin APIs. These are remote values, not operator report.
+
+| Setting | Remote value | Assessment |
+| --- | --- | --- |
+| `auth.email.enable_confirmations` | `true` | ✅ confirmation required, as intended |
+| `auth.email.smtp.enabled` | `true` | ✅ custom SMTP live |
+| `auth.email.smtp.host` / `port` | `smtp-relay.brevo.com` / `587` | ✅ Brevo, credentials masked by the API |
+| `auth.email.smtp.sender_name` | `Vokr` | ✅ |
+| **`auth.rate_limit.email_sent`** | **`30`** | ❌ **still the 30/hour default — human checklist item 2's "raise it" step is NOT done** |
+| `auth.email.max_frequency` | `1m0s` | one email per address per minute — relevant when re-testing |
+| `auth.email.otp_length` | `8` | — |
+| `auth.site_url` | `http://localhost:3000` | dev value; **must become the production origin at deploy** |
+| `auth.additional_redirect_urls` | `[]` (empty) | why the email template uses `{{ .SiteURL }}`, not `{{ .RedirectTo }}` |
+| `auth.external.google` | `false` | ❌ Google OAuth still not configured (deferred by instruction) |
+
+**Phase 3 migration status in the real project — still NOT deployed.**
+*(Snapshot of 9 Sep 2026. **Superseded 10 Sep 2026 — the migration has
+since been deployed;** see the resolution note below this table, Phase 3
+open item 5, and the §0.2 evidence log. Retained because the 9 Sep
+`PGRST205` readings are the evidence the gap was real.)*
+Re-checked via PostgREST with the anon key:
+
+| Table | Real project |
+| --- | --- |
+| `products` / `product_variants` / `inventory` | present (HTTP 401 `42501` — table exists, `anon` lacks SELECT) |
+| `app_users` | **absent** (HTTP 404 `PGRST205`) |
+| `guest_sessions` | **absent** (HTTP 404 `PGRST205`) |
+| `rate_limit_counters` | **absent** (HTTP 404 `PGRST205`) |
+
+Only Phase 2's `init_catalog` has been deployed. `20260908102243_auth_guest_sessions`
+has not. Deliberately left undeployed per the 9 Sep decision to keep
+production schema changes out of a defect investigation.
+
+**Update — 10 Sep 2026: deployed.** `20260908102243_auth_guest_sessions`
+was applied to `fzjuiocvzqaycchwsjef` under explicit operator approval,
+after the pending migration and its exact object list were reviewed
+first. `prisma migrate status` reports "Database schema is up to date!",
+and every row of the table above that said **absent** now reads
+`42501` (present, `anon` denied). The table is left unedited as the 9 Sep
+record.
+
+**Password reset carries the same cross-device defect the signup
+confirmation just had.** `src/components/auth/reset-password-form.tsx`
+calls `supabase.auth.exchangeCodeForSession(code)` **in the browser**, and
+the PKCE verifier it needs was written by the server response to
+`POST /api/auth/reset` — i.e. it lives only in the browser that submitted
+the forgot-password form. A reset link opened anywhere else fails exactly
+as signup confirmation did, with the same
+`AuthPKCECodeVerifierMissingError`. This is identified by reading the code
+and by symmetry with the confirmed signup defect; it is **not yet
+empirically confirmed**, and it is **not fixed** — the durable fix is a
+recovery route using `verifyOtp({ type: "recovery" })` that establishes
+the recovery session server-side and redirects to `/reset-password`,
+which is deliberately *not* what `/api/auth/confirm` does (it refuses
+`recovery` by design, so that a reset link can never become a plain
+sign-in). Raised as an open item.
+
+
+#### Defect log round 3 — the two reported real-world failures (9 Sep 2026)
+
+Reported after the **Confirm signup** template was repointed at
+`/api/auth/confirm`: (a) opening the confirmation link in a separate
+private window "does not complete successfully"; (b) the recovery link
+lands on `/reset-password` showing "This reset link is invalid or has
+expired". Investigated against the live project's Auth records, the local
+`app_users` table, the installed `@supabase/auth-js` source, and the
+running dev server.
+
+##### Evidence gathered first
+
+Auth user timeline, read from `GET /auth/v1/admin/users` (all five real
+users; throwaway test users created during this investigation were
+deleted and the final list re-asserted):
+
+| Email | created | confirmation sent | email confirmed | last sign-in | `app_users` row |
+| --- | --- | --- | --- | --- | --- |
+| `cs23b1011@iiitr.ac.in` | 09:06:53 | 09:06:53 | 09:07:12 | — | no |
+| `smaranreddy1011@…` | 09:08:31 | 09:08:31 | 09:08:45 | 09:12:31 | 09:12:31 |
+| `smaranreddy007@…` | 09:44:50 | 09:44:50 | 09:45:20 | 09:45:41 | 09:45:20.933 |
+| **`smaranreddy777@…`** | 10:23:44 | 10:23:44 | **10:24:00.497** | **10:24:00.509** | **10:24:00.731** |
+| **`smaranreddy33@…`** | 10:28:49 | 10:32:04 | **10:32:44.398** | 10:33:43 | **10:32:44.637** |
+
+The two bolded rows are the decisive measurement. For `…777@`,
+`email_confirmed_at` and `last_sign_in_at` are **12 ms apart**, and the
+`app_users` row lands 234 ms later; for `…33@`, the `app_users` row lands
+239 ms after `email_confirmed_at`. Nothing but `/api/auth/confirm` does
+those three things in one operation — GoTrue's own `/auth/v1/verify`
+confirms an address without signing anyone in, and nothing else in the
+system writes `app_users` at confirmation time.
+
+**Conclusion: the `token_hash` + `verifyOtp` confirmation flow works with
+real, emailed, PKCE-issued tokens.** The earlier 14/14 harness proved it
+with an admin-generated (non-PKCE) token; these two rows prove it with the
+genuine article, delivered through Brevo. `verifyOtp()` returned a real
+session and `completeSignIn()` ran.
+
+##### Root cause (a) — the confirmation *outcome* is invisible, both ways
+
+The confirmation succeeded server-side, so what failed was the customer's
+ability to observe it. Two distinct code defects, both real:
+
+1. **`/sign-in?error=confirm` was never read.** `/api/auth/confirm` and
+   `/api/auth/callback` both redirect every failure to
+   `/sign-in?error=confirm` / `?error=oauth` and deliberately log the real
+   reason server-side only. `src/app/(auth)/sign-in/page.tsx` did not
+   accept `searchParams` at all, so a *failed* confirmation rendered a
+   bare, unannotated sign-in page. The routes had been written against a
+   contract the page never implemented.
+2. **A *successful* confirmation is equally silent.** It redirects to `/`,
+   and `SiteHeader` contains no authentication affordance whatsoever — no
+   account link, no sign-out, no email. Success and failure therefore look
+   identical from the browser.
+
+Defect 1 is fixed here. **Defect 2 is deliberately not fixed:** this plan
+already assigns account affordances in `SiteHeader` to **Phase 4** (§5
+Phase 3, task 9 says so explicitly), and building them now would be
+starting Phase 4. It is carried as an open item instead, with the
+consequence stated plainly: until Phase 4 lands, a signed-in customer
+cannot tell they are signed in, so "did the confirmation work?" cannot be
+answered from the UI — only from the cookie jar or the database.
+
+**Not established, and stated as such:** which of the two the reporter
+actually hit. Both recent confirmations succeeded server-side, so the
+failed click was either an older link from an earlier test whose token was
+already spent (which now renders a bare sign-in page — defect 1), or a
+success the UI could not show (defect 2). Auth timestamps cannot
+distinguish them, and the dev-server log for that click was not captured.
+Re-testing after these fixes will distinguish them, because a failure now
+says so on the page.
+
+##### Root cause (b) — password reset was genuinely broken, cross-browser
+
+This one is a real functional defect and is fixed.
+
+`src/components/auth/reset-password-form.tsx` called
+`supabase.auth.exchangeCodeForSession(code)` **in the browser**. That
+requires the PKCE code-verifier cookie, and the verifier is written by the
+response to `POST /api/auth/reset` — confirmed directly by probing the
+route, which sets `sb-<ref>-auth-token-code-verifier`,
+`…-auth-token-flow-<id>-code-verifier` and `…-auth-token-flows-code-verifier`
+(`Path=/`, `SameSite=lax`, no `HttpOnly`). Those cookies exist **only in
+the browser that submitted the forgot-password form.** Any other
+browser — a private window, a second browser, a phone, webmail — has no
+verifier, the exchange fails, and the component falls into its
+`linkError` branch: *"This reset link is invalid or has expired."*
+Exactly the reported symptom, and deterministic rather than intermittent.
+
+Corroborated by the Auth record for `smaranreddy33@`: `recovery_sent_at`
+10:33:30 and `last_sign_in_at` 10:33:43. GoTrue's `/auth/v1/verify`
+**did** accept the token and mint a session 13 s later — the link was
+valid and was redeemed successfully. Only the browser-side exchange
+failed. The message was reporting the wrong thing entirely.
+
+**Ruled out along the way,** each by direct measurement rather than
+inference: the verifier cookies are not `HttpOnly`, so JS can read them;
+`redirect_to` is accepted (GoTrue matches the Site URL's hostname, which
+is why the page rendered at all despite `additional_redirect_urls` being
+empty); and `auth-js` 2.116.0 dual-writes the legacy fixed verifier key
+and appends `sb_flow_id` to the redirect, so multi-flow slot selection is
+not the failure either.
+
+##### Fix — server-side `verifyOtp({ type: "recovery" })`
+
+The mirror of the signup confirmation fix, and for the same reason:
+`verifyOtp()` needs nothing from the browser.
+
+- **`src/app/api/auth/reset/confirm/route.ts` (new).** Redeems
+  `?token_hash=…&type=recovery`, establishes the recovery session as
+  cookies on the redirect, and sends the customer to `/reset-password`.
+- **`src/server/auth/recovery.ts` (new).** `parseRecoveryParams()`, kept
+  out of the route file so the Vitest `node` project can cover it.
+- **`src/server/auth/otp-link.ts` (new).** The `token_hash` charset/length
+  check, now shared by both link endpoints instead of duplicated.
+- **`src/components/auth/reset-password-form.tsx`.** No longer exchanges a
+  code; it checks for the session the server established and collects the
+  new password. `updateUser()` stays client-side exactly as before —
+  `@supabase/ssr` does not mark session cookies `HttpOnly`, so the browser
+  client reads the server-established session from `document.cookie`. On
+  success it now signs out before redirecting to `/sign-in`, so a session
+  minted from an emailed link does not outlive the reset it was issued for.
+- **`src/app/api/auth/reset/route.ts`.** `redirectTo` repointed at the new
+  route and built on `siteConfig.url` rather than
+  `clientEnv.NEXT_PUBLIC_SITE_URL ?? ""`, which could produce a relative
+  redirect target if the variable were unset.
+- **`src/app/(auth)/sign-in/page.tsx` + `src/lib/auth-error-messages.ts`
+  (new).** Surfaces `?error=confirm` / `?error=oauth`. Unrecognised codes
+  render nothing rather than being echoed — the value comes from the URL,
+  and rendering arbitrary text on our own sign-in page is a phishing
+  primitive. Backed by a `Map`, not an object literal, so `constructor`
+  and `__proto__` cannot resolve to something inherited from
+  `Object.prototype`; there is a test for precisely that.
+
+**Security properties, each covered by a test.**
+
+- **`recovery` is the only accepted type**, the exact mirror of
+  `/api/auth/confirm` refusing `recovery`. Keeping the endpoints separate
+  is what pins the destination: a recovery token always lands on
+  `/reset-password`, which demands a new password before anything else,
+  and a `signup` token can never be redeemed to reach that page.
+- **No `next` parameter at all.** A recovery token mints a real session,
+  so a caller-chosen destination would be an open redirect that arrives
+  authenticated. The destination is a compile-time constant.
+- **`completeSignIn()` is deliberately not run here.** This is not a
+  "guest becomes a customer" event; merging a guest cart and rotating the
+  guest cookie on the strength of an emailed link would let anything that
+  touches that link — a stale inbox, a mail scanner — destroy a live guest
+  session. The upgrade runs when the customer signs in with the new
+  password.
+- **Uniform failures.** Every rejection redirects to
+  `/reset-password?error=link`; the reason goes only to the server log.
+  The `error=link` marker is trusted over the session check, so a visitor
+  who happens to hold a session is never shown a password form off a link
+  that failed.
+
+**End-to-end evidence (9 Sep 2026).** Exercised against the running dev
+server and the real Supabase project with a genuine recovery token from
+`POST /auth/v1/admin/generate_link`, **redeemed with no cookies at all** —
+which is precisely the cross-browser condition that was broken. One
+throwaway user created and deleted; cleanup asserted. **11/11 passed:**
+
+| Check | Result |
+| --- | --- |
+| `GET /api/auth/reset/confirm?token_hash=…&type=recovery`, cold cookie jar | HTTP 307 → `/reset-password` |
+| Recovery session cookie issued | `sb-<ref>-auth-token` present |
+| **Session actually authorises `updateUser({password})`** | **yes** |
+| **New password signs in via `/api/auth/signin`** | **HTTP 200** |
+| Replay of the spent token | refused → `?error=link` |
+| `type=signup` redeemed here | refused |
+| Missing `type` / malformed `token_hash` | both refused |
+| `next=https://evil.example` | ignored, no external redirect |
+| Cleanup (Auth user + `app_users` row) | verified removed |
+
+**Validation.** `npm run lint` clean · `npm run typecheck` clean ·
+`npm run test` **164 passed, 19 files** (was 132/17; +32 for
+`recovery.test.ts` and `auth-error-messages.test.ts`) ·
+`npm run test:integration` **31 passed, 5 files** · `npm run build` clean,
+with `/api/auth/reset/confirm` registering as a dynamic route.
+
+**REMAINING — the dashboard step this depends on.** *(✅ **DONE —
+confirmed 10 Sep 2026.** The template below is in place: a real recovery
+email was delivered through Brevo, its link opened in a separate private
+browser, reached the *Set a new password* form, and the new password
+signed in. Retained for the exact markup and for the production-origin
+note at the end.)* As with the signup
+fix, the endpoint is live and proven but the *email* still links to the
+old PKCE URL until the **Reset Password** template is changed
+(Authentication → Emails):
+
+```html
+<h2>Reset your password</h2>
+<p>Follow this link to set a new Vokr password:</p>
+<p><a href="{{ .SiteURL }}/api/auth/reset/confirm?token_hash={{ .TokenHash }}&type=recovery">Set a new password</a></p>
+```
+
+`{{ .SiteURL }}` rather than `{{ .RedirectTo }}` for the same reason as
+the signup template: `additional_redirect_urls` is empty, so a
+`RedirectTo` outside the allow-list silently falls back to the site URL.
+Site URL is `http://localhost:3000` today and must become the production
+origin at deploy. **`supabase config push` must still not be used** — it
+would set `auth.email.enable_confirmations` from `true` to `false`.
+
+
+#### Validation run — 10 Sep 2026 (Phase 3 closure)
+
+Run after the production migration and the real-world password-reset
+verification, with the dev server on local Compose Postgres.
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | clean |
+| `npm run typecheck` | clean (`next typegen` → route types generated, `tsc --noEmit` clean) |
+| `npm run test` | **189 passed, 21 files** (was 164 / 19 at round 3; +9 for `anti-enumeration.test.ts`) |
+| `npm run test:integration` | **37 passed, 6 files**, against Compose Postgres (+6 for `client-ip-bucketing.integration.test.ts`) |
+| `npm run build` | clean, from a deleted `.next` (the dev server was stopped first). 16 static pages generated. |
+| **`npm run verify` (full gate)** | **exit 0** — lint + typecheck + test + build |
+| Bundle secret-name grep | **0 matches** for all 8 server-secret names in `.next/static`; local DB password literal also 0 |
+| Client public-value inlining | Supabase URL / anon key / site URL each present in exactly 1 chunk |
+| `prisma migrate status` (production) | "Database schema is up to date!" |
+| Real password reset, cross-browser | ✅ passed — see §0.2 evidence row |
+
+#### Phase 3 open items as of 9 Sep 2026 (round 3)
+
+1. **Signup confirmation — code FIXED and now proven with real emails.**
+   Two real Brevo-delivered PKCE links confirmed *and* signed in through
+   `/api/auth/confirm` (see round 3 evidence table). The **Confirm
+   signup** template is in place. No longer an open defect.
+2. ✅ **CLOSED (10 Sep 2026) — password reset verified end-to-end with a
+   real Brevo-delivered email, cross-browser.** The **Reset Password**
+   template is confirmed repointed at `/api/auth/reset/confirm`, and one
+   fresh real-world reset was performed against `smaranreddy1011@gmail.com`:
+   requested in the normal browser, the emailed link **opened in a separate
+   Incognito/private window**, which reached the *Set a new password* form;
+   the new password was set and then successfully used to sign in.
+   **That cross-browser hop is the exact condition round 3 proved broken**
+   (`AuthPKCECodeVerifierMissingError` — the verifier cookie existed only
+   in the requesting browser). It now succeeds, so the server-side
+   `verifyOtp({type:"recovery"})` fix is confirmed against a genuine
+   PKCE-issued, Brevo-delivered token rather than only an admin-generated
+   one. Full evidence: §0.2 evidence log, row "3 — password reset
+   (real-world, cross-browser)".
+3. **No authentication affordance in the UI — Phase 4, and it blocks
+   verification today.** `SiteHeader` shows no signed-in state, so a
+   successful confirmation and a failed one are visually identical from
+   the browser; a signed-in customer cannot tell they are signed in, and
+   there is no sign-out. This plan assigns account affordances to Phase 4
+   (§5 Phase 3, task 9), so it is *not* built here. Consequence to accept
+   consciously: until Phase 4, "did it work?" is answerable only from the
+   cookie jar or the database, not by looking at the site.
+4. **Google OAuth — DEFERRED to Phase 4 (task 14), 10 Sep 2026.**
+   Recorded under §12 Definition-of-Done item 1: "explicitly deferred with
+   a recorded reason and a new task in a later phase." **Reason:** deferred
+   by operator instruction during Phase 3 closure; it requires a Google
+   Cloud OAuth 2.0 client (consent screen + credentials) that does not
+   exist yet, and it is a console/dashboard action rather than code.
+   **Evidence it is still unconfigured:** `/auth/v1/settings` on
+   `fzjuiocvzqaycchwsjef` reports `"google": false` — re-read live on
+   10 Sep 2026, unchanged from 9 Sep. **Resumes at:** Phase 4 task 14,
+   with the production redirect URL added at Phase 20 task 12. Phase 4 is
+   the resume point rather than Phase 20 because Phase 4 owns the account
+   affordances in `SiteHeader` and its own task 10 forbids shipping a form
+   or affordance that does not reach a real endpoint — a Google button
+   that cannot work is exactly that, so it must be resolved in the phase
+   that would otherwise ship it dead. **Consequence accepted:** the Google
+   half of the Acceptance Criteria is deferred, not met, and the Google
+   button cannot be tested until Phase 4 task 14 is done.
+5. ✅ **CLOSED (10 Sep 2026) — the Phase 3 migration is now deployed to
+   the real Supabase project.** `20260908102243_auth_guest_sessions` was
+   applied to `fzjuiocvzqaycchwsjef` via `prisma migrate deploy` against
+   the session pooler (port 5432), per the README procedure; `supabase
+   config push` was not used and no Auth/SMTP/pooler/storage setting was
+   touched. `prisma migrate status` now reports **"Database schema is up
+   to date!"** (exit 0), and all three tables have flipped from
+   `PGRST205` to `42501` on the anon-key survey — present, with `anon`
+   still correctly denied SELECT. Phase 2 data is intact (5 products, 27
+   variants, 27 inventory rows) and GST/HSN remain `NULL` on all five
+   products with all 27 variants still `draft`. Full object-level
+   evidence: §0.2 evidence log, row "3 — production migration".
+6. ✅ **CLOSED (10 Sep 2026) — anti-enumeration now has an automated
+   test.** `src/server/auth/__tests__/anti-enumeration.test.ts` (9 cases).
+   The gap persisted because a route-level test would need real Supabase
+   Auth responses this environment cannot reach — but that argument
+   applies to the *routes*, not to `classifySignupResult()` /
+   `classifyResetResult()`, which are what actually choose the
+   caller-visible outcome. The test feeds them the error shapes GoTrue
+   really returns for registered and unregistered addresses and asserts
+   the **caller-visible projection** (status + message) is identical,
+   rather than asserting `outcome.kind` equality — which would wrongly
+   fail on reset, where `silent-failure` and `generic-success` differ
+   internally but are indistinguishable to the caller by design. Covers
+   `user_already_exists`, `email_exists`, the confirmations-on duplicate
+   shape (a user with empty `identities` and no error), and — the
+   sharpest oracle in the phase — GoTrue's recovery cooldown, which is
+   keyed on `recovery_sent_at` and therefore reachable *only* for a
+   registered address. Two counter-tests assert the rule is not
+   over-applied: an SMTP failure on either route must still fail loudly,
+   never collapse into a fake success (R12's signature).
+7. ✅ **CLOSED (10 Sep 2026) by decision, not by change — see §0.3 D4.**
+   `auth.rate_limit.email_sent` **stays at 30/hour**, deliberately.
+   Neither this plan nor the PDF ever specified a target above the
+   default; both say only "raise it". The binding external constraint is
+   Brevo's free allowance of **300 emails/day**, which is ≈**12.5/hour
+   sustained** — so **30/hour is already more than double the
+   sustainable daily rate**, and raising it would only let one bad hour
+   consume a larger share of the day's budget and silently stop order
+   confirmations. Human checklist item 2's "raise it" step is therefore
+   **resolved as: no change required at launch.** Revisit if Brevo is
+   upgraded past the free tier (Phase 11 already pre-authorises one month
+   of Brevo Starter at $9) or if the 200/day alert fires. **The Supabase
+   setting was not modified.**
+8. ⚠️ **DECIDED (10 Sep 2026) — risk accepted for launch, current
+   behaviour retained; no UX change made.** A mail provider that
+   pre-fetches links can spend either one-time token before the customer
+   clicks, leaving them at `?error=confirm` / `?error=link`.
+   **Decision: accept and do not change the flow now.** Reasons, stated
+   so the next reader can re-open it on evidence rather than taste:
+   (a) the failure is **visible, not silent** — round 3 wired both
+   `/sign-in` and `/reset-password` to render the error code, so an
+   affected customer is told the link did not work and can request
+   another, which is the difference between an annoyance and R12's
+   silent-failure class; (b) it is **recoverable without support** —
+   requesting a fresh link is one click, subject only to the `1m0s`
+   `max_frequency`; (c) the standard mitigation is an **interstitial
+   landing page requiring a human interaction before the token is
+   spent**, which is a visible-content change to an auth surface and
+   therefore belongs to the phase that owns those surfaces (**Phase 4**,
+   which builds the account affordances), not to a phase closing on
+   schema and server routes; (d) **no real customer has hit it** — the
+   round-2 timings (confirmations 19 s and 14 s after signup) are
+   *consistent with* a scanner but were never isolated, and today's
+   cross-browser reset succeeded on the first click. **Re-open if:** any
+   real customer reports a first-click failure, or the sign-in/reset
+   error rate becomes measurable once Phase 15 observability lands.
+   **Carried as a Phase 4 consideration, not a Phase 3 blocker.**
+
+**Phase 3 status: READY TO CLOSE — every acceptance criterion and Exit
+Criterion is met or explicitly deferred under §12 item 1; the one
+unsatisfied DoD item is item 10, the scoped commit, which has not been
+made yet.** §0.1's checkbox stays unticked until it has. Deferred, each
+with a recorded reason and a named later-phase task: **Google OAuth** →
+Phase 4 task 14 (§12 item 1); **Sentry error reporting** (DoD item 6) →
+Phase 15, which is the phase that introduces Sentry — this phase's
+observability is `logServerError()` with a request ID on every
+`toErrorResponse()` call site; **Secret Manager** (DoD item 7) → Phase 20,
+which introduces GCP — this phase's variables are in `env.ts` and
+`.env.example`; **email-change flow** (task 9) → Phase 4, which builds the
+account page it would need an entry point on; **account affordances in
+`SiteHeader`** (open item 3) → Phase 4, assigned there by this plan from
+the outset. DoD item 8's "tested against a copy of production data" is
+satisfied in substance rather than by drill: the migration is expand-only
+and writes zero rows to existing tables, and it was applied to local
+Compose Postgres carrying the same seed before production — stated
+plainly rather than claimed as a restore-style rehearsal.
+
+*(Historical note, retained: the paragraph below was written when the
+phase was genuinely incomplete.)*
+Item 2's dashboard step previously meant no *real* recovery email had
+completed the fixed flow, which is an acceptance
+criterion — **that criterion is now MET: item 2 is CLOSED as of
+10 Sep 2026**, a real Brevo recovery email having completed the fixed flow
+cross-browser. Item 4 is formally deferred to Phase 4 and **item 5 is
+CLOSED** (the production migration is deployed and verified). **The only
+substantive items still open are 6, 7 and 8** — the anti-enumeration
+test, the un-raised `auth.rate_limit.email_sent`, and the link-prefetch UX
+decision. R12's email-delivery and
+SMTP-configuration halves are both evidenced directly, and its
+sign-in-on-confirmation half is now evidenced by **real delivered emails**
+rather than only an admin-generated token — that is the one criterion
+round 3 upgraded from inferred to observed.
+
 
 #### Validation
 Sign up with a personal address unconnected to the Supabase project.
 Receive the email. Reset the password. Sign in with Google. Confirm the
 service-role key appears in zero client chunks (`grep` the build output).
 
+**Performed here:** the `grep` step (zero matches, see evidence log). **Not
+performed here** (needs the human checklist below first): signup with a
+real external address, receiving the email, Google sign-in.
+
 #### Acceptance Criteria
-- A real customer can create an account and **receive the email**.
-- Guest browsing works with no account.
-- Guest → authenticated transition preserves identity and rotates the token.
-- Auth endpoints are rate limited.
+- ⛔ A real customer can create an account and **receive the email** — blocked, see Exit Criteria.
+- ⏸️ **Sign in with Google — DEFERRED to Phase 4 (task 14), 10 Sep 2026.** Not met and not attempted; deferred by operator instruction under §12 item 1. `/auth/v1/settings` reports `"google": false`. See Phase 3 open item 4 for the recorded reason and the resume point.
+- ✅ Guest browsing works with no account — `getSession()` mints a guest session lazily on first use, integration-tested.
+- ✅ Guest → authenticated transition preserves identity and rotates the token — integration-tested end-to-end through `completeSignIn()`.
+- ✅ Auth endpoints are rate limited — integration-tested against real Postgres, including the concurrent-request race.
 
 #### Production Checklist Mapping
-**R12** (Brevo custom SMTP — the highest-risk item), **R13** (auth rate
-limit + client IP), part of **R19** (rate limiting).
+**R12** (Brevo custom SMTP — the highest-risk item) — **not closed**.
+**R13** (auth rate limit + client IP) — this app's own rate limiting is
+built and tested; the Supabase-side email rate limit still needs raising
+in the dashboard (task 2). Part of **R19** (rate limiting) — closed for
+the auth surface.
 
 #### Dependencies
-Brevo account, verified domain, Google OAuth credentials.
+Brevo account, verified domain, Google OAuth credentials — **none
+present in this environment.**
 
 #### Exit Criteria
 **A signup confirmation email has arrived in an inbox that is not on the
-Supabase project team.** Nothing less closes R12.
+Supabase project team.** Nothing less closes R12. ✅ **MET — 9 Sep 2026,
+re-confirmed in the 10 Sep reconciliation.** Five real accounts were
+created through Brevo-delivered mail to addresses outside the Supabase
+project team, on two unrelated domains (`iiitr.ac.in`, `gmail.com`); two
+reached `email_confirmed_at`, which GoTrue sets only when the emailed link
+is actually followed, and `/api/auth/confirm` signed them in with the
+`app_users` row written in the same operation (12 ms between
+`email_confirmed_at` and `last_sign_in_at`). See "Defect log round 3" for
+the timeline read from the project's admin API.
+
+*This entry previously read "NOT MET". That was accurate when written and
+stale by the end of round 3 — the evidence had been gathered but the exit
+criterion was never reconciled against it. Corrected 10 Sep 2026.*
+
+**A second manual verification, not originally listed but required by the
+same principle**, is also met: a real Brevo-delivered *recovery* email
+completed the fixed password-reset flow **cross-browser** on 10 Sep 2026
+(requested in one browser, link opened in a private window) — the exact
+condition round 3 proved broken. See §0.2.
+
+##### Human checklist to close this phase
+In order, each blocking the next:
+1. Create (or use an existing) Brevo account; verify a sending domain and
+   publish its SPF/DKIM/DMARC records on `vokr.shop`. **IN PROGRESS
+   (8 Sep 2026):** the records have been added in **Hostinger** (§3.7),
+   which is where `vokr.shop` DNS is managed. Brevo's own verification is
+   **still pending** propagation — this step is not complete until Brevo
+   reports the domain verified. Do not disturb the existing Zoho Mail
+   records; SPF must remain a single merged TXT record covering both Zoho
+   and Brevo.
+2. In the Supabase dashboard (Authentication → Providers): enable
+   Email/Password. In Authentication → Emails / SMTP settings: configure
+   Brevo as the custom SMTP provider. Raise the email-send rate limit from
+   its 30/hour default.
+3. ⏸️ **DEFERRED to Phase 4 task 14 (10 Sep 2026) — do not do this now.**
+   Create a Google Cloud OAuth 2.0 client (consent screen + credentials);
+   enter the client ID/secret into the Supabase dashboard's Google
+   provider settings; add the dev/staging/production redirect URLs
+   (`<site-url>/api/auth/callback`). Deferred by operator instruction; it
+   therefore no longer blocks item 4 or item 5 below, and no longer blocks
+   this phase's closure. Recorded under §12 item 1 — see Phase 3 open
+   item 4.
+4. Add `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local` (from the Supabase
+   dashboard, Settings → API) — everything else needed is already in
+   place. **STILL NOT DONE as of 9 Sep 2026: the key is present but
+   empty, which is the direct cause of the HTTP 500 on `/sign-up` (see
+   Defect log above). This is the first thing to fix, but on its own it
+   only gets signup as far as Supabase — items 1–2 still gate the email
+   actually arriving.**
+5. Sign up with a personal email address that is **not** on the Supabase
+   project team, via `/sign-up`. Confirm the email arrives, screenshot it.
+   Sign in with Google via the same form's button. Both together close R12
+   and the Google half of the Acceptance Criteria.
+6. Only then: update this section's Status to **COMPLETE**, check the
+   Phase 3 box in §0.1, and append the manual-verification evidence
+   (screenshot reference, date) to §0.2.
 
 ---
 
 ### PHASE 4 — Website / Page Migration
 
 #### Status
-**NOT STARTED**
+**CLOSED — 12 Sep 2026** (re-closed on evidence; see the reconciliation at
+the end of this block). All 26 legacy pages — 21 marketing/support/legal
+pages that migrate 1:1, plus the 5 launch PDPs served by one dynamic
+template, `gift-cards.html` excluded per D1 — are implemented as Next.js
+routes reusing the Phase 2 catalog and Phase 3 auth. All 26 are reachable,
+faithful, responsive and accessible, verified on the day of closure
+against a clean build and a seeded database. Every Exit and Acceptance
+Criterion is met or explicitly, correctly deferred with a recorded reason;
+the four approved deviations are **D1** (gift cards), **D5** (Order
+Status, Write a Review), **D6** (homepage Add to Cart → PDP) and **D8**
+(five inert marketing forms). Tasks 7, 8 and 9 remain withheld pending
+R14/R20; task 14 (Google OAuth) remains an external-access blocker.
+Evidence: §0.2 Phase 4 rows and §2A.9.
+
+**Phase 5 is unaffected and remains CLOSED** — its own scope (server-side
+cart, guest→user merge, cart UI) is complete and verified. Two defects it
+introduced into *Phase 4's* surface (a PDP wording change, a site-wide
+axe violation) are fixed and re-verified; neither touches Phase 5's own
+Exit Criteria. **Phase 6 has not been started.**
+
+**Implementation tasks 1–6, 10, 11, 12, 13 are done.** Tasks 7, 8 and 9
+(🔒) are **correctly withheld** — R14 and R20 remain exactly as the
+legacy left them (`terms.html` still reads "email/SMS"; the 10 fabricated
+reviews, the "4.7" average and "4,059 reviews" are all still present,
+unedited, in `config/reviews-data.ts` and `reviews-summary.tsx`, with a
+doc comment explaining why). **Task 9's audit list is compiled below**,
+ready for the manager to work through item by item — nothing in it has
+been removed or altered.
+
+**Task 14 (Google OAuth) is not configured** — it requires a human with
+access to the Google Cloud Console and the Supabase dashboard, neither of
+which exists in this environment. Same shape as Phase 3's R12/Brevo
+blocker: the code side is done (`SiteHeader`'s account icon links to the
+real `/sign-in` built in Phase 3; nothing links to a Google button that
+isn't wired up, satisfying task 10's "no dead affordance" for this case),
+the configuration side is a recorded resume point, not a code task.
+
+**The 5 PDP routes are now verified end-to-end — 11 Sep 2026.** This
+sandbox still cannot reach the real Supabase project (`ECONNREFUSED` on
+every `prisma.product.findMany()` call, reconfirmed today), but per this
+session's brief — validate against *any* currently configured reachable
+database without changing production architecture — the project's own
+documented local-dev path (`docker-compose.yml`, already established in
+Phase 1) was used instead: Docker Desktop was started, a disposable
+`postgres:17-alpine` container was run on an available host port (55432
+is inside a Windows/Hyper-V dynamic port-exclusion range on this machine
+and could not be bound — a host networking quirk, not a project issue;
+15432 was used for this one-off run instead of editing
+`docker-compose.yml`), `prisma migrate deploy` applied both existing
+migrations, and `prisma db seed` loaded the real 5-SKU/27-variant catalog
+— the same seed `npm run db:seed` always produces, not synthetic test
+data. Against that database: **all 26 routes** (not 21) pass
+`e2e/phase4-fidelity.spec.ts` and `e2e/phase4-routes.spec.ts` (route-200,
+§2A.7 fidelity, zero-serious axe) in one clean run each; `npm run build`
+now prerenders all 5 `/shop/*` slugs as static pages instead of falling
+back, proving both code paths (DB reachable → SSG; DB unreachable →
+on-demand fallback, §0.2) work. **Two real defects were found and fixed
+by this verification pass, not invented to justify it:** the size grid
+showed a bare `S/M`/`One Size` instead of the legacy's `IN S/M`/`IN One
+Size` for socks and laces (the seed data only bakes the `IN ` prefix into
+adult/kids shoe sizes; `pdp-purchase-panel.tsx` now normalises it for
+every product), and the §2A.7 harness's superset check for JS-injected
+review cards (`reviews.html`, every PDP) only worked by accident for
+`/reviews` — it happened to have no legacy text *after* the JS-injection
+point — and broke for real once a PDP's trailing "See all 4,059 reviews
+→" link exposed it; `extract.ts` now marks the injection point with a
+sentinel and verifies every legacy segment around it in order, rather
+than requiring one unbroken substring. The temporary container and
+`.next` build output were removed after verification; nothing about the
+real Supabase project, `docker-compose.yml`, or `.env.local` was
+touched. See §0.2 for the full evidence and `e2e/fidelity/extract.ts` /
+`e2e/phase4-fidelity.spec.ts` for the harness.
+
+**D5 RESOLVED — 12 Sep 2026: manager approved option B for all four
+controls (§0.3, §2A.6).** The header cart/Bag button, the PDP "Add to
+Cart" button, the Order Status tracking form and the reviews "Write a
+Review" button **remain visible and inert through the rest of Phase 4**,
+as an explicit, documented exception to task 10's "real endpoint or
+removed" binary — not removed, not hidden, not redesigned, given no
+fabricated backend. Each expires when its owning later phase ships the
+real capability: cart/Bag and Add to Cart at Phase 5–7 close; Order
+Status at Phase 9 close; Write a Review at Phase 9 close, additionally
+gated on R20 (task 8) separately. Registered as its own §2A.6 row —
+content-neutral (pixel-identical to the approved legacy), so it does not
+touch §2A.7 fidelity.
+
+**Reviews "Filters" and "Sort" were never part of this exception — now
+implemented for real, 12 Sep 2026.** `reviews-list.tsx` is a new client
+component: **Sort** reproduces `reviews.html`'s own `rrSortSelect` logic
+exactly (Highest/Lowest Rated by `rating`, Most Helpful by `helpful`,
+Most Recent = the legacy's own already-most-recent-first order) —
+verified by direct inspection (Priyanka M./Karan K./Aditya R./Leon/…
+in `helpful`-descending order; Neha J./Ritika S./Sneha K./… in
+`rating`-ascending order — exact matches). **Filters** reproduces the
+legacy's `rrFilterBtn` capability (filter to one exact star rating,
+clearable) through an accessible inline control instead of its
+`window.prompt()` — same capability, an implementation choice, not a
+content change — confirmed narrowing 10 reviews to the 1 real 3★ review
+and updating the button label to "☰ Filters (3★)" exactly as the legacy
+did. Neither touches the still-fabricated "{total} reviews" `.rr-count`
+line (pending R20), which `reviews-list.tsx`'s own doc comment makes
+explicit; a filtered view adds a separate, new "Showing N of M" line
+instead. **"Write a Review" stays part of the D5 exception**, inert,
+unchanged. All 21/21 previously-passing §2A.7 checks still pass
+unchanged (Filters/Sort's visible label text — "☰ Filters", "Sort",
+the four option names — was never altered, only made real), confirming
+no content moved.
+
+**With D5 resolved and Filters/Sort real, the Exit Criterion "no inert
+form" is closed**: three of the four originally-flagged controls
+(header cart/Bag, PDP Add to Cart, Order Status) are an explicit,
+manager-approved, time-boxed exception (D5); "Write a Review" is the
+same exception; Filters and Sort are now genuinely functional. Nothing
+in this phase remains silently inert the way the legacy's
+`onsubmit="return false"` was.
+
+**Phase 4 closure checklist — every Exit Criterion:**
+- Same sections/order/words/navigation/product presentation — ✅ §2A.7, all 26/26 pages, this session and 11 Sep. **Re-verified 12 Sep 2026 after D6 (26/26).** Note that this checkmark was *briefly false* between Phase 5's close and the §2A.9 audit — see the reconciliation block below.
+- No inert form — ✅ **closed via D5 + D8, 12 Sep 2026.** The original line read *"✅ closed via D5; nothing silent or unexplained"* and was inaccurate — D5 enumerated **four** named controls, while five further approved-legacy marketing forms (`refer-a-friend`, `vokr-ambassadors`, `wholesale-orders`, `discount-program`, `analyze-your-shoes`) were inert and unregistered. Those five are now an explicit, manager-approved exception in their own right (**D8, option A**). Nothing on any of the 26 routes is now inert *without* a registered approval behind it: **D5** covers Order Status and Write a Review, **D8** covers the five marketing forms, **D6** made the homepage cards real. Every other control on every route posts to a real endpoint.
+- No unapproved change — ✅ tasks 7/8/9 untouched; D5, D6, D7 and D8 are all approved exceptions, not unapproved ones. Nothing outstanding.
+- §2A.7 comparison evidence on file for all 26 pages — ✅ text/structural diff (all 26, twice), axe (all 26), **and now responsive screenshots at 360/768/1024/1440 px for all 26 routes** (104/104 captured, `e2e/phase4-responsive.spec.ts`, 12 Sep 2026 — not run for all 26 in the 11 Sep pass, only proven on the homepage then).
+- Legacy source files untouched — ✅ `index (7).html` MD5 `82aa900609d7bae122064c87925308b4`, reverified 12 Sep 2026; `vokr-production.zip` clean.
+- R14/R20-conditioned Acceptance Criteria — waived per their own explicit conditional language (§2A.6); remain open, correctly, not blocking closure.
+- `robots.txt`/`sitemap.xml` — ✅ generated from real routes. **Re-verified 12 Sep 2026:** sitemap carries exactly **26** `<loc>` entries, all returning 200; `/gift-cards` returns **404** and the string `gift-cards` appears **zero** times in the built HTML output (D1).
+
+**Closure reconciliation — 12 Sep 2026, after D6 and D7.**
+
+This block previously read "CLOSED — every Exit Criterion is met". Two
+things have since proven that overstated, and both are recorded here
+rather than quietly amended.
+
+1. **The §2A.7 harness measured less than "faithful" needs.** It diffs
+   visible text and heading order inside `#main`, so it could not see
+   images or breakpoint values. Behind that blind spot: five homepage
+   images were missing entirely, every multi-column section switched at
+   Tailwind's 640px instead of the legacy's 900px (the 768px page was
+   8,040px tall against the reference's 15,248px), the header search
+   panel had lost its Popular Searches and Quick Links content, and the
+   PDP/cart had picked up wording changes. Full findings and fixes:
+   **§2A.9**. Worse, the criterion did not merely look met — it
+   *regressed after closure*: Phase 5 relabelled the PDP button to
+   "Select a size", which fails the §2A.7 text diff on all five PDPs, and
+   added a `CartDrawer` to the root layout that failed axe
+   `aria-hidden-focus` on **every** route. Phase 5 closed without
+   re-running Phase 4's suites. Both are fixed; both are now green.
+2. **The "no inert form" criterion was never actually met** — five
+   unregistered inert forms. **Resolved the same day: D8, option A**, an
+   explicit exception on the D5 model, applied with zero code change.
+
+**Outcome: Phase 4 is CLOSED, 12 Sep 2026.** Every Exit and Acceptance
+Criterion is satisfied — the last one on the manager's D8 approval — and
+every one was re-verified against a clean build and a seeded database on
+the day of closure, not carried over from the earlier claim. The
+correction above is kept in place deliberately: the first closure was
+recorded before the evidence supported it, and the record should show
+that rather than read as though it never happened.
+
+Tasks 7/8/9 (§2A.6, manager approval) and task 14 (Google OAuth,
+external dashboard access) remain open **as recorded, deferred items**,
+not phase-closure blockers — the same treatment the plan already gives
+R12/OAuth-type external dependencies (Phase 3 precedent). **Phase 5 has
+not been started.**
+
+**Task-9 candidate list — unverifiable marketing claims found during
+migration, for the manager to approve or reject item by item (§2A.6):**
+
+| Where | Claim | Notes |
+|---|---|---|
+| Homepage testimonials, `why-vokr`, `community` | "250,000+ customers love their Vokr" / "250,000+ people, one shoe they actually reach for every day" | Same unverified figure repeated across 3 pages |
+| `blog` | "What 250,000 pairs of feet taught us about fit" (post title) | Same figure again, a 4th occurrence |
+| `about-vokr` stat row | "250K+ Happy customers", "4.7/5 Average rating" | The 4.7 matches the fabricated review average (R20) |
+| Homepage, all 5 PDPs, `/reviews` | 10 fabricated reviews, "4.7" average, "4,059 reviews", star/percentage breakdown | **This is R20 itself** (task 8), not a new item — listed here only for completeness |
+| Homepage testimonials, `why-vokr`, `community` | Named individuals with real-sounding employers ("VP Product, Razorpay", "Partner, Sequoia India", "Head of Design, Swiggy", "Engineering Manager, Google India") attributed to fabricated social-media posts, duplicated verbatim across pages | Flagged as the **highest-risk item on this list** — this is closer to impersonating identifiable people at named real companies than generic marketing puffery, and duplicating the same quotes across 3 pages compounds it |
+| Homepage press strip | Quote "The most thoughtfully designed sneakers ever." attributed to no named source, alongside outlet names "Verve", "Man's World", "Humans of Bombay" with no citation | Unverifiable "as seen in"-style claim |
+| `technology` | "...which is exactly how most of our customers wear them" | Unverified customer-behaviour claim |
+
+None of these have been touched. They are exactly as the legacy left
+them, per §2A.4 — this table exists so task 9 has a starting point rather
+than requiring someone to re-read all 26 pages to find them again.
 
 #### Objective
 Migrate the 27 legacy pages into shared Next.js layouts and components,
@@ -933,14 +2472,34 @@ removing ~2 MB of duplication, every dead form and every piece of
 fabricated content.
 
 #### Why It Exists
-The duplication has *already* caused a defect — the search index drifted
+The duplication has *already* caused a defe
+ct — the search index drifted
 because it was copy-pasted 27 times. One deployable removes that entire
 class of bug and eliminates the CORS and cookie-domain problems a separate
 static frontend would create. It also closes **R20**, which is legal
 exposure before it is engineering.
 
+#### Governing Constraint — §2A applies in full
+**This is the phase §2A was written for.** Before any task below is
+started, re-read §2A.4. In summary:
+
+- The approved legacy **layout structure, sections, wording, navigation,
+  product presentation, legal copy and information architecture must be
+  reproduced faithfully.** Change the implementation underneath, not what
+  the visitor sees.
+- The homepage source of truth is `index (7).html` (§2A.1/§2A.8); the other
+  25 pages come from `vokr-production.zip`. **Inspect the original before
+  writing the route.** Neither file may be edited (§2A.3, §2A.5).
+- Tasks 7, 8 and 9 below change approved visible or legal content. They are
+  registered in §2A.6 as **PENDING MANAGER APPROVAL** and may not be
+  implemented until that approval is given — even though this plan
+  recommends them and R14/R20 depend on them.
+- Each migrated page ships with the §2A.7 comparison evidence (text diff,
+  structural diff, snapshot tests, responsive screenshots).
+
 #### Prerequisites
 Phase 2 (catalog data), Phase 3 (auth UI has somewhere to live).
+**Plus: manager decisions on the §2A.6 pending rows before tasks 7–9 run.**
 
 #### Scope
 26 of the 27 legacy pages: marketing, product, support and legal. One
@@ -953,20 +2512,29 @@ Cart and checkout UI (Phases 5–7). Image migration (Phase 14 — keep the
 Shopify URLs temporarily and remove them there). Search behaviour (Phase 13).
 **`gift-cards.html` — deferred by D1 (8 Sep 2026).** Not migrated, not
 linked from `SiteHeader`/`SiteFooter`/anywhere, not reachable by any route.
+**Any redesign, restructuring, rewording or "improvement" of the approved
+legacy pages (§2A.4).** **Any modification to the legacy source files
+themselves (§2A.3, §2A.5).**
 
 #### Implementation Tasks
-1. Inventory the 27 legacy pages; classify as marketing / product / support / legal; map each to a route. Exclude `gift-cards.html` (D1) — 26 pages migrate.
-2. Extract the shared CSS into the Tailwind theme in `globals.css`. One source of truth for colour, type scale and spacing.
-3. Build the real `SiteHeader` (navigation, search entry point, account and cart affordances) and `SiteFooter` (five `@vokr.shop` addresses).
-4. Migrate marketing pages as Server Components. Static by default.
-5. Migrate the 5 launch PDPs to a single dynamic `app/shop/[slug]/page.tsx` driven by the Phase 2 catalog. **One template, five products** — replacing five near-identical HTML files. `gift-cards.html` is not one of them (D1).
-6. Migrate the support and legal pages, preserving the legal text verbatim except where §4 of this plan requires an amendment.
-7. **R14: amend `terms.html`'s "order confirmation email/SMS" to "email".** SMS is deferred; leaving the copy is a contractual mismatch on day one.
-8. **R20: delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description.** Replace with an honest empty state. Real reviews land only after real orders, gated on `order_item_id`.
-9. Audit every legacy claim against what will actually exist at launch — "250,000+ people", review counts, ratings, delivery promises. Anything unverifiable is removed or corrected. Record each change.
-10. Every form either posts to a real endpoint or is removed. **Zero `onsubmit="return false;"` equivalents may survive.**
+*Tasks marked 🔒 change approved visible or legal content and are gated on
+manager approval per §2A.6. Every other task is implementation-only and
+must leave the rendered page indistinguishable from the legacy original.*
+
+1. Inventory the 27 legacy pages; classify as marketing / product / support / legal; map each to a route. Exclude `gift-cards.html` (D1) — 26 pages migrate. **Record the section and heading order of each original first — it is the §2A.7 baseline.**
+2. Extract the shared CSS into the Tailwind theme in `globals.css`. One source of truth for colour, type scale and spacing. **The visual result must match the legacy rendering; this is a deduplication, not a restyle.**
+3. Build the real `SiteHeader` (navigation, search entry point, account and cart affordances) and `SiteFooter` (five `@vokr.shop` addresses). **Navigation structure, link order and labels are reproduced from the legacy markup unchanged (§2A.4) — the only permitted difference is D1's removal of the gift-card link.**
+4. Migrate marketing pages as Server Components. Static by default. **Section order, headings and body copy verbatim.**
+5. Migrate the 5 launch PDPs to a single dynamic `app/shop/[slug]/page.tsx` driven by the Phase 2 catalog. **One template, five products** — replacing five near-identical HTML files. `gift-cards.html` is not one of them (D1). **Product presentation — gallery, colourway/size controls, copy blocks, their order — is preserved as approved.**
+6. Migrate the support and legal pages, **preserving the legal text verbatim.** Any amendment is a 🔒 task, not a judgement call made while migrating.
+7. 🔒 **R14 — PENDING APPROVAL (§2A.6): amend the "order confirmation email/SMS" wording in `terms.html` to "email".** SMS is deferred; leaving the copy is a contractual mismatch on day one. **Legal copy — do not apply until a manager approves.**
+8. 🔒 **R20 — PENDING APPROVAL (§2A.6): delete the 10 fabricated reviews, the "4.7" average, the star breakdown and the "4,059 customer reviews" meta description.** Replace with an honest empty state. Real reviews land only after real orders, gated on `order_item_id`. **Visible content removal — strongly recommended (Consumer Protection Act exposure), but do not apply until a manager approves.**
+9. 🔒 **PENDING APPROVAL, item by item (§2A.6):** audit every legacy claim against what will actually exist at launch — "250,000+ people", review counts, ratings, delivery promises. **Produce the list with exact before/after text and add it to §2A.6 first. Nothing is removed or corrected until each item is approved.**
+10. Every form either posts to a real endpoint or is removed. **Zero `onsubmit="return false;"` equivalents may survive.** Binding a form to a real endpoint is implementation-only; **removing a form is a visible-content change and needs approval (§2A.6).**
 11. Per-route `generateMetadata`, canonical URLs, Open Graph. `app/robots.ts` and `app/sitemap.ts` generated from real routes.
-12. Responsive pass at 360 / 768 / 1024 / 1440 px. Accessibility pass: landmarks, heading order, focus visibility, form labels, colour contrast.
+12. Responsive pass at 360 / 768 / 1024 / 1440 px. Accessibility pass: landmarks, heading order, focus visibility, form labels, colour contrast. **An accessibility fix that would change visible content or section order is a §2A.6 item, not a silent edit.**
+13. **Produce the §2A.7 comparison evidence for every migrated page** — text-content diff, structural/heading diff, legal-page snapshots, responsive screenshots — and retain it alongside the legacy originals.
+14. **Configure Google OAuth — deferred here from Phase 3 (10 Sep 2026).** Create the Google Cloud OAuth 2.0 client (consent screen + credentials); enter the client ID/secret in Supabase → Authentication → Providers → Google; register the dev and staging redirect URLs (`<site-url>/api/auth/callback`). Then verify sign-in end-to-end through the existing `/api/auth/callback` route and the existing Google button — both were built and left in place in Phase 3, so this is configuration plus verification, not new code. **Until this is done the Google button must not ship**, per task 10: an affordance that cannot reach a real endpoint is a dead form. The production redirect URL is added later, at Phase 20 task 12, because it does not exist until the production origin does. Recorded reason and evidence: §5 Phase 3, open item 4.
 
 #### Files / Areas Affected
 `vokr/src/app/(marketing)/**` · `vokr/src/app/shop/[slug]/**` · `vokr/src/app/(support)/**` · `vokr/src/app/(legal)/**` · `vokr/src/components/**` · `vokr/src/app/robots.ts` · `vokr/src/app/sitemap.ts` · `vokr/src/styles/globals.css`
@@ -990,21 +2558,34 @@ The entire storefront. This is the largest UI phase.
 - Component tests for header, footer, PDP template, size selector.
 - Route tests: all 27 destinations return 200; no route 404s or 500s.
 - Snapshot the legal page text so an accidental edit is caught.
-- **Regression test asserting the strings "4,059", "4.7 average" and the fabricated reviewer names appear nowhere in the built output.**
+- **Regression test asserting the strings "4,059", "4.7 average" and the fabricated reviewer names appear nowhere in the built output** — *applies only once R20 is approved (§2A.6); until then these strings are expected to be present.*
 - Accessibility: automated axe pass on every route, zero serious/critical violations.
 - Responsive screenshots at the four breakpoints.
+- **§2A.7 fidelity regression per page:** normalised visible-text diff and ordered landmark/heading diff, legacy versus migrated. Empty, or every difference traced to an approved §2A.6 row.
 
 #### Validation
 Crawl the built site; compare the route list against the 27-page inventory.
 Grep the production build for fabricated content and for `cdn.shopify.com`
 (expected to still be present — Phase 14 removes it).
+**Run the §2A.7 comparison for all 26 pages and attach the output as phase
+evidence — a migration that cannot show its fidelity has not shown it.**
 
 #### Acceptance Criteria
 - 26 pages reachable, no duplicated CSS/JS. `gift-cards.html` is not
   migrated and is not reachable by any route, nav link or sitemap entry.
 - Zero dead forms.
-- Zero fabricated reviews, ratings or review counts.
-- `terms` says "email", not "email/SMS".
+- **§2A fidelity: every migrated page's visible text, section order and
+  heading structure matches its legacy original, with every difference
+  traced to an approved §2A.6 row. No unapproved content, wording,
+  navigation, product-presentation or IA change anywhere.**
+- **The legacy source files are byte-identical to their pre-Phase-4 state**
+  (`index (7).html` MD5 `82aa9006…`; `vokr-production.zip` blob
+  `02c5329`).
+- Zero fabricated reviews, ratings or review counts — **conditional on R20
+  approval (§2A.6). If approval is withheld, this criterion is waived and
+  R20 remains open with the reason recorded.**
+- `terms` says "email", not "email/SMS" — **conditional on R14 approval
+  (§2A.6), same treatment.**
 - `robots.txt` and `sitemap.xml` generated from real routes.
 
 #### Production Checklist Mapping
@@ -1014,15 +2595,51 @@ Grep the production build for fabricated content and for `cdn.shopify.com`
 Phases 2 and 3.
 
 #### Exit Criteria
-The legacy site is fully represented by one application, with no invented
-content and no inert form.
+The legacy site is **faithfully** represented by one application — same
+sections, same order, same words, same navigation, same product
+presentation — with no inert form, no unapproved change, and the §2A.7
+comparison evidence on file for all 26 pages. The legacy source files are
+untouched.
 
 ---
 
 ### PHASE 5 — Server-Side Cart
 
 #### Status
-**NOT STARTED**
+**CLOSED, 12 Sep 2026.** Full evidence in §0.2's Phase 5 row. Summary:
+`carts`/`cart_items` migrated with the §3.5 constraints (two partial
+unique indexes, a quantity CHECK, RLS); price and per-variant GST
+resolved server-side on every read, never stored on the row; a `.strict()`
+zod boundary makes the legacy client-controlled-pricing defect (R6)
+generically impossible, verified against a live server with a real
+price-injection attempt (400, nothing stored); guest→user cart merge
+registered on the Phase 3 upgrade hook and proven idempotent under
+genuine transaction concurrency, not just a sequential retry; cart UI
+(drawer, quantity controls, line removal, live totals, out-of-stock
+state) live in the header and PDP, closing the cart/Bag and Add-to-Cart
+half of Phase 4's D5 exception. Two real defects found by this phase's
+own tests and fixed: an `app_users`-row-creation ordering bug in
+`completeSignIn()` that broke the merge handler's FK on a brand-new
+user's first sign-in, and a `carts_has_an_identity` CHECK that didn't
+account for a closed cart outliving its guest session.
+
+**Formal closure audit, 12 Sep 2026 (separate pass, no code changed):**
+every line of the Testing Requirements and Acceptance Criteria below was
+re-mapped one-by-one against the actual committed test titles in
+`src/server/cart/__tests__/` (not re-derived from memory) — each has a
+named, passing test; none are covered only by the earlier manual `curl`
+session. Confirmed no cart route ever reads `cart_id` from the request
+(`grep` of `src/app/api/cart/` for `cartId` outside test files: zero
+matches) — the IDOR protection the Security Requirements name. Full gate
+re-run from a clean state on commit `6e4f7c78e29222dea24d7cd9b1e670be63b19df8`:
+`npm run verify` (lint, typecheck, **205/205 unit / 23 files**, build —
+cart routes present in the route table); a second, independent disposable
+Postgres container, migrated from zero with `prisma migrate deploy` (all
+three migrations apply cleanly in sequence, confirming the committed
+migration SQL — not just the working database state from earlier in the
+phase), `npm run test:integration` **52/52 / 8 files**. Container torn
+down after. No exit criterion, acceptance criterion, security requirement
+or testing requirement found missing. Closure commit: `5a783dbd92948a9320c9414878960ec31ff02f8e`.
 
 #### Objective
 A persistent server-side cart keyed by user or guest session, whose prices
@@ -1089,6 +2706,22 @@ for signed-in users.
 #### Validation
 Add items as a guest, sign in, confirm the cart merged exactly once. Attempt
 to POST a price and confirm it changes nothing.
+
+#### Validation run — 12 Sep 2026
+Done as specified, plus the concurrency case the wording implies but
+doesn't spell out. **Guest→user merge:** `src/server/cart/__tests__/merge.integration.test.ts`
+adds items as a guest, signs in, confirms the cart merged exactly once —
+for a fresh user cart, for a user cart with an overlapping variant (summed
+and capped at 10), and for a genuinely concurrent double-fired sign-in
+(two racing transactions, not a sequential retry) via a raw
+`SELECT … FOR UPDATE` guard on the guest cart row. **POST a price:** done
+against a live `next dev` server, not only in tests — `curl -X POST
+/api/cart/items -d '{"variantId":…,"quantity":1,"price":1,"total":1}'`
+returned `HTTP 400 VALIDATION_ERROR` and stored nothing; a legitimate
+follow-up request confirmed the stored line's price and the cart's GST
+came only from `product_variants.price_paise` / `products.gst_rate_bps`
+(`lineTaxPaise: 152466` for one ₹9,995 unit at 18% GST, matching the
+unit-test math exactly).
 
 #### Acceptance Criteria
 - Cart persists across navigation, reload and sessions.
@@ -1704,7 +3337,7 @@ is a reasonable way to change it).
 10. `audit_log` writes on every admin mutation: actor, entity, action, before, after.
 
 #### Files / Areas Affected
-`vokr/src/app/admin/**` · `vokr/src/server/admin/*` · `vokr/src/server/audit/*` · `vokr/src/middleware.ts`
+`vokr/src/app/admin/**` · `vokr/src/server/admin/*` · `vokr/src/server/audit/*` · `vokr/src/proxy.ts`
 
 #### Database Impact
 Adds `audit_log`; adds the admin role column.
@@ -1865,6 +3498,22 @@ transformation (pre-generate the sizes instead).
 #### Implementation Tasks
 1. Create two R2 buckets: `vokr-assets` (public, custom domain, immutable long cache) and `vokr-backups` (private, lifecycle rules).
 2. Inventory all 84 Shopify references and the 10 base64 images; map each to the product and role it serves.
+2a. **D7 — adopt `index (7).html`'s photographs for the 10 homepage slots that differ (manager-approved, 12 Sep 2026; §0.3 D7, §2A.6).** For these ten and only these ten, the base64 payload is the canonical image and **supersedes the `cdn.shopify.com` URL currently in `src/app/page.tsx`**. This is a *which-image* change, which R21 does not authorise on its own — it is authorised by D7 and executes here because this phase already re-hosts every homepage image. Extract read-only from `index (7).html`; **never edit that artefact** (§2A.3). Worklist verified 12 Sep 2026 — all ten decode cleanly, 14.2 MB total, six PNG and four JPEG exactly as §2A.2 recorded:
+
+   | DOM # | alt | format | pixels | decoded |
+   |---|---|---|---|---|
+   | 0 | Vokr Model x — White overhead pair view | PNG | 3000×3750 | 2.4 MB |
+   | 1 | Vokr Model x — Black overhead pair view | PNG | 3000×3750 | 2.5 MB |
+   | 2 | Vokr black shoes — tilted view | PNG | 3000×3750 | 2.5 MB |
+   | 3 | Vokr black shoes — tilted view | PNG | 3000×3750 | 2.5 MB |
+   | 8 | Vokr outsole detail close-up | PNG | 1220×1220 | 1.7 MB |
+   | 10 | @deepika.dayswear | JPEG | 1024×1024 | 118 KB |
+   | 11 | @arjun.onthemove | JPEG | 1024×1024 | 314 KB |
+   | 12 | @karan.streets | JPEG | 1024×1024 | 226 KB |
+   | 13 | @priya.in.motion | JPEG | 1024×1024 | 150 KB |
+   | 14 | @soles.and.souls | PNG | 830×1247 | 1.8 MB |
+
+   Two consequences worth carrying forward. **These sources are 14.2 MB against a 500 KB homepage budget**, so task 3's re-encode is what makes D7 shippable at all — which is exactly why it was deferred here rather than implemented at Phase 4. And **DOM #8 is a genuinely distinct photograph**: the tracked zip fills that slot with a second copy of `Antimicrobial_lining.jpg`, so the deployed "Lightweight Foam" card currently shows the same image as the "Antimicrobial Lining" card above it. Adopting the reference photograph fixes that duplicate as a side effect. The five homepage images that are identical CDN URLs in both artefacts are untouched by D7 and migrate normally.
 3. Re-encode to AVIF with a WebP fallback, at responsive widths (e.g. 400/800/1200/1600). Content-hashed filenames so cache headers can be immutable.
 4. Upload script with a manifest, safe to re-run.
 5. `product_images` table: `variant_id` or `product_id`, `role`, `r2_key`, `width`, `height`, `alt`, `position`. **Keys and metadata only — never bytes.**
@@ -1962,7 +3611,7 @@ set.
 10. **Weekly Cloud Logging export to R2** — DPDP Rules impose a one-year minimum on personal data, traffic data and processing logs; Cloud Logging's default retention is 30 days.
 
 #### Files / Areas Affected
-`vokr/sentry.*.config.ts` · `vokr/src/lib/logger.ts` · `vokr/src/middleware.ts` · `vokr/src/app/api/health/**` · `vokr/src/instrumentation.ts`
+`vokr/sentry.*.config.ts` · `vokr/src/lib/logger.ts` · `vokr/src/proxy.ts` · `vokr/src/app/api/health/**` · `vokr/src/instrumentation.ts`
 
 #### Database Impact
 None. **Logs never go to Postgres.**
@@ -2025,7 +3674,7 @@ Cloudflare Free allows **5 custom WAF rules**, so the rule set must be
 chosen deliberately rather than accumulated.
 
 #### Prerequisites
-Phases 3, 5, 7, 9, 12. Cloudflare managing DNS for `vokr.shop`.
+Phases 3, 5, 7, 9, 12. Cloudflare managing DNS for `vokr.shop` — **not yet true; DNS is at Hostinger today (§3.7, ADR-030), so the migration to Cloudflare is a task of this phase, not a precondition.**
 
 #### Scope
 Security headers including HSTS; CSP; CSRF; centralised input validation;
@@ -2067,7 +3716,7 @@ Anything that adds complexity without a named threat.
 10. **Bundle secret test**: build, then grep every client chunk for each server-only variable name and known secret prefixes. Fail the build on any hit.
 
 #### Files / Areas Affected
-`vokr/src/middleware.ts` · `vokr/src/server/security/*` · `vokr/src/server/rate-limit/*` · `vokr/docs/security/waf-rules.md` · `.github/workflows/`
+`vokr/src/proxy.ts` · `vokr/src/server/security/*` · `vokr/src/server/rate-limit/*` · `vokr/docs/security/waf-rules.md` · `.github/workflows/`
 
 #### Database Impact
 None beyond `rate_limit_counters` from Phase 3.
@@ -2105,7 +3754,7 @@ Cloudflare. Confirm HSTS in a browser. Run `/security-review` over the diff.
 **R19** (HTTPS + HSTS, rate limiting, WAF enabled).
 
 #### Dependencies
-Cloudflare managing DNS.
+Cloudflare managing DNS — **currently Hostinger (§3.7, ADR-030); treat the move as an explicit cutover step with mail-flow and Brevo re-verification afterwards.**
 
 #### Exit Criteria
 The route-by-route authorisation table is complete with a passing test per
@@ -2294,7 +3943,495 @@ in §0.2 including its date and measured RTO.
 ### PHASE 19 — CI/CD + Artifact Registry
 
 #### Status
-**NOT STARTED**
+**IN PROGRESS (infra scaffolding only) — 10 September 2026.** Started
+ahead of its stated prerequisite (Phase 16, Security + Abuse Protection,
+is `NOT STARTED`) at explicit user instruction, scoped deliberately to
+the subset that has no dependency on unbuilt phases. See "What is
+genuinely blocked" below for what cannot close until Phases 6–18 land.
+Branch `deploy/production-infrastructure`.
+
+**Built and verified:**
+- `vokr/Dockerfile` (multi-stage: deps → builder → runner, `node:22-alpine`,
+  non-root `nextjs` user, `output: "standalone"`), `vokr/.dockerignore`.
+  Local `docker build` succeeds; container starts and serves the real
+  homepage; `/api/health` returns 200 against a real Postgres and 503
+  when the DB is unreachable. Image size **318 MB** — over the task's
+  150 MB aspirational target; the gap is `node:22-alpine`'s own base
+  layers (~180 MB, mandated by task 1's exact base-image choice), not
+  the application layers (`.next/standalone` + `.next/static` + `public`
+  together are ~67 MB). Hitting 150 MB would require a different base
+  image than the plan specifies.
+- Phase 19 task 10 (the §2.5 localhost-canonical-URL gate): implemented
+  as a `Dockerfile` build-arg check, not an application-code change —
+  the build fails if `NEXT_PUBLIC_SITE_URL` is empty or contains
+  `localhost`.
+- `vokr/src/app/api/health/route.ts` — did not exist before this phase;
+  required by the Dockerfile healthcheck, Cloud Run, and the smoke test.
+  Touches Postgres via `prisma.$queryRaw\`SELECT 1\``, per `AGENTS.md`.
+- `vokr/scripts/smoke-test.ts` (`npm run smoke-test`) — health, homepage,
+  catalog API, one PDP. **Two items the plan names are not implemented**:
+  full PDP content assertions (belongs with Phase 4/13 rendering) and
+  webhook-signature rejection (no webhook endpoint exists before Phase 7).
+- `.github/workflows/ci.yml` — PR gate: lint, typecheck, unit tests,
+  production build, a client-bundle server-secret-name scan, a homepage
+  JS weight budget, and a Docker build-and-boot check. Not yet exercised
+  by a real PR merge in this session (would require pushing to GitHub,
+  out of scope for this pass — the equivalent commands were all run and
+  verified locally instead).
+- GCP project **`vokr-website`** (created this session; billing account
+  `0186FE-763C1B-A6406E`). One project only (not vokr-staging/vokr-prod
+  split) — see "Environment separation" below for why.
+- Artifact Registry repo `vokr` (`asia-south1`, Docker format) with a
+  cleanup policy **applied live (not dry-run)**: keep the 2 most recent
+  tagged versions, delete all other tagged versions, delete untagged
+  after 1 day. Verified via `gcloud artifacts repositories describe`.
+- Workload Identity Federation: pool `github-actions`, OIDC provider
+  `github` (issuer `token.actions.githubusercontent.com`), attribute
+  condition restricting the pool to `assertion.repository ==
+  'SmaranReddy/Vokr-Website'` exactly. No service-account JSON key
+  created or downloaded anywhere in this session.
+- Service accounts: `github-deployer@vokr-website.iam.gserviceaccount.com`
+  (roles: `artifactregistry.writer`, `run.developer`,
+  `iam.serviceAccountUser`; bound to the WIF principal set for the exact
+  GitHub repo only) and `vokr-cloud-run@vokr-website.iam.gserviceaccount.com`
+  (the Cloud Run **runtime** identity — not the default compute service
+  account; granted `secretmanager.secretAccessor` on each of the 6
+  secrets below).
+- Secret Manager: the 6 secrets the plan names —
+  `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_ID`,
+  `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `BREVO_API_KEY` —
+  created as containers. **Only `DATABASE_URL` has a real value** (the
+  real Phase 2 Supabase project's pooler connection string, added
+  directly by the user via `gcloud secrets versions add --data-file=`,
+  never typed into this conversation). The other 5 remain empty
+  containers — there are no real Razorpay/Brevo credentials to put in
+  them yet (Phases 7/11 not built), and the task explicitly forbids
+  inventing production credentials.
+  - `DATABASE_URL` took three attempts to get right, all diagnosed
+    without the value ever being read or displayed in this conversation:
+    v1 was a truncated 2-character value (an interactive-paste/stdin
+    failure); v2 carried a leading UTF-8 BOM from
+    `Out-File -Encoding utf8` in Windows PowerShell 5.1, which broke
+    `pg-connection-string`'s scheme detection and resolved to a dummy
+    host (`getaddrinfo EAI_AGAIN base`) — confirmed by reading
+    `pg-connection-string`'s source (`new URL(str, 'postgres://base')`)
+    and by a temporary, non-secret diagnostic route (reported only
+    length/first-char-code/parsed-host, deployed as a tagged
+    zero-traffic revision, then deleted) before any secret content was
+    trusted; v3 (`[System.IO.File]::WriteAllText`, no BOM) is correct
+    and live. v1 and v2 are disabled, not deleted (rotation discipline).
+- Cloud Run service `vokr` in `asia-south1`: `min-instances=0`,
+  `max-instances=3` (verified via `gcloud run services describe`, not
+  the console), 1 vCPU, 512 MiB, concurrency 80, running as
+  `vokr-cloud-run@...`, `DATABASE_URL` wired from Secret Manager
+  `:latest`. **Deployed and fully smoke-tested**: `/api/health` → 200,
+  `/` → 200, `/api/catalog/products` → 200 with 5 real products,
+  `/shop/kids-model-123` → 200. Live URL:
+  `https://vokr-plxgen7xla-el.a.run.app`. Deployed image is tagged with
+  the exact commit SHA it was built from (`b6f706bb0fb2211866b4c211aad9f13f171f327e`,
+  the Phase 5 closure commit) — the running service is provably that
+  commit, not an untracked build.
+
+**SECOND PASS — 10 September 2026 (branch `deploy/production-cicd`,
+commits `ee676b6`, `d1e0469`).**
+
+**Built this pass:**
+
+- **`.github/workflows/deploy.yml` (tasks 4/5, the gap the first pass
+  left).** Three jobs. *preflight* asserts all ten required repository
+  variables are present, that `NEXT_PUBLIC_SITE_URL` is neither empty nor
+  localhost, and that the target project is `vokr-website` — it fails
+  closed rather than substituting a default. *build* checks out
+  `github.sha` exactly, refuses a dirty tree, authenticates via the
+  existing WIF provider (no Actions secret, no service-account JSON key),
+  builds, asserts no `.env` file reached the runtime image, pushes tagged
+  with the commit SHA and resolves the **digest**. *deploy* is gated on a
+  `production` GitHub Environment (task 5's manual approval), records the
+  currently serving revision as a rollback target, deploys **by digest
+  rather than by tag**, asserts `max-instances=3` / the dedicated runtime
+  service account / that the live image is the digest just built (Phase 20
+  task 2, in-pipeline), runs the smoke test, and on any failure returns
+  100% of traffic to the recorded revision. YAML parsed and all 13
+  embedded `run` scripts `bash -n`-checked. **It has never executed** —
+  see the blocker below.
+
+- **`vokr/scripts/assert-deployable.ts` (`npm run deploy:check`).**
+  Refuses a manual deploy from a dirty working tree or from a commit
+  present on no remote. Demonstrated failing correctly on both counts
+  against the current tree.
+
+- **`vokr/infra/artifact-registry-cleanup-policy.json`** — the R2 policy is
+  now version-controlled rather than existing only as console state.
+
+- **`vokr/docs/infrastructure/{cicd,cloud-run,artifact-registry,domain-and-dns}.md`**
+  — the files this phase's "Files / Areas Affected" already named.
+
+**Five defects found by auditing the live infrastructure and by building
+the committed tree. Three are repaired; two are recorded and deliberately
+left alone.**
+
+1. **The Artifact Registry cleanup policy had deleted every tag in the
+   repository — repaired.** `delete-old-tagged` was `DELETE` on
+   `{tagState: TAGGED}` with no `olderThan` and no `tagPrefixes`. At audit
+   time the repo held eight versions and zero tags, and
+   `gcloud artifacts docker images describe …:b6f706bb…` returned
+   `Image not found`. So the commit → image provenance this plan recorded
+   was **no longer verifiable from the registry**, and the digest the
+   running revision pins had become untagged and was in scope for
+   `delete-untagged-after-1-day` — with `min-instances=0`, deleting it
+   risks breaking cold starts on a live service. Repaired by re-tagging
+   that digest with its commit SHA and with `production` (the mapping
+   taken from Cloud Run's own records: the service spec named the tag, the
+   revision recorded the digest it resolved to — nothing inferred), and by
+   replacing the policy with four rules: KEEP `production*`, KEEP the 2
+   most recent, DELETE tagged older than 30 d, DELETE untagged older than
+   1 d. Applied with `--no-dry-run` and read back via `describe`.
+
+2. **Cloud Run's startup probe did not check the database — repaired.**
+   See the Phase 20 status block.
+
+3. **`vokr/public/` is not in the committed tree — repaired.** It is
+   empty, so it holds no tracked file and git does not create it on
+   checkout; the runner stage's `COPY --from=builder /app/public` then
+   fails on **every clean checkout**. `mkdir -p public` in the builder
+   stage removes the dependency (`d1e0469`).
+
+4. **The committed tree does not build — recorded, not fixed.** Five
+   committed API routes (`api/cart/route.ts`, `api/cart/items/route.ts`,
+   `api/cart/items/[id]/route.ts`, `api/marketing/contact/route.ts`,
+   `api/marketing/newsletter/route.ts`) import `@/lib/log`, but
+   `vokr/src/lib/log.ts` **has never been committed**. `npm run build`
+   fails from a clean checkout at every commit back to and including
+   `b6f706b` — the commit currently deployed to production.
+
+5. **`NEXT_PUBLIC_*` values do not reach the client bundle in committed
+   code — recorded, not fixed.** The live production bundles were scanned
+   for the real Supabase project ref: **absent**. The committed
+   `src/lib/env-client.ts` reads client variables as
+   `parseEnvSection(clientSchema, process.env, …)`, and Next.js inlines
+   `NEXT_PUBLIC_*` by rewriting *static member expressions*, so a
+   whole-object reference inlines nothing. Supplying the build args does
+   not help: a build of the committed tree **with the real
+   `NEXT_PUBLIC_SUPABASE_*` values supplied was refused** by the new
+   Dockerfile assertion, because the values were still absent from
+   `.next/static`. Runtime consequence in production today:
+   `createSupabaseBrowserClient()` throws in the browser, so the
+   **password-reset form is broken** (the only other consumer is the
+   Google sign-in button, which is deferred). Email/password sign-in and
+   sign-up go through API routes and are unaffected.
+
+   Defects 4 and 5 are **not fixed here by design**: both live in
+   application code that is under active uncommitted change in the working
+   tree (which already carries `log.ts` and a corrected `env-client.ts`
+   with literal `process.env.NEXT_PUBLIC_…` references, plus a test for
+   it), and shipping application code was out of scope for this pass. The
+   Dockerfile now refuses to build an image in which a supplied
+   `NEXT_PUBLIC_*` value did not reach `.next/static`, and `deploy.yml`
+   fails closed if the variables are unset — so the pipeline cannot ship
+   either defect silently.
+
+**Validation performed** (detached worktree at `ee676b6`, with `log.ts`
+copied in but *not* committed, so the Dockerfile itself could be
+exercised): the CI-style build with only `NEXT_PUBLIC_SITE_URL` succeeds,
+the inlining assertion correctly skips, image **318 MB** (unchanged); the
+container boots, answers HTTP on :3000, runs as uid 1001 (`nextjs`) and
+contains no `.env` file; the build with `NEXT_PUBLIC_SUPABASE_*` supplied
+is refused, as described above. Live-side: `gcloud iam service-accounts
+keys list` shows `SYSTEM_MANAGED` keys only on both service accounts (no
+downloadable key has ever existed), and a scan of every JS chunk served by
+the live deployment finds **no server-only secret name** — the Phase 1
+bundle guarantee holds in production, not only in CI.
+
+**THE BLOCKER FOR R1, newly recorded.** `origin/master` is at `4ec495f` —
+**Phase 2**. Phases 3, 4 and 5 and the infrastructure commit `29e5b30`
+have never been pushed to GitHub. There are zero Actions runs, and
+`ci.yml` is not on the default branch, so **the PR gate has never executed
+either**. A merge-to-`master` deploy today would build Phase 2 code and
+regress production. Nothing was pushed in this pass, by explicit
+instruction. **R1 therefore stays open**, and neither workflow has been
+exercised end to end. The exact `gh variable set` and environment commands
+needed once that is resolved are in `vokr/docs/infrastructure/cicd.md`.
+
+**Still blocked, unchanged:** staging/production separation (task 9 — needs
+the R5 second Supabase project, not invented here), `prisma migrate deploy`
+in the pipeline (task 11, same dependency), rollback practised for real
+(task 13), and 5 of the 6 Secret Manager containers still empty (task 8 —
+**1 active version, not 6**; there are no real Razorpay/Brevo credentials
+to put in them, and inventing them is forbidden).
+
+---
+
+**PRODUCTION RELEASE — 11 September 2026. Commit `49f817f` is live.**
+
+The first Vokr deployment that is provably reproducible from Git. Built
+from a detached worktree of `49f817fbd8a54dda4d896489f4f735798432649d`
+with `npm run deploy:check` passing (clean tree, commit present on
+`origin/fix/ci-prisma-generate-ordering`) — the guard that the previous
+production image, built by hand from an uncommitted working tree, would
+have failed.
+
+**Provenance chain, each link verified rather than asserted:**
+
+```
+commit  49f817fbd8a54dda4d896489f4f735798432649d
+  -> tag     …/vokr:49f817fbd8a54dda4d896489f4f735798432649d
+  -> index   sha256:5418fe797683ca58345087027f11e20d40420c350080b238988de1851617b1fa
+  -> amd64   sha256:c675a36d5913e6b25fc3b9a016786b23fef3614b7273b227fa8d1ff682d7b470
+  -> revision vokr-00010-rdd  (100% traffic)
+```
+
+The service spec references the **index** digest; Cloud Run resolved and
+pinned its `linux/amd64` child, which `docker manifest inspect` confirms
+is exactly that manifest. Both are recorded because a reader comparing
+`spec.template.spec.containers[0].image` against
+`status.imageDigest` will otherwise see two different SHAs and suspect a
+mismatch. The registry tag `production` now points at the deployed index.
+
+**Configuration re-verified live after deploy:** `asia-south1`,
+`max-instances=3`, `min-instances=0`, 1 vCPU / 512 MiB, concurrency 80,
+timeout 300 s, runtime SA `vokr-cloud-run@…`, `DATABASE_URL` from Secret
+Manager `:latest`, HTTP startup probe on `/api/health`. The revision
+became ready under that probe, which is direct evidence it reached the
+real Supabase database at boot.
+
+**Smoke test (`npm run smoke-test`, run from the deployed commit): PASS**
+— `/api/health` 200 `{"status":"ok"}`, `/` 200, `/api/catalog/products`
+200 with 5 real products, `/shop/kids-model-123` 200.
+
+**Wider route verification:** homepage 200, both PDPs 200
+(`kids-model-123`, `men-model-456`), `/sign-in` 200, `/sign-up` 200,
+`/reset-password` 200. **`/api/cart` 500 — see the defect below.**
+
+**What this release actually fixes in production:** the live client
+bundle now contains the Supabase project ref (verified by fetching all 10
+chunks `/sign-in` serves). Before this deploy it did not, so
+`createSupabaseBrowserClient()` threw in the browser and the
+password-reset form was broken. That is the Phase 19-audit defect 5,
+closed in production.
+
+**Security re-verified against the live deployment:** no server-only
+variable name in any served chunk (8 checked), no `DATABASE_URL` value,
+no `postgres://`-with-password, `sb_secret_`, `rzp_` or `xkeysib-` shape;
+67 log lines of this revision scanned for the same patterns, none found.
+Keep-warm still firing (HTTP 200 at 19:00, 19:05, 19:10).
+
+**Rollback remains available and was not needed:** `vokr-00009-vdq` and
+`vokr-00007-4bv` are retained. `gcloud run services update-traffic vokr
+--to-revisions=vokr-00009-vdq=100` reverts.
+
+---
+
+**DEFECT FOUND IN PRODUCTION, PRE-EXISTING, NOT FIXED HERE: the Phase 5
+cart migration has never been applied to the real Supabase database.**
+
+`GET /api/cart` returns 500. The cause was diagnosable only because this
+release is the first to carry `src/lib/log.ts`:
+
+```
+[cart] INTERNAL_ERROR requestId=83c606be-…: PrismaClientKnownRequestError:
+Invalid `prisma.cart.findFirst()` invocation:
+The table `public.carts` does not exist in the current database.
+```
+
+**Confirmed pre-existing, not a regression from this deploy.** The
+previous revision was tagged to a zero-traffic URL
+(`prev---vokr-…run.app`) and tested side by side: `/api/cart` returns 500
+on `vokr-00009-vdq` exactly as on `vokr-00010-rdd`, while `/api/health`
+returns 200 on both. The tag was removed afterwards. So the cart API has
+been broken in production since Phase 5 shipped; the tables were only
+ever created in the local Compose database.
+
+Migration `20260910084234_cart` is therefore unapplied against production.
+`prisma migrate deploy` was **not** run: that is a schema change to a live
+database, it was outside the scope of this release, and **Phase 19 task 11
+(migration strategy in the pipeline) is explicitly still deferred** — so
+there is no sanctioned, rehearsed path for it yet. Applying it needs its
+own decision and its own pass.
+
+This does not affect the catalog (Phase 2 tables exist — the API returns
+5 real products) or the auth pages.
+
+**Resolved 11 Sep 2026.** The migration was applied and verified. See the
+completion pass below and the §0.2 row "5 — production migration".
+
+---
+
+**R21 / the 512 KB CI weight gate — deferred to its owning phase, not
+weakened.**
+
+The first CI run in the repository's history (PR #1, run `34514441766`)
+failed on one step: `Homepage weight budget`, 1,291,561 bytes against a
+512,000 budget. Every other gate passed — install, **Generate Prisma
+Client**, lint, typecheck, 113 unit tests, production build, and the
+client-bundle secret-name scan.
+
+That gate is **Phase 14 task 9 verbatim** ("Homepage weight budget (R21):
+under 500 KB total transfer. Enforced by an automated check in CI that
+fails the build if exceeded"), and the R-item register assigns **R21 to
+phase 14**, status **NOT STARTED**. It was implemented early, in the
+Phase 19 scaffolding commit `29e5b30`, ahead of the phase that owns it.
+
+Two facts kept separate on purpose:
+
+1. **It is not a Phase 5 production blocker.** It gates a Phase 14
+   deliverable — migrating 84 images to R2 as WebP/AVIF — that has not
+   been scheduled to start.
+2. **It is also not measuring what R21 defines.** R21's target is total
+   homepage *transfer*, dominated by images ("all 84 images to R2…, zero
+   base64"). The check sums `.next/static/chunks/*.js` — JavaScript
+   bytes, across every route, not one page's transfer weight. The 500 KB
+   figure was set as "generous headroom" against the legacy 19.9 MB
+   base64 page, without measuring the real build.
+
+**The gate was not weakened, relaxed or deleted, and no application code
+was optimised to satisfy it.** The R21 weight target remains **UNRESOLVED
+and deferred to Phase 14**, where task 9 and task 2a (the D7 photographs,
+14.2 MB undelivered) both live. CI will stay red on this one step until
+Phase 14 runs — that is the honest state, and it is recorded here rather
+than hidden by moving a threshold.
+
+---
+
+**R1 is still open.** This deploy was performed with direct `gcloud`
+commands, not by `deploy.yml`, because the pipeline only triggers on a
+push to `master` and `master` has not been advanced (PR #1 is open, not
+merged). What changed is that the deployed artefact is now provably a
+committed, pushed revision — the property R1 exists to guarantee — even
+though the mechanism is not yet the pipeline.
+
+---
+
+**DEPLOYMENT COMPLETION PASS — 11 September 2026 (branch
+`deploy/production-completion`, commits `f858588`, `1dae190`).** R1 is still
+open; see the last bullet.
+
+- **The cart defect above is resolved.** Migration `20260910084234_cart`
+  was applied to production (§0.2). A verified `pg_dump` came first. The
+  pre-flight showed exactly one pending migration on the 5432 session
+  pooler. It was applied at 11:29:27Z and status then read "up to date".
+  Every declared object is present, RLS is on, and the D2 state is
+  unchanged. `GET /api/cart` returns 200, the smoke test passes 4/4, and
+  there has been zero `INTERNAL_ERROR` since.
+- **WIF prerequisite fixed.** `sts.googleapis.com` (Security Token
+  Service) was not enabled. Google's WIF guide requires it, so the first
+  pipeline run would have failed at authentication. It is now enabled.
+- **Pipeline configured.** The ten repository variables `deploy.yml`
+  requires are set and were read back. The `production` environment now
+  exists with a required reviewer (`SmaranReddy`) and a `master`-only
+  branch policy; before this, the approval gate was decorative. No Actions
+  secret exists.
+- **`deploy.yml` hardened (`f858588`):**
+  - a `verify` job re-runs lint, typecheck and the unit tests on the exact
+    commit being deployed;
+  - the image's client bundle is scanned for server-only names before it
+    is pushed;
+  - the **migration gate** (task 11) runs before any revision is created;
+  - traffic is routed `--to-latest`, and the image of the serving revision
+    is asserted;
+  - rollback runs only once a deploy was actually attempted.
+
+  The traffic step fixes a **latent defect**: every rollback leaves traffic
+  pinned, so a later deploy would have given the new revision 0% while the
+  smoke test passed against the old code. `actionlint` 1.7.7 is clean.
+- **Migration gate (task 11), `scripts/migration-gate.sh`.** It is
+  read-only on every push and fails closed. Purely additive migrations are
+  applied only via `workflow_dispatch apply_migrations=true`, behind the
+  reviewer. It refuses failed, modified, drifted, database-ahead-of-commit,
+  unparseable and non-additive states. Against a throwaway Postgres,
+  **12/12 scenarios passed**. That testing found two defects in the first
+  version, both fixed in `1dae190`: an off-by-one pending count, and
+  **Prisma 7.10's `migrate status` reporting "up to date" when the
+  database holds a migration the commit lacks** — now caught by reading
+  `_prisma_migrations` directly. Read-only against production it passes:
+  3 applied, 3 in the commit, none ahead. **It is not yet usable in the
+  pipeline.** The deploy identity needs `secretAccessor` on `DATABASE_URL`.
+  This environment's permission policy refused that binding, so it is left
+  for an explicit decision (the command is in `cicd.md`). Until it exists,
+  every pipeline deploy fails at the gate — closed.
+- **Rollback practised (task 13) on real traffic, 11 Sep 2026.**
+  `vokr-00010-rdd` → `vokr-00009-vdq` took **7.6 s**, and back with
+  `--to-latest` **6.5 s**. The Cloud Run request log shows all six probes
+  on each side served by the intended revision, and the smoke test passed
+  4/4 on both. Production was left exactly as found. The table is in
+  `cloud-run.md`.
+- **Validated from a clean checkout of `f858588`:**
+  - `npm run verify` green: 113/113 unit tests (18 files), lint,
+    typecheck, build;
+  - `test:integration` 52/52 (8 files) on a throwaway `postgres:17-alpine`,
+    after `migrate deploy` of all three migrations;
+  - a Docker build with the real public `NEXT_PUBLIC_*` values, with the
+    inlining assertion passing;
+  - the image booted against Postgres: `/api/health` 200, uid 1001, no
+    `.env`, zero server-only names in its client bundle.
+
+  `1dae190` changes only `scripts/migration-gate.sh`, and shellcheck is
+  clean.
+- **Secret hygiene, live.** Across 12 served chunks there are zero
+  server-only variable names and zero credential shapes; the one
+  `sb_secret_` string is supabase-js's key-prefix check. The canonical URL
+  is `https://vokr.shop`, and the Supabase ref is inlined. Across 2,167 log
+  entries over 24 hours there are zero credential shapes. All four service
+  accounts have zero user-managed keys.
+- **Secrets (R3).** `DATABASE_URL` has 1 enabled version (v3); v1 and v2
+  are disabled. **`BREVO_API_KEY` is needed by the deployed app:** by code
+  inspection, the live `/api/marketing/newsletter` and
+  `/api/marketing/contact` (the Phase 4 forms) throw "Newsletter/contact
+  delivery is not configured" without it. No real key exists. It needs the
+  key from the Brevo account, then a `--set-secrets` addition to
+  `deploy.yml`; Cloud Run cannot mount an empty secret.
+  `SUPABASE_SERVICE_ROLE_KEY` is declared in `env.ts` but read by no code
+  path, and the three Razorpay secrets belong to Phase 7. None was
+  invented.
+- **Still open.**
+  - **R1:** no pipeline run has ever happened. `deploy.yml` triggers on
+    `master`, which is still at Phase 2 (`4ec495f`). Advancing it means
+    merging PR #1, whose only red check is the Phase 14 weight budget
+    (R21). "Nothing merges red" against a deferred gate is a human
+    decision, and the gate was not weakened here.
+  - Task 4's staging half and task 9 (R5) are unchanged, and 5 of the 6
+    secrets are still empty.
+
+---
+
+**MERGE PREPARATION — 11 September 2026 (branch `deploy/production-completion`,
+commits `ab0deba`, `5bd0fe8`).**
+
+- **Secret Manager IAM: granted.** On explicit instruction,
+  `github-deployer@…` was given `roles/secretmanager.secretAccessor` on
+  `DATABASE_URL` only, and the binding was read back (members:
+  `github-deployer`, `vokr-cloud-run`). The identity's project roles are
+  unchanged. The migration gate can now read the connection inside the
+  pipeline. No secret value was read or printed.
+- **D10: one-time merge exception (§0.3).** PR #1 may merge with exactly
+  one red CI step, the deferred Phase 14 weight gate. The gate itself is
+  unchanged. In `ci.yml` it now runs **last**, because a failing step
+  skips every later step, and in its old position it hid the Docker build
+  and boot gates.
+- **`BREVO_API_KEY` wiring.** `deploy.yml` mounts it only when the
+  repository variable `BREVO_API_KEY_READY` is `true` (unset today),
+  because Cloud Run refuses a revision that references an empty secret.
+  What the live forms need is in `docs/infrastructure/brevo.md`.
+- **`.gitattributes`: `*.sh` is always checked out LF (`5bd0fe8`).** A clean
+  Windows checkout (this machine has `core.autocrlf=true`) produced
+  `migration-gate.sh` with CRLF line endings, which bash cannot run. The
+  committed blob was LF, so the GitHub runner was never affected. Found by
+  shellcheck on the clean checkout.
+- **Validated from a clean checkout of `ab0deba`:**
+  - `npm run verify` green: 113/113 unit tests, lint, typecheck, build;
+  - `test:integration` 52/52 on a throwaway `postgres:17-alpine`;
+  - Docker build, with the inlining assertion passing;
+  - boot against Postgres: `/api/health` 200, `/` 200, uid 1001, no
+    `.env`, no `infra/` or `docs/` in the image, zero server-only names in
+    its client bundle;
+  - Worker tests 6/6, including a live proxied health check;
+  - `actionlint` clean, and shellcheck clean after `5bd0fe8`.
+- **Merging.** PR #1's head branch is fast-forwarded (no force) to this
+  stack's tip, so `master` receives the hardened pipeline. The merge
+  happens only if CI on that head shows the weight gate as the single
+  failure. The merge commit and the pipeline run it triggers are recorded
+  in the entry that follows it.
+
+---
 
 #### Objective
 GitHub → GitHub Actions → Artifact Registry → Cloud Run, with environment
@@ -2308,6 +4445,26 @@ image, not after it fills.
 
 #### Prerequisites
 Phases 1, 16. GCP project with billing enabled.
+
+**What is genuinely blocked (Phase 16 and later phases not built yet):**
+- No staging/production Razorpay sandbox-vs-live separation or boot
+  assertion (task 9) — Razorpay isn't integrated until Phase 7.
+- Migration strategy (task 11, `prisma migrate deploy` in the pipeline)
+  not wired into `deploy.yml` — no staging database to migrate against
+  yet without deciding on a second Supabase project (R5), which is
+  itself deferred.
+- Rollback (task 13) not practised for real — there is only one revision
+  history worth rolling back through so far; will be practised once
+  `deploy.yml` performs real merge-triggered deploys.
+- `deploy.yml` (build → push → auto-deploy staging → manual-approve
+  production) was not written — everything above was done by direct
+  `gcloud`/`docker` commands in this session instead, to validate the
+  infrastructure before wiring CI to drive it. Writing `deploy.yml`
+  itself is unblocked and is the next concrete step, but was left for a
+  follow-up pass given the amount of time this session spent
+  diagnosing the `DATABASE_URL` secret (see below).
+- 5 of 6 Secret Manager secrets are empty containers (no real
+  Razorpay/Brevo credentials exist to put in them).
 
 #### Scope
 Dockerfile; the CI pipeline; Artifact Registry with a cleanup policy;
@@ -2390,7 +4547,199 @@ been performed for real.
 ### PHASE 20 — Cloud Run + Cloudflare Production Deployment
 
 #### Status
-**NOT STARTED**
+**IN PROGRESS (Cloud Run only) — 10 September 2026.** Task 1's exact
+Cloud Run configuration (`asia-south1`, `min-instances=0`,
+`max-instances=3`, 1 vCPU, 512 MiB, concurrency 80) is live and verified
+via `gcloud run services describe` — see Phase 19's status block for
+full detail (it was validated together with the Artifact Registry /
+Secret Manager work, task 2's "verified by an infrastructure assertion,
+not the console" is satisfied the same way).
+
+**Everything else in this phase is blocked on external access this
+session does not have and must not invent:** Cloud Scheduler's 3 jobs
+(task 4 — no keep-warm/backup/maintenance jobs exist yet; nothing to
+schedule them against beyond the health check), all of Cloudflare (DNS,
+SSL, cache rules, WAF, bot protection — tasks 5–7, 10; no Cloudflare
+account credentials in this environment), the 5 Zoho mailboxes (task 8),
+Brevo sending DNS (task 9), and the domain itself (`vokr.shop` is
+registered and DNS-managed at Hostinger per §3.7 — moving/pointing it
+requires access to that Hostinger account). The Cloud Run service is
+reachable today only at its `*.run.app` URL
+(`https://vokr-plxgen7xla-el.a.run.app`), not at `vokr.shop`.
+
+**Billing budget alerts (R4, task 3): created.** AGENTS.md states this as
+non-negotiable ("Billing budget alerts are always live"), so this was
+done rather than only flagged. Scoped to the `vokr-website` project only
+(`projects/978877857702`), monthly calendar period, thresholds at 5% /
+25% / 100% of a ₹2,000 budget. **The billing account's currency is INR,
+not USD** — the plan's "$1/$5/$20" is approximated as ₹100/₹500/₹2,000
+(budget ID `d3a6647b-8c72-4638-84c4-31ecd6f7454d`); adjust if a different
+INR mapping is wanted. Notifications go to the billing account's default
+IAM recipients (`baquar@haett.app`, `roles/billing.admin`) — no separate
+Pub/Sub or monitoring channel was configured. **Not yet VERIFIED** in the
+plan's sense: the plan requires "an alert observed firing" by lowering a
+threshold, which was not done in this pass (would send a real
+notification email; left for a deliberate follow-up rather than doing it
+inside an otherwise scaffolding-only pass).
+
+**SECOND PASS — 10 September 2026 (branch `deploy/production-cicd`,
+commits `ee676b6`, `d1e0469`).** Three things moved; the rest is unchanged
+and still externally blocked.
+
+- **Tasks 1 and 2 — Cloud Run configuration re-verified and hardened.**
+  Still `asia-south1`, `min-instances=0`, `max-instances=3`, 1 vCPU,
+  512 MiB, concurrency 80, timeout 300 s, running as
+  `vokr-cloud-run@vokr-website.iam.gserviceaccount.com` — read back from
+  `gcloud run services describe --format=json`, not the console. Two
+  changes: the default TCP-on-:3000 startup probe was replaced with an
+  **HTTP probe on `/api/health`** (delay 5 s, timeout 5 s, period 10 s,
+  threshold 12), so a revision that cannot reach Supabase never receives
+  traffic; and the service now references the image **by digest**
+  (`@sha256:447d1599…`) rather than by tag, which a cleanup policy can
+  sweep. Revision `vokr-00009-vdq` came up green under the new probe and
+  serves 100% of traffic; the smoke test passes against it
+  (`/api/health` → 200 `{"status":"ok"}`, `/` → 200,
+  `/api/catalog/products` → 200 with 5 real products,
+  `/shop/kids-model-123` → 200), which is direct evidence that the running
+  revision reaches the real Supabase database. `vokr-00007-4bv` is
+  retained as a rollback target. A third revision, `vokr-00008-6kb`, was
+  created and then deleted in the same pass: its probe path had been
+  mangled by MSYS path translation into `/C:/Program Files/Git/api/health`,
+  and leaving a mis-configured revision in the rollback history would have
+  been worse than removing it.
+
+- **Task 4, job 1 of 3 — keep-warm created and verified.** Cloud Scheduler
+  API enabled; job `vokr-keep-warm` (`asia-south1`, `*/5 * * * *`,
+  `Asia/Kolkata`) issues `GET /api/health` with an OIDC token from a
+  dedicated `vokr-scheduler@vokr-website.iam.gserviceaccount.com`
+  (`roles/run.invoker` on this service only). **Verified firing**, not
+  merely created: the Cloud Run access log records HTTP 200 at
+  `2026-09-10T17:00:01Z` under user agent `Google-Cloud-Scheduler`.
+  Because `/api/health` runs `SELECT 1`, this one job covers both Cloud
+  Run cold starts and Supabase's 7-day inactivity pause. It currently
+  targets the `*.run.app` hostname and must be re-pointed at the
+  production origin after any domain cutover — command recorded in
+  `vokr/docs/infrastructure/cloud-run.md`. **Jobs 2 and 3 remain
+  uncreated**: they would call Phase 18 and Phase 8 code that does not
+  exist.
+
+- **Task 3 — billing budget unchanged, and still not verified.** The
+  budget exists exactly as recorded above. No alert has been observed
+  firing, so by this phase's own standard ("an untested alert is not an
+  alert") **R4 stays open on that clause.**
+
+**Still blocked, unchanged, and not attempted (tasks 5–10):** all of
+Cloudflare, the domain, DNS, SSL/HSTS, cache rules, WAF, bot protection,
+the domain mapping, the five Zoho mailboxes and the Brevo sending DNS.
+Measured this pass, read-only: `vokr.shop` nameservers are
+`helios.dns-parking.com` / `aster.dns-parking.com` (Hostinger, per §3.7);
+the apex resolves to Hostinger IPs, and `https://vokr.shop/` returns a
+**Hostinger** page (`platform: hostinger`), not this application.
+
+**One new finding:** the published SPF record is `v=spf1 include:zoho.in
+~all` — **Brevo is not in it**, so §3.7.1's single merged record does not
+yet exist and **R12 stays open** independently of anything buildable here.
+A `brevo-code:` TXT is present, which is verification, not sending
+authorisation.
+
+Task 10's "the origin is not reachable directly" is additionally an
+**unresolved architectural question**, not merely missing access: a Cloud
+Run domain mapping leaves the `*.run.app` hostname public, so the WAF
+stays bypassable. The three real options and their cost/security
+trade-offs are written up in `vokr/docs/infrastructure/domain-and-dns.md`
+for a manager decision. Domain mapping *is* available in `asia-south1`
+(the API accepts the region and returns `NOT_FOUND` for the domain, not a
+region error).
+
+**Task 12 (the Google OAuth production redirect URL) was explicitly
+excluded from this pass by instruction and remains deferred.**
+
+`https://vokr.shop/` is **not** live with this application.
+
+---
+
+**THIRD PASS — 11 September 2026 (branch `deploy/production-completion`).**
+
+- **Tasks 1 and 2 re-verified live** (`services describe`), and unchanged:
+  `asia-south1`; min 0 / max 3; 1 vCPU / 512 MiB; concurrency 80; timeout
+  300 s; the dedicated runtime SA; `DATABASE_URL` from Secret Manager; the
+  HTTP startup probe on `/api/health`; the image by digest
+  (`sha256:5418fe79…`, commit `49f817f`); 100%% on `vokr-00010-rdd`.
+  `deploy.yml` now also asserts that the serving revision runs the built
+  digest.
+- **Task 4.** Keep-warm is `ENABLED`, last attempt 11:45:00Z. Jobs 2 and 3
+  are still uncreated (they need Phase 18 and Phase 8 code).
+- **Task 3 / R4.** The budget was re-read and is unchanged. No alert has
+  ever been observed firing. Every threshold is `CURRENT_SPEND`, so firing
+  one needs real spend or a deliberately lowered budget, which e-mails the
+  billing admins. That is left to a person with billing access.
+- **Tasks 5–10: D9 re-analysed, and the 10 Sep options were partly
+  wrong.** Cloud Run domain mapping is **not available in `asia-south1`**
+  (it is Preview; see the region list in Google's docs). The 10 Sep
+  "available" reading was an inference from the shape of an API error.
+  Cloudflare Free cannot override the Host header. The recommendation is
+  recorded in §0.3 D9 and `domain-and-dns.md`: a Cloudflare Worker plus an
+  application-enforced origin secret. **Nothing is configured** — this
+  awaits approval, a Cloudflare account and Hostinger access.
+- **DNS re-measured.** Still Hostinger (`aster`/`helios.dns-parking.com`).
+  The apex A records are now `84.32.84.24` and `88.222.222.33`.
+  `https://vokr.shop/` still serves the Hostinger legacy page
+  (19,927,942 bytes).
+- **Task 9: SPF correction.** The 10 Sep finding "Brevo is not in SPF, so
+  R12 stays open" rested on a wrong premise. Brevo's help centre states SPF
+  "is not required to authenticate a domain" (only for a dedicated IP).
+  Brevo authenticates with the Brevo code, DKIM and DMARC, and all three
+  are published. **SPF stays `v=spf1 include:zoho.in ~all`; no change is
+  needed or approved.** R12 still needs Brevo's own verification, custom
+  SMTP, and a real external delivery.
+- **Security finding (task 10 / R19).** With the origin public,
+  `src/server/net/client-ip.ts` trusts caller-supplied
+  `cf-connecting-ip`, then the first `x-forwarded-for` hop. The per-IP
+  half of R13's limiting can therefore be evaded against `run.app` today.
+  This is application code: it is recorded, not changed here, and it gets
+  fixed together with the D9 edge.
+
+`https://vokr.shop/` is **not** live with this application.
+
+---
+
+**FOURTH PASS — 11 September 2026. D9 decided; execution blocked on access.**
+
+- **D9: option 1 adopted** (§0.3, ADR-031). It was checked against the PDF:
+  Cloudflare Free is the named edge, Workers are part of that plan, and no
+  application code runs at the edge, so this is not the rejected Pages
+  deploy target. The paid ALB is rejected.
+- **Access: none.** Checked for presence only: no Cloudflare API token or
+  account ID (in the session or the persistent environment), no
+  `wrangler` or `cloudflared` login, no Hostinger API token. **No
+  Cloudflare, Hostinger, DNS or nameserver change was made.**
+- **Prepared:** `vokr/infra/cloudflare/` — the Worker, `wrangler.toml`
+  (custom domain `vokr.shop`, no IDs or secrets), and tests passing 6/6.
+  It has not yet been run inside workerd.
+- **Not done; needs approval.** Application-side enforcement of the origin
+  secret (`src/proxy.ts`) and of client-IP trust (`client-ip.ts`) — both
+  are Phase 3 code, excluded by instruction. It also needs a decision on
+  where the secret lives on the Cloud Run side: a seventh Secret Manager
+  secret (which needs an ADR against the six-version rule) or a plain
+  environment variable.
+- **DNS inventory (tasks 5, 8, 9).** The records to carry into Cloudflare
+  are in `domain-and-dns.md`. Probing also found `ftp` A `157.173.216.210`
+  and two apex AAAA records (Hostinger). **Zoho's DKIM selector was not
+  found** under the common names, so the complete zone listing must come
+  from Hostinger before delegation. Nameservers are unchanged.
+- **Brevo (task 9, R12, R3).** The live newsletter and contact forms need:
+  - the v3 API key (0 versions today);
+  - `support@vokr.shop` accepted as a sender (the domain authenticated in
+    Brevo);
+  - transactional sending enabled;
+  - no Authorised-IPs block.
+
+  `brevo.md` has the secure procedure for adding the key. No key was
+  created, read or stored.
+
+`https://vokr.shop/` is **not** live with this application.
+
+---
 
 #### Objective
 The production runtime: Cloud Run in Mumbai with the exact configuration the
@@ -2403,7 +4752,7 @@ ceiling*. An unbounded instance count under a crawl loop is how free-tier
 accounts generate four-figure bills.
 
 #### Prerequisites
-Phase 19. Domain `vokr.shop` registered. Cloudflare account.
+Phase 19. Domain `vokr.shop` registered (**at Hostinger, which also holds DNS today — §3.7**). Cloudflare account.
 
 #### Scope
 Cloud Run service configuration; Cloud Scheduler's three jobs; Cloudflare
@@ -2429,6 +4778,7 @@ Load testing (Phase 21). `min-instances` (deliberately 0 — §10 trigger).
 9. Brevo sending DNS (SPF, DKIM, DMARC) verified on the same domain.
 10. Cloud Run domain mapping through Cloudflare; confirm the origin is not reachable directly, so the WAF cannot be bypassed.
 11. Confirm the Cloud Run free tier applies — it is not region-restricted and `asia-south1` is a Tier 1 region — while noting that **Mumbai has zero free egress**, which is why Cloudflare caching and R2 images matter.
+12. **Google OAuth production redirect URL.** Add the production origin's `<production-origin>/api/auth/callback` to the authorised redirect URLs of the Google OAuth client created at Phase 4 task 14, alongside setting Supabase's `auth.site_url` to the production origin (it is `http://localhost:3000` today). Both are required before Google sign-in works in production; neither can be done earlier, because the production origin does not exist until this phase.
 
 #### Files / Areas Affected
 `.github/workflows/deploy.yml` · `vokr/docs/infrastructure/cloud-run.md` · `vokr/docs/infrastructure/cloudflare.md` · Cloud Scheduler job definitions
@@ -2747,30 +5097,30 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 
 | # | Requirement | What must be implemented | Phase | How it is verified | Evidence required | Status |
 |---|---|---|---|---|---|---|
-| **R1** | Git repository with CI/CD | Repo exists (done); GitHub Actions → Artifact Registry → Cloud Run | 0, 19 | A change reaches production only through the pipeline | Successful pipeline run URL; deployed revision SHA | IN PROGRESS |
-| **R2** | Artifact Registry cleanup policy | Keep 2 tags, delete untagged; set in the repository-creating commit. `output: "standalone"` keeps images small | 0, 19 | Policy queried via API; registry under quota after ≥ 5 deploys | Policy JSON; registry size screenshot; image size | IN PROGRESS |
-| **R3** | Secrets in Secret Manager, loaded at boot | Exactly 6 versions: DB URL, Razorpay key ID, key secret, webhook secret, Brevo API key, Supabase service-role key | 19 | Version count = 6; a boot-time load with zero per-request fetches | Version listing; access-count metric; rotation drill log | NOT STARTED |
-| **R4** | `max-instances=3` + billing budget alerts | Set at service creation; alerts at $1/$5/$20 | 20 | Service config via API; **an alert observed firing** | Service description; alert screenshot | NOT STARTED |
-| **R5** | Environment separation | Dev/staging/prod; staging on Razorpay **sandbox** | 19 | Boot assertion rejects live keys outside production | Config listing; failing-boot test output | NOT STARTED |
+| **R1** | Git repository with CI/CD | Repo exists (done); GitHub Actions → Artifact Registry → Cloud Run | 0, 19 | A change reaches production only through the pipeline | Successful pipeline run URL; deployed revision SHA | IN PROGRESS — `ci.yml` (PR gate) written; `deploy.yml` (the actual pipeline) not yet written, image was built/pushed/deployed by direct `gcloud`/`docker` commands this session to validate the infra first. Deployed revision provably runs commit `b6f706bb0fb2211866b4c211aad9f13f171f327e`. **11 Sep 2026:** the pipeline is configured (variables, the `production` environment with a reviewer, the STS API) and hardened, the migration gate is built, and rollback has been practised. It has **still never run**: `master` is at Phase 2, and PR #1 is red only on the deferred R21 gate (a decision is pending). Production runs `49f817f`, deployed with `gcloud`. **11 Sep 2026 (merge prep):** PR #1 is prepared for merge under the D10 one-time exception; the deploy identity can now read `DATABASE_URL` for the migration gate. |
+| **R2** | Artifact Registry cleanup policy | Keep 2 tags, delete untagged; set in the repository-creating commit. `output: "standalone"` keeps images small | 0, 19 | Policy queried via API; registry under quota after ≥ 5 deploys | Policy JSON; registry size screenshot; image size | **VERIFIED** — repo `vokr` (`asia-south1`), cleanup policy applied live (not dry-run), confirmed via `gcloud artifacts repositories describe`; registry holds exactly 1 tagged image today. Container image itself is 318 MB (over the 150 MB aspirational target — the gap is `node:22-alpine`'s own base layers, not the app). |
+| **R3** | Secrets in Secret Manager, loaded at boot | Exactly 6 versions: DB URL, Razorpay key ID, key secret, webhook secret, Brevo API key, Supabase service-role key | 19 | Version count = 6; a boot-time load with zero per-request fetches | Version listing; access-count metric; rotation drill log | IN PROGRESS — all 6 secret containers exist; only `DATABASE_URL` has a real value (live, wired into Cloud Run, verified working end-to-end). The other 5 are empty — no real Razorpay/Brevo credentials exist yet (Phases 7/11). Boot-time load via `requireServerEnv()` already existed from Phase 1; not a per-request fetch. **11 Sep 2026:** 1 active version (`DATABASE_URL` v3). `BREVO_API_KEY` is required by the live newsletter and contact forms and has no real value. `SUPABASE_SERVICE_ROLE_KEY` is unused by code; the three Razorpay secrets belong to Phase 7. **11 Sep 2026:** `github-deployer` granted `secretAccessor` on `DATABASE_URL` (for the migration gate). `BREVO_API_KEY` still has 0 versions; the requirements are in `brevo.md`. |
+| **R4** | `max-instances=3` + billing budget alerts | Set at service creation; alerts at $1/$5/$20 | 20 | Service config via API; **an alert observed firing** | Service description; alert screenshot | IN PROGRESS — `max-instances=3` verified live via `gcloud run services describe`. Budget alert created (billing account is INR-denominated; thresholds are ₹100/₹500/₹2,000 approximating $1/$5/$20), scoped to the `vokr-website` project, id `d3a6647b-8c72-4638-84c4-31ecd6f7454d`. **Not VERIFIED**: no alert has been observed firing yet. **11 Sep 2026:** re-read, unchanged; still never observed firing. |
+| **R5** | Environment separation | Dev/staging/prod; staging on Razorpay **sandbox** | 19 | Boot assertion rejects live keys outside production | Config listing; failing-boot test output | NOT STARTED — deliberately deferred; a single GCP project/Cloud Run service exists today, no staging environment, no boot assertion. Meaningless before Phase 7 (Razorpay) exists to have a sandbox-vs-live distinction. |
 | **R6** | Server-side price resolution | Prices resolve from variant ID server-side; no endpoint accepts a price | 2, 5, 6 | Automated test: posting a price changes nothing. **Client-controlled-pricing regression test** (generalized from the legacy gift-card defect; the gift-card SKU itself is deferred, D1) | Test run; the regression test | IN PROGRESS — structural half done (Phase 2: `resolvePrices()` is the only price-shaped export, unit-tested); behavioural half (no cart/checkout endpoint accepts a client price) lands in Phase 5 |
 | **R7** | Razorpay webhook signature verification | Constant-time HMAC on the raw body; state driven only by webhooks | 7 | Tampered payload rejected; forged browser callback grants nothing | Security test output | NOT STARTED |
 | **R8** | Idempotency keys | On checkout session, Razorpay order creation and all payment endpoints | 6, 7 | Repeated key produces one order; replayed webhook is inert | Integration test; concurrency run | NOT STARTED |
 | **R9** | Inventory reservation in a DB transaction | `SELECT … FOR UPDATE` with `CHECK (quantity_available >= 0)`; **Razorpay outside the lock** | 2, 8 | Concurrency test; constraint proven to fire; injected-latency test shows lock time unaffected | Test output; architecture test; latency chart | NOT STARTED |
 | **R10** | Load test concurrent checkout on one variant | **10 / 25 / 50** concurrent buyers of one variant | 21 | Executed at all three levels; zero oversell, zero duplicates, zero deadlocks, zero 5xx | k6 output for all three; results doc | NOT STARTED |
 | **R11** | GST per variant + compliant invoice | Per-variant rate and HSN; sequential numbering; CGST/SGST vs IGST | 2, 6, 9 | Mixed-slab cart computed correctly; invoice reviewed by the CA | Test output; a CA-reviewed sample invoice | **BLOCKED on D2** |
-| **R12** | Brevo as Supabase Auth custom SMTP | Configured **before any real signup**; rate limit raised | 3 | **A confirmation email delivered to an address outside the project team** | Screenshot of the received email with headers | NOT STARTED |
-| **R13** | Raise Auth email rate limit; forward client IP | Limit raised; real client IP forwarded, or Auth called from the browser | 3 | Dashboard setting; a test showing per-IP not per-instance limiting | Screenshot; test output; ADR entry | NOT STARTED |
+| **R12** | Brevo as Supabase Auth custom SMTP | Configured **before any real signup**; rate limit raised | 3 | **A confirmation email delivered to an address outside the project team** | Screenshot of the received email with headers | **BLOCKED — needs a human with Brevo + Supabase dashboard access; no Brevo account exists in this environment.** See Phase 3 Status, "Human checklist to close this phase" **11 Sep 2026:** SPF is not part of Brevo authentication (Brevo's docs); the Brevo code, DKIM and DMARC are published. It still needs Brevo's own verification, custom SMTP, and a real delivery. The Brevo dashboard steps are listed in `docs/infrastructure/brevo.md`. |
+| **R13** | Raise Auth email rate limit; forward client IP | Limit raised; real client IP forwarded, or Auth called from the browser | 3 | Dashboard setting; a test showing per-IP not per-instance limiting | Screenshot; test output; ADR entry | **VERIFIED (10 Sep 2026)** — client IP is forwarded on every `/api/auth/*` call (ADR-025); this app's own `rate_limit_counters` limiting is built, integration-tested and is the defence actually relied on. **Per-IP-not-per-instance is now tested**: `src/server/rate-limit/__tests__/client-ip-bucketing.integration.test.ts` (6 cases) proves two forwarded client IPs occupy independent buckets, that `cf-connecting-ip` wins over a spoofed `x-forwarded-for`, that a genuinely separate `PrismaClient` (a second Cloud Run instance) observes the same shared counter rather than receiving its own allowance, and — by source assertion, since route modules sit outside the Vitest `node` project — that all three limited routes key on `getClientIp(request)` rather than a constant. **The “raise the limit” half is resolved as a decision, not a change: §0.3 D4 keeps `auth.rate_limit.email_sent` at 30/hour**, because 30/hour already exceeds the ≈12.5/hour sustainable under Brevo’s 300/day free allowance and neither this plan nor the PDF ever named a higher target. |
 | **R14** | Amend terms: "email/SMS" → "email" | Copy change plus a full consistency audit | 4, 22 | Grep the built output for "SMS" in the confirmation context | Diff; content audit doc | NOT STARTED |
 | **R15** | Courier operational | Shiprocket live, COD enabled, PIN serviceability available; manual panel acceptable | 6, 10 | A real order shipped and tracked through the panel | Account screenshot; a real AWB; runbook | NOT STARTED |
 | **R16** | Razorpay live-mode KYC | Entity, PAN, GST, bank account | 7, 23 | Live mode active; a real payment captured | Dashboard status; a real transaction ID | **BLOCKED on D3** |
 | **R17** | Backups with a tested restore | 6-hourly `pg_dump` to R2, retention, verification | 18 | **A real restore performed** with the integration suite passing against it | Drill log with date, elapsed RTO, test output | NOT STARTED |
 | **R18** | Catalog cached in Cloud Run memory | In-process cache, short TTL, single-flight | 2, 13 | Concurrent-miss test issues one query; egress measured | Test output; measured bytes/pageview | IN PROGRESS — `TtlCache` implemented and unit-tested (60s TTL, single-flight verified by concurrent-miss test); not yet VERIFIED at the launch-gate level — that needs Cloud Run and real measured egress (Phase 13/20) |
-| **R19** | HTTPS + HSTS; rate limiting; WAF | Headers; the full rate-limit matrix; 5 WAF rules; bot protection | 16, 20 | Headers verified externally; every limit triggers; WAF verified from the internet | Header scan; rate-limit test output; WAF config | NOT STARTED |
+| **R19** | HTTPS + HSTS; rate limiting; WAF | Headers; the full rate-limit matrix; 5 WAF rules; bot protection | 16, 20 | Headers verified externally; every limit triggers; WAF verified from the internet | Header scan; rate-limit test output; WAF config | NOT STARTED **11 Sep 2026:** D9 re-analysed with a recommendation (§0.3). The origin is public, and the client-IP headers are caller-controlled on `run.app` (Phase 20 Status). **D9 decided 11 Sep 2026: option 1 (ADR-031); execution blocked on Cloudflare and Hostinger access.** |
 | **R20** | Remove fabricated reviews | Delete 10 reviews, the 4.7 average, the "4,059 customer reviews" meta | 4 | **Automated check: those strings appear nowhere in the build** | CI check output | NOT STARTED |
-| **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | NOT STARTED |
+| **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | **NOT STARTED — UNRESOLVED, deferred to Phase 14.** The CI weight gate (Phase 14 task 9) was implemented early in `29e5b30` and is live: PR #1's run measured **1,291,561 bytes against the 512,000 budget** and fails on it. Deliberately *not* weakened, and no application code was optimised to satisfy it (11 Sep 2026). Note the gate sums `.next/static/chunks/*.js` across all routes, which is **not** the total-transfer, image-dominated quantity R21 defines. |
 | **R22** | DPDP consent + log retention | Consent records, export and deletion endpoints, weekly log export to R2 | 15, 17 | Full export-and-erasure cycle on a real test account; export job running | Cycle log; R2 listing | NOT STARTED |
 
-**Current: 0 of 22 VERIFIED.** Two are blocked on human decisions (R11 on
+**Current: 2 of 22 VERIFIED** (R2, R13). Two are blocked on human decisions (R11 on
 D2, R16 on D3) and should be unblocked immediately because they gate late
 phases and have long lead times.
 
@@ -3004,6 +5354,13 @@ way to reverse one of these** — not a commit that quietly does it.
 | **ADR-022** | *(new, Phase 0)* **Money is stored as integer paise** | No float, no decimal-string ambiguity, no rounding drift across the pricing → payment → invoice chain. Int32 tops out around ₹21.4M, far above any Vokr line item. | An order line could exceed ₹21.4M, or multi-currency arrives |
 | **ADR-023** | *(new, Phase 0)* **Deterministic lock ordering (`ORDER BY variant_id`) in the reservation transaction** | Without it, two carts holding the same two variants in opposite order deadlock under concurrency — and Phase 21 at 25 buyers will find it. | Never |
 | **ADR-024** | *(new, Phase 0)* **Erasure anonymises PII in place and retains the financial record** | DPDP erasure and the 8-year Indian tax retention obligation genuinely conflict. Deleting the order is not lawful; keeping the PII is not either. The resolution is stated in the privacy policy rather than hidden. | Legal advice says otherwise |
+| **ADR-025** | *(new, Phase 3)* **This app's own `rate_limit_counters`-backed limiting, not Supabase's per-IP limit, is the authoritative defence against auth abuse** — Cloud Run's shared egress IP is still forwarded to Supabase as `X-Forwarded-For` on every `/api/auth/*` call as a best-effort second layer | R13: server-side calls to Supabase Auth all originate from Cloud Run's one egress IP, so Supabase's hosted per-IP rate limiter would otherwise cap *every* customer's sign-in attempts combined at ~6/minute. Whether hosted GoTrue trusts a forwarded header from an arbitrary caller is undocumented and outside this project's control, so the header is sent but not relied on — the IP-and-email-keyed Postgres counter this app owns and can verify is what's actually load-bearing. | Supabase documents and supports trusting `X-Forwarded-For` on hosted projects, and it is confirmed working end-to-end |
+| **ADR-026** | *(new, Phase 3)* **`env.ts` split into `env.ts` (server) and `env-client.ts` (client-only)** | A Phase 3 client component importing the combined `env.ts` for `clientEnv` pulled the server schema's variable *names* into the client bundle — a real regression this phase's own bundle grep caught. Browser code now imports `clientEnv` from `env-client.ts` only, which contains nothing server-only. | Never — this is a correctness fix, not a preference |
+| **ADR-027** | *(new, Phase 3)* **`src/middleware.ts` renamed to `src/proxy.ts`** | Next.js 16.0.0 deprecated the `middleware` file convention in favour of `proxy` (same location, same `config`/matcher shape, function renamed `proxy`) — confirmed against `node_modules/next/dist/docs/.../file-conventions/proxy.md`, not assumed from training data, per this repo's own "this is NOT the Next.js you know" warning. | Never, while Next 16's naming stands |
+| **ADR-028** | *(new, 8 Sep 2026, manager-issued)* **Legacy fidelity over engineering preference** — the approved legacy layout structure, sections, wording, navigation, product presentation, legal copy and information architecture are reproduced faithfully in Next.js; only the implementation beneath them changes. Deviations require explicit manager approval, registered in §2A.6. | The legacy site is an *approved* design, not a draft. An engineer's judgement that a section is awkward, redundant or improvable is not a mandate to change it, and "it was cleaner to implement it this way" is the failure mode this ADR exists to prevent. Fidelity is also what makes the migration reviewable: a diff against the original is only meaningful if the original is supposed to survive. | The manager approves a redesign. Never by inference, never by an engineer acting alone. |
+| **ADR-029** | *(new, 8 Sep 2026)* **The legacy source artefacts are immutable reference material** — `index (7).html`, `vokr-production.zip`, `vokr-production (1).zip` and `vokr-backend-scope.docx` are never edited, cleaned up, reformatted or regenerated | They are the only baseline the §2A.7 regression checks can compare against. Editing the reference destroys the ability to prove the migration was faithful. The 19.9 MB base64 homepage in particular keeps its payloads permanently — it is the evidence for R21, not a file to fix. | Never. R21 is closed in the new application, not in the legacy artefact. |
+| **ADR-030** | *(new, 8 Sep 2026)* **`vokr.shop` DNS is managed at Hostinger until an explicit, executed migration says otherwise** | Recorded operational fact (§3.7). §3.1 and Phase 20 name Cloudflare as the *target*; that move has not happened, and planning against an assumed state is how DNS cutovers break email. Brevo's authentication records, Zoho's inbound records and the single merged SPF record all live in the Hostinger zone today. | Phase 20 actually executes the Cloudflare migration and verifies mail flow and Brevo authentication afterwards — at which point this row is updated, not deleted. |
+| **ADR-031** | *(new, 11 Sep 2026, manager-issued — D9)* **The edge is Cloudflare Free with a Cloudflare Worker as the reverse proxy to Cloud Run; the origin is closed by an application-enforced shared secret, not by a load balancer** | Cloud Run domain mapping is not offered in `asia-south1`, and Cloudflare Free cannot override the Host header, so a Worker is the only zero-cost way for Cloudflare to reach Cloud Run. A global external ALB closes the origin at the network, but costs ~US$18+/mo and breaks the PDF's zero-cost premise. The Worker holds no application code — the app still deploys only to Cloud Run, so this is not the rejected "Cloudflare Pages as a separate deploy target". | Traffic approaches the 100,000 Worker requests/day free limit (then Workers Paid at $5/mo, or reconsider the ALB), or network-level origin isolation becomes a requirement |
 
 ---
 
@@ -3024,12 +5381,47 @@ A phase is not complete because the code compiles. It is complete when
 10. **Git** — a clean, scoped commit with a message explaining *why*. No secret, no generated file, no unrelated formatting churn.
 11. **Regression verification** — `npm run verify` passes, plus the security and (from Phase 8) concurrency suites. Earlier phases' tests still pass.
 12. **Exit criteria** — the phase's stated Exit Criteria are demonstrably met.
+13. **Legacy fidelity (§2A)** — for any phase touching migrated pages: no approved layout structure, section, wording, navigation item, product presentation, legal string or IA element changed without an approved §2A.6 row; the §2A.7 comparison evidence exists; and the legacy source artefacts are byte-identical to their pre-phase state.
 
 **A phase whose exit criteria depend on a manual verification is not
 complete until that verification has been performed.** R12 is not done
 because SMTP is configured — it is done when an email arrives in an inbox
 outside the project team. R17 is not done because backups run — it is done
 when a restore has succeeded.
+
+### Branching — one dedicated branch per feature or phase
+
+**No feature work is implemented, committed or pushed directly on
+`master`.** Every feature, phase or fix gets its own branch, cut from
+`master` and named for the work it carries — `phase-3-auth-closure`,
+`phase-5-server-cart`, `fix-webhook-replay`. This applies to any change
+that touches code, schema or the migrations directory, and to the
+documentation commits that accompany them.
+
+This is the same discipline §5 already applies to phases — work the phases
+in order, one at a time — expressed at the level of the repository:
+
+- **Branch first.** Cut the branch before the first edit, not after. If
+  work has already begun on `master`, move it to a branch before
+  committing.
+- **One branch, one scope.** A branch carries one phase or one feature.
+  Unrelated changes that happen to be in the working tree stay unstaged;
+  DoD item 10's "clean, scoped commit" is a property of the branch as well
+  as the commit.
+- **The branch must stand on its own.** It has to build and pass
+  `npm run verify` from a clean checkout — not merely in the working tree
+  it was written in. A commit whose imports resolve only against untracked
+  local files is not scoped, it is broken; if a test needs a module, that
+  module belongs in the same commit.
+- **`master` stays releasable.** It is only ever advanced by merging a
+  branch whose phase satisfies §12.
+- **Never rewrite published history.** Amend, squash or rebase only
+  commits that have not left the machine.
+
+Phase 3 is the worked example: closed on `phase-3-auth-closure` in a
+single 8-file commit, verified beforehand against a `git archive` of the
+index with a real `npm ci`, which is what caught both an unresolvable
+import and a 50%-flaky test before either reached `master`.
 
 ---
 
@@ -3116,7 +5508,7 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] Admin restricted at both application and Cloudflare layers
 
 ### 13.11 Images & storage
-- [ ] **R21: homepage under 500 KB, enforced in CI** ✱
+- [ ] **R21: homepage under 500 KB, enforced in CI** ✱ — enforcement exists and is live; the budget itself is **unmet (1,291,561 bytes vs 512,000)** and deferred to Phase 14. Not weakened to obtain a green build
 - [ ] **R21: zero `cdn.shopify.com` references; zero large base64 payloads** ✱
 - [ ] Responsive WebP/AVIF from R2 with immutable caching
 - [ ] Alt text on every image
@@ -3164,22 +5556,26 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] Cold-start time measured with and without keep-warm
 
 ### 13.17 CI/CD & infrastructure
-- [ ] **R1: every change reaches production only through the pipeline** ✱
-- [ ] **R2: Artifact Registry cleanup policy active; registry under quota** ✱
-- [ ] **R3: exactly 6 Secret Manager versions, loaded at boot; rotation proven** ✱
-- [ ] **R4: `max-instances=3` verified via API** ✱
+- [ ] **R1: every change reaches production only through the pipeline** ✱ — **11 Sep 2026: `49f817f` is deployed to production (revision `vokr-00010-rdd`), built from a clean checkout of a pushed commit with `deploy:check` passing — so the artefact is provably reproducible from Git, which is what R1 protects. The mechanism is still direct `gcloud`, not the pipeline**, because `deploy.yml` triggers on push to `master` and PR #1 is open, not merged. `deploy.yml` written and validated but **never executed**: `origin/master` is still at Phase 2 (`4ec495f`) and nothing since has been pushed, so neither workflow has ever run. The image in production was built by hand from an uncommitted working tree — **11 Sep 2026:** configured and hardened (Phase 19 Status, completion pass); still never run.
+- [x] **R2: Artifact Registry cleanup policy active; registry under quota** ✱ *(10 Sep 2026 — policy re-applied `--no-dry-run` and read back via `describe`; version-controlled at `vokr/infra/artifact-registry-cleanup-policy.json`. The previous policy had deleted every tag in the repository, including the live service's — see Phase 19 Status. ~128 MB of 500 MB. The 400 MB storage alert R2 also asks for does not exist.)*
+- [ ] **R3: exactly 6 Secret Manager versions, loaded at boot; rotation proven** ✱ — 1 of 6 active (11 Sep 2026); `BREVO_API_KEY` is needed by live forms but has no real key
+- [x] **R4: `max-instances=3` verified via API** ✱ *(10 Sep 2026 — `gcloud run services describe --format=json`, and asserted in `deploy.yml` after every deploy, per Phase 20 task 2)*
 - [ ] **R4: billing budget alerts at $1/$5/$20, one observed firing** ✱
 - [ ] **R5: staging on Razorpay sandbox, enforced at boot** ✱
-- [ ] `NEXT_PUBLIC_SITE_URL` correct in the production image (§2.5 trap closed)
-- [ ] All three Cloud Scheduler jobs green
-- [ ] Cloudflare DNS, SSL, cache rules correct; no identity-bearing response cached
-- [ ] All five `@vokr.shop` mailboxes receiving
-- [ ] Rollback performed and timed
+- [x] `NEXT_PUBLIC_SITE_URL` correct in the production image (§2.5 trap closed) *(11 Sep 2026 — the live canonical is `https://vokr.shop`, and since `49f817f` the Supabase project ref is inlined in the served bundle (Phase 19 defect 5, closed). The Dockerfile refuses an empty or localhost value, and `deploy.yml`'s preflight refuses it before building.)*
+- [ ] All three Cloud Scheduler jobs green — **1 of 3 exists.** `vokr-keep-warm` created and verified firing (HTTP 200 at `2026-09-10T17:00:01Z`, UA `Google-Cloud-Scheduler`); jobs 2 and 3 would call Phase 18 / Phase 8 code that does not exist
+- [ ] DNS, SSL, cache rules correct; no identity-bearing response cached — **at whichever provider holds the zone at launch. Today that is Hostinger (§3.7), not Cloudflare; if the Cloudflare migration ran, re-verify mail flow and Brevo authentication after cutover**
+- [ ] **Brevo domain authentication reported VERIFIED by Brevo itself** (§3.7.1) — records present in DNS is not verification
+- [ ] All five `@vokr.shop` mailboxes receiving; SPF is a single merged record covering Zoho and Brevo — **measured 10 Sep 2026: the published record is `v=spf1 include:zoho.in ~all`, so Brevo is NOT in it.** The merged record does not exist yet; R12 stays open — **Corrected 11 Sep 2026:** Brevo does not use SPF (per its own docs), so the merged-record requirement is withdrawn and SPF stays as published. Mailbox delivery is still unverified.
+- [x] Rollback performed and timed *(11 Sep 2026 — 7.6 s to roll back and 6.5 s to restore, on real traffic, confirmed per request from the Cloud Run log; see `cloud-run.md`)*
 
 ### 13.18 Content & legal
-- [ ] **R14: terms say "email", not "email/SMS"** ✱
-- [ ] **R20: zero fabricated reviews, ratings or review counts, CI-enforced** ✱
-- [ ] Every published claim verified or removed
+- [ ] **§2A fidelity: every migrated page matches its approved legacy original in visible text, section order, heading structure, navigation and product presentation — every difference traced to an approved §2A.6 row**
+- [ ] **§2A.6 contains no row still marked PENDING that was nonetheless implemented**
+- [ ] **Legacy source artefacts unmodified** — `index (7).html` MD5 `82aa900609d7bae122064c87925308b4`; `vokr-production.zip` blob `02c5329`
+- [ ] **R14: terms say "email", not "email/SMS"** ✱ *(requires §2A.6 approval; if withheld, R14 stays open with the reason recorded)*
+- [ ] **R20: zero fabricated reviews, ratings or review counts, CI-enforced** ✱ *(requires §2A.6 approval; same treatment)*
+- [ ] Every published claim verified or removed *(each change approved in §2A.6 first)*
 - [ ] Terms, privacy, returns and shipping copy match the implementation
 - [ ] Legal review completed
 

@@ -1,0 +1,24 @@
+# Cloudflare Worker for the vokr.shop edge — D9 option 1 (ADR-031).
+#
+# Deploy only after the vokr.shop zone exists in the Cloudflare account and
+# its nameservers are delegated (vokr/docs/infrastructure/domain-and-dns.md).
+# No account ID, zone ID or secret is committed: wrangler reads
+# CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN from the environment and
+# resolves the zone from the custom-domain name below.
+#
+#   npx wrangler@4 secret put ORIGIN_AUTH_SECRET --config vokr/infra/cloudflare/wrangler.toml
+#   npx wrangler@4 deploy                         --config vokr/infra/cloudflare/wrangler.toml
+
+name = "vokr-edge"
+main = "edge-worker.mjs"
+compatibility_date = "2025-09-01"
+workers_dev = false
+
+# Custom domain: Cloudflare creates the DNS record and the edge certificate.
+# The zone must not already hold an A/AAAA/CNAME record for the apex.
+routes = [
+  { pattern = "vokr.shop", custom_domain = true },
+]
+
+[vars]
+ORIGIN_HOST = "vokr-plxgen7xla-el.a.run.app"

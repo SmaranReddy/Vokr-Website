@@ -1,0 +1,4 @@
+# Shell scripts run under bash, which cannot parse CRLF. With
+# core.autocrlf=true (the default on Windows) a plain checkout would convert
+# them, so pin them to LF everywhere.
+*.sh text eol=lf

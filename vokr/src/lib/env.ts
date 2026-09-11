@@ -1,28 +1,28 @@
 import { z } from "zod";
 
+import {
+  CLIENT_KEYS,
+  clientEnv,
+  parseEnvSection,
+  type ClientEnv,
+} from "./env-client";
+
 /**
  * Boot-time environment validation. Parsed once at module load; every
  * consumer imports the frozen `env` / `clientEnv` objects below instead of
  * touching `process.env` directly, so an invalid variable fails the
  * process at startup rather than mid-request.
  *
- * Split into `client` (must be prefixed NEXT_PUBLIC_ and safe for the
- * browser bundle) and `server` (never prefixed NEXT_PUBLIC_) so a secret
- * can never be promoted into the client schema by accident.
+ * The client schema and `clientEnv` itself live in `./env-client` — a
+ * separate module so browser-only code can depend on just that half
+ * without pulling this file's server schema (including its variable
+ * *names*) into a client bundle. Re-exported below so every existing
+ * server-side `from "@/lib/env"` import site is unaffected.
  */
 
-const optionalUrl = z.union([z.literal(""), z.url()]).optional();
-const optionalString = z.string().optional();
+export { clientEnv, parseEnvSection, type ClientEnv };
 
-const clientSchema = z.object({
-  // No default here — the localhost fallback lives in `config/site.ts`,
-  // deliberately, so it stays visible as the Phase 19 production gate
-  // (see Vokr-Implementation-Plan.md §2.5).
-  NEXT_PUBLIC_SITE_URL: optionalUrl,
-  NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
-  NEXT_PUBLIC_RAZORPAY_KEY_ID: optionalString,
-});
+const optionalString = z.string().optional();
 
 const serverSchema = z.object({
   NODE_ENV: z
@@ -42,45 +42,10 @@ const serverSchema = z.object({
   R2_BUCKET_NAME: optionalString,
 });
 
-export type ClientEnv = z.infer<typeof clientSchema>;
 export type ServerEnv = z.infer<typeof serverSchema>;
-
-/** Every variable name declared in the client schema. */
-const CLIENT_KEYS = Object.keys(clientSchema.shape);
 
 /** Every variable name declared in the server schema. */
 const SERVER_KEYS = Object.keys(serverSchema.shape);
-
-/**
- * Parses `source` against `schema`, restricted to the schema's own keys.
- * On failure, throws **one** Error whose message lists every invalid or
- * missing key — never fails one variable at a time. Exported so the
- * aggregation behaviour itself (not just this file's two concrete
- * schemas) is directly unit-testable.
- */
-export function parseEnvSection<Shape extends z.ZodRawShape>(
-  schema: z.ZodObject<Shape>,
-  source: Record<string, string | undefined>,
-  label: string,
-): z.infer<z.ZodObject<Shape>> {
-  const keys = Object.keys(schema.shape);
-  const raw: Record<string, string | undefined> = {};
-  for (const key of keys) {
-    raw[key] = source[key];
-  }
-
-  const result = schema.safeParse(raw);
-  if (!result.success) {
-    const lines = result.error.issues.map((issue) => {
-      const key = issue.path.join(".") || "(root)";
-      return `  - ${key}: ${issue.message}`;
-    });
-    throw new Error(
-      [`${label} — invalid environment configuration:`, ...lines].join("\n"),
-    );
-  }
-  return result.data;
-}
 
 /**
  * Throws if any name in `serverKeys` also appears, prefixed with
@@ -106,17 +71,10 @@ export function assertNoServerKeyLeak(
 
 assertNoServerKeyLeak(SERVER_KEYS, CLIENT_KEYS);
 
-const client = parseEnvSection(clientSchema, process.env, "Client environment");
 const server =
   typeof window === "undefined"
     ? parseEnvSection(serverSchema, process.env, "Server environment")
     : undefined;
-
-/**
- * Client-safe environment values. Available in both server and browser
- * contexts.
- */
-export const clientEnv: Readonly<ClientEnv> = Object.freeze(client);
 
 /**
  * Server-only environment values. Throws if called from a browser context
@@ -134,6 +92,6 @@ export function requireServerEnv(): Readonly<ServerEnv> {
 
 /** Convenience export for the common case: importing from server code. */
 export const env: Readonly<ClientEnv & ServerEnv> = Object.freeze({
-  ...client,
+  ...clientEnv,
   ...(server ?? ({} as ServerEnv)),
 });

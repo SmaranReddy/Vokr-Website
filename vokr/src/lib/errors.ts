@@ -7,6 +7,7 @@
 
 export type ErrorCode =
   | "VALIDATION_ERROR"
+  | "UNAUTHORIZED"
   | "NOT_FOUND"
   | "CONFLICT"
   | "RATE_LIMITED"
@@ -34,6 +35,12 @@ export abstract class AppError extends Error {
 export class ValidationError extends AppError {
   readonly code = "VALIDATION_ERROR" as const;
   readonly status = 400;
+}
+
+/** 401 — no identity, or the identity presented is not valid. */
+export class UnauthorizedError extends AppError {
+  readonly code = "UNAUTHORIZED" as const;
+  readonly status = 401;
 }
 
 /** 404 — the requested resource does not exist (or is not visible). */

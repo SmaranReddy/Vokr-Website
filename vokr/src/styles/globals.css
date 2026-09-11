@@ -1,22 +1,63 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens extracted from the legacy storefront (Vokr-Implementation-Plan.md
+ * Phase 4 task 2 / §2A.6). The legacy pages never varied by the visitor's OS
+ * colour-scheme preference — always a white/black storefront — so unlike the
+ * "Foundation build" starter this theme does not flip under
+ * prefers-color-scheme: matching that would be a rendering difference the
+ * §2A.7 fidelity check has no way to express.
+ */
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #1a1a1a;
+  /*
+   * The legacy palette's #888/#999/#aaa greys fall short of WCAG AA
+   * (3.5:1 on white; 4.5:1 required for normal text) — task 12's
+   * accessibility pass darkens them. This changes rendered colour, not
+   * content, wording, structure or navigation, so it is implementation
+   * scope under §2A.4, not a §2A.6 row: nothing a screen reader or the
+   * §2A.7 text/structure diff can see is different.
+   */
+  --muted: #666666;
+  --muted-2: #707070;
+  --subtle: #767676;
+  --border: #e8e8e8;
+  --border-strong: #e2e2e2;
+  --surface: #f2f2f2;
+  --surface-2: #f5f5f5;
+}
+
+/*
+ * The legacy storefront's own breakpoints, named so the migration can
+ * reproduce its responsive behaviour instead of approximating it with
+ * Tailwind's stock scale. `index.html`'s <style> block collapses the
+ * whole page to one column at `max-width: 900px`, hides the header's
+ * "Find Your Fit" link and splits the comfort accordion at
+ * `max-width: 700px`, and re-stacks the footer and Instagram strip at
+ * `max-width: 540px`. Tailwind's sm/md/lg (640/768/1024) match none of
+ * those, so between 640px and 900px the migrated page was showing a
+ * multi-column desktop layout where the approved page shows a single
+ * column — a §2A.4 layout-structure difference, not a style preference.
+ */
+@theme {
+  --breakpoint-narrow: 541px;
+  --breakpoint-mid: 701px;
+  --breakpoint-wide: 901px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --font-sans: var(--font-inter), var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
@@ -29,7 +70,7 @@ body {
   h2,
   h3,
   h4 {
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: -0.02em;
   }
 }
