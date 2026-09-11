@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { MAX_CART_ITEM_QUANTITY, MIN_CART_ITEM_QUANTITY } from "@/lib/cart";
-import { ORDERING_ENABLED, ORDERING_UNAVAILABLE_MESSAGE } from "@/config/commerce";
+import {
+  ORDERING_ENABLED,
+  ORDERING_UNAVAILABLE_MESSAGE,
+} from "@/config/commerce";
 import type { CartLine } from "@/server/cart";
 
 import { useCart } from "./cart-provider";
@@ -16,8 +20,12 @@ function CartLineRow({ line }: { line: CartLine }) {
     return (
       <li className="flex items-start justify-between gap-4 border-b border-border py-4">
         <div>
-          <p className="text-sm font-medium text-foreground">No longer available</p>
-          <p className="mt-1 text-xs text-muted">This item was removed from the catalog.</p>
+          <p className="text-sm font-medium text-foreground">
+            No longer available
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            This item was removed from the catalog.
+          </p>
         </div>
         <button
           type="button"
@@ -34,7 +42,9 @@ function CartLineRow({ line }: { line: CartLine }) {
   return (
     <li className="flex items-start justify-between gap-4 border-b border-border py-4">
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-foreground">{line.productName}</p>
+        <p className="truncate text-sm font-medium text-foreground">
+          {line.productName}
+        </p>
         <p className="mt-0.5 text-xs text-muted">
           {line.colorway} · {line.sizeLabel}
         </p>
@@ -48,8 +58,14 @@ function CartLineRow({ line }: { line: CartLine }) {
           <button
             type="button"
             aria-label="Decrease quantity"
-            disabled={!ORDERING_ENABLED || isLoading || line.quantity <= MIN_CART_ITEM_QUANTITY}
-            onClick={() => void updateQuantity(line.cartItemId, line.quantity - 1)}
+            disabled={
+              !ORDERING_ENABLED ||
+              isLoading ||
+              line.quantity <= MIN_CART_ITEM_QUANTITY
+            }
+            onClick={() =>
+              void updateQuantity(line.cartItemId, line.quantity - 1)
+            }
             className="h-7 w-7 border border-border-strong text-sm disabled:opacity-40"
           >
             &minus;
@@ -58,8 +74,14 @@ function CartLineRow({ line }: { line: CartLine }) {
           <button
             type="button"
             aria-label="Increase quantity"
-            disabled={!ORDERING_ENABLED || isLoading || line.quantity >= MAX_CART_ITEM_QUANTITY}
-            onClick={() => void updateQuantity(line.cartItemId, line.quantity + 1)}
+            disabled={
+              !ORDERING_ENABLED ||
+              isLoading ||
+              line.quantity >= MAX_CART_ITEM_QUANTITY
+            }
+            onClick={() =>
+              void updateQuantity(line.cartItemId, line.quantity + 1)
+            }
             className="h-7 w-7 border border-border-strong text-sm disabled:opacity-40"
           >
             +
@@ -83,7 +105,8 @@ function CartLineRow({ line }: { line: CartLine }) {
 }
 
 export function CartDrawer() {
-  const { cart, isOpen, closeCart, error } = useCart();
+  const { cart, isOpen, closeCart, error, isLoading } = useCart();
+  const router = useRouter();
 
   // Escape-to-close, matching every other overlay in this codebase's
   // interaction model.
@@ -128,13 +151,21 @@ export function CartDrawer() {
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-sm font-semibold">Your Cart</h2>
-          <button type="button" onClick={closeCart} aria-label="Close" className="p-1 text-lg leading-none">
+          <button
+            type="button"
+            onClick={closeCart}
+            aria-label="Close"
+            className="p-1 text-lg leading-none"
+          >
             &times;
           </button>
         </div>
 
         {error && (
-          <p role="alert" className="mx-5 mt-3 text-xs font-medium text-red-600">
+          <p
+            role="alert"
+            className="mx-5 mt-3 text-xs font-medium text-red-600"
+          >
             {error}
           </p>
         )}
@@ -143,7 +174,10 @@ export function CartDrawer() {
           {cart.items.length === 0 ? (
             <div className="py-10 text-center">
               <p className="text-sm text-muted">Your bag is empty.</p>
-              <p role="note" className="mt-3 text-xs leading-relaxed text-foreground">
+              <p
+                role="note"
+                className="mt-3 text-xs leading-relaxed text-foreground"
+              >
                 {ORDERING_UNAVAILABLE_MESSAGE}
               </p>
             </div>
@@ -160,7 +194,9 @@ export function CartDrawer() {
           <div className="border-t border-border px-5 py-4">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted">Subtotal</span>
-              <span className="font-medium">{formatPaiseAsRupees(cart.subtotalPaise)}</span>
+              <span className="font-medium">
+                {formatPaiseAsRupees(cart.subtotalPaise)}
+              </span>
             </div>
             <p className="mt-1 text-xs text-muted">
               Includes {formatPaiseAsRupees(cart.taxPaise)} GST.
@@ -183,19 +219,28 @@ export function CartDrawer() {
                 than a tooltip. */}
             <button
               type="button"
-              disabled
-              aria-describedby="cart-ordering-unavailable"
-              className="mt-4 w-full cursor-not-allowed bg-foreground px-6 py-3.5 text-sm font-semibold text-background opacity-40"
+              onClick={() => {
+                if (!ORDERING_ENABLED) return;
+                closeCart();
+                router.push("/checkout");
+              }}
+              disabled={!ORDERING_ENABLED || isLoading}
+              aria-describedby={
+                ORDERING_ENABLED ? undefined : "cart-ordering-unavailable"
+              }
+              className="mt-4 w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background disabled:cursor-not-allowed disabled:opacity-40"
             >
               Checkout
             </button>
-            <p
-              id="cart-ordering-unavailable"
-              role="note"
-              className="mt-2 text-xs leading-relaxed text-foreground"
-            >
-              {ORDERING_UNAVAILABLE_MESSAGE}
-            </p>
+            {!ORDERING_ENABLED && (
+              <p
+                id="cart-ordering-unavailable"
+                role="note"
+                className="mt-2 text-xs leading-relaxed text-foreground"
+              >
+                {ORDERING_UNAVAILABLE_MESSAGE}
+              </p>
+            )}
           </div>
         )}
       </aside>

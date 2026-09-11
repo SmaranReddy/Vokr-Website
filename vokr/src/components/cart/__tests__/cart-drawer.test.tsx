@@ -10,6 +10,11 @@ import type { CartView } from "@/server/cart";
  */
 
 let cart: CartView;
+const push = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+}));
 
 vi.mock("@/components/cart/cart-provider", () => ({
   useCart: () => ({
@@ -72,6 +77,9 @@ describe("CartDrawer — ordering disabled", () => {
     expect((checkout as HTMLButtonElement).disabled).toBe(true);
     expect(accessibleDescription(checkout)).toBe(ORDERING_UNAVAILABLE_MESSAGE);
     expect(checkout.hasAttribute("title")).toBe(false);
+
+    checkout.click();
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("disables quantity changes but still allows removing an item", () => {
