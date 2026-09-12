@@ -24,7 +24,8 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "smoke-test": "tsx scripts/smoke-test.ts",
-    "deploy:check": "tsx scripts/assert-deployable.ts"
+    "deploy:check": "tsx scripts/assert-deployable.ts",
+    "check:homepage-weight": "tsx scripts/check-homepage-weight.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

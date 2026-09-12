@@ -4293,6 +4293,83 @@ and deferred to Phase 14**, where task 9 and task 2a (the D7 photographs,
 Phase 14 runs — that is the honest state, and it is recorded here rather
 than hidden by moving a threshold.
 
+**Gate corrected to measure what R21 actually defines, 12 Sep 2026 —
+operator-directed, not a threshold change.** The two paragraphs above
+describe the gate's own logic being wrong, not R21's target being
+unreachable: a whole-directory `du` sums every route's compiled
+JavaScript in one flat directory, including two files that exist
+identically in a zero-route app — the shared React/Next.js runtime
+chunks every route loads (480,026 bytes in a clean build) and Next's own
+static `polyfill-nomodule.js` (112,594 bytes, copied byte-for-byte into
+every Next.js 16.3.4 build regardless of app code or `browserslist`,
+loaded only via `<script nomodule>` so no 2026 browser ever fetches it) —
+together **592,620 bytes, already over the 512,000 budget before a
+single line of this app's code is counted.** No amount of homepage-level
+code splitting or dependency trimming moves either number; they hold
+with the homepage route deleted entirely.
+
+Instructed to fix the *measurement*, explicitly forbidding a threshold
+change, a bypass, or a D10 exception:
+
+- **Old logic:** `find .next/static/chunks -maxdepth 1 -name "*.js" -exec du -cb {} +`
+  — every `.js` file physically present in the flat build-output
+  directory, i.e. every route's compiled output summed together.
+- **New logic:** `vokr/scripts/check-homepage-weight.ts` (run as
+  `npm run check:homepage-weight`) reads Next.js's own
+  `.next/diagnostics/route-bundle-stats.json` — written automatically by
+  `next build` in this Next.js version, computed by Next itself from its
+  own build manifests (`node_modules/next/dist/build/route-bundle-stats.js`)
+  — finds the `/` route's entry, and sums the on-disk size of exactly its
+  `firstLoadChunkPaths`: the JS a browser actually requests to render the
+  homepage on first load, and nothing from any other route. This *is*
+  the quantity R21's text names ("Homepage weight budget (R21): under
+  500 KB total transfer"), not an approximation of it. Every failure
+  mode (file missing, malformed, no `/` entry, a non-`.js` path, a listed
+  file missing on disk) exits 1 with a specific message — verified by
+  deliberately breaking each case — so the check fails loudly rather than
+  silently reporting 0 bytes if a future Next.js version reshapes or
+  removes this internal diagnostic.
+- **Threshold: unchanged, 512,000 bytes.** No environment flag, no
+  exception path, no other check's scope narrowed.
+- **Measured, clean build: homepage first-load JS is 496,956 bytes** —
+  under budget. `npm run lint`, `npm run typecheck`, `npm run test`,
+  `npm run build`, and a from-scratch Docker build with `/api/health`
+  answering all pass. CI's `Homepage weight budget` step now calls
+  `npm run check:homepage-weight`.
+
+**Separately identified during this investigation, deliberately not
+included in this change:** browsing the flat-directory measurement's
+constituent chunks, the single largest was `src/lib/supabase-browser.ts`
+— it builds the app's two browser-only auth actions (the Google OAuth
+redirect, the password-recovery `updateUser()`) through `@supabase/ssr`'s
+`createBrowserClient`, which returns a full `@supabase/supabase-js`
+client whose constructor unconditionally builds a `PostgrestClient`, a
+`RealtimeClient` (WebSocket/Phoenix runtime plus a browser
+`Buffer`/base64 polyfill) and a `StorageClient` that neither auth action
+uses — one chunk, ~635 KB under the old measurement. A fix (constructing
+`@supabase/auth-js`'s `GoTrueClient` directly, the same class
+`SupabaseClient.auth` wraps internally, via `@supabase/ssr`'s own cookie
+storage adapter so session cookies stay compatible with
+`createServerClient`) was built and locally verified — lint, typecheck,
+unit tests including a new one for the client's construction options,
+production build, and a Docker boot all passed — but **it is not part of
+this PR.** It is a separate, security-adjacent change to session-cookie
+handling in a live auth path, it does not affect the R21 gate result
+either way (the homepage route's own first-load chunks never included
+this one — it is isolated to `/sign-in`, `/sign-up` and
+`/reset-password` by the routing that already existed), and it deserves
+its own isolated review rather than riding in on a CI-script change.
+Tracked here as an open follow-up, not yet committed anywhere.
+
+**What is still not true:** this is the *gate* going green, not Phase 14
+itself. All 84 images are still `cdn.shopify.com`/base64 sources, not R2
+WebP/AVIF (task 9's "zero base64" and D7's task 2a both remain NOT
+STARTED), and the homepage's real total *transfer* weight — dominated by
+those images, which this JS-only gate has never measured and still
+doesn't — is unmeasured and almost certainly far over 500 KB once they
+are counted. The gate is now honest about the one thing it checks; it
+was never the whole of R21 and still isn't.
+
 ---
 
 **D10 reapplied — PR #2, 12 September 2026.** Same mechanism as PR #1,
@@ -5310,7 +5387,7 @@ IMPLEMENTED / **VERIFIED**. Only VERIFIED counts, and only with evidence.
 | **R18** | Catalog cached in Cloud Run memory | In-process cache, short TTL, single-flight | 2, 13 | Concurrent-miss test issues one query; egress measured | Test output; measured bytes/pageview | IN PROGRESS — `TtlCache` implemented and unit-tested (60s TTL, single-flight verified by concurrent-miss test); not yet VERIFIED at the launch-gate level — that needs Cloud Run and real measured egress (Phase 13/20) |
 | **R19** | HTTPS + HSTS; rate limiting; WAF | Headers; the full rate-limit matrix; 5 WAF rules; bot protection | 16, 20 | Headers verified externally; every limit triggers; WAF verified from the internet | Header scan; rate-limit test output; WAF config | NOT STARTED **11 Sep 2026:** D9 re-analysed with a recommendation (§0.3). The origin is public, and the client-IP headers are caller-controlled on `run.app` (Phase 20 Status). **D9 decided 11 Sep 2026: option 1 (ADR-031); execution blocked on Cloudflare and Hostinger access.** |
 | **R20** | Remove fabricated reviews | Delete 10 reviews, the 4.7 average, the "4,059 customer reviews" meta | 4 | **Automated check: those strings appear nowhere in the build** | CI check output | NOT STARTED |
-| **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | **NOT STARTED — UNRESOLVED, deferred to Phase 14.** The CI weight gate (Phase 14 task 9) was implemented early in `29e5b30` and is live: PR #1's run measured **1,291,561 bytes against the 512,000 budget** and fails on it. Deliberately *not* weakened, and no application code was optimised to satisfy it (11 Sep 2026). Note the gate sums `.next/static/chunks/*.js` across all routes, which is **not** the total-transfer, image-dominated quantity R21 defines. |
+| **R21** | Homepage under 500 KB | All 84 images to R2 as WebP/AVIF with responsive sizes; zero base64 | 14 | Automated weight budget in CI; zero `cdn.shopify.com` matches | CI output; Lighthouse report | **Gate GREEN, underlying Phase 14 work NOT STARTED.** The CI weight gate (Phase 14 task 9) was implemented early in `29e5b30`: PR #1's run measured **1,291,561 bytes against the 512,000 budget** by summing `.next/static/chunks/*.js` across all routes — not the total-transfer, image-dominated quantity R21 defines, and provably un-greenable that way (the shared framework runtime plus Next's static `polyfill-nomodule.js` alone total 592,620 bytes). **12 Sep 2026, operator-directed:** the measurement corrected to Next's own per-route first-load JS accounting (`scripts/check-homepage-weight.ts`, reading `.next/diagnostics/route-bundle-stats.json`) — same 512,000-byte threshold, no bypass, no D10 exception. Homepage first-load JS now measures **496,956 bytes**, under budget. A separate ~635 KB browser-Supabase-client defect was identified during this investigation and fixed locally but is **not part of this change** (it doesn't affect the homepage gate either way) — tracked as an open follow-up needing its own PR. **Still true:** all 84 images remain `cdn.shopify.com`/base64, D7 task 2a and the rest of Phase 14 are unstarted, and homepage total *transfer* weight (image-dominated) is unmeasured by this JS-only gate and almost certainly over 500 KB once images count. |
 | **R22** | DPDP consent + log retention | Consent records, export and deletion endpoints, weekly log export to R2 | 15, 17 | Full export-and-erasure cycle on a real test account; export job running | Cycle log; R2 listing | NOT STARTED |
 
 **Current: 2 of 22 VERIFIED** (R2, R13). Two are blocked on human decisions (R11 on
@@ -5701,7 +5778,8 @@ item below is verified with evidence.** There is no partial credit.
 - [ ] Admin restricted at both application and Cloudflare layers
 
 ### 13.11 Images & storage
-- [ ] **R21: homepage under 500 KB, enforced in CI** ✱ — enforcement exists and is live; the budget itself is **unmet (1,291,561 bytes vs 512,000)** and deferred to Phase 14. Not weakened to obtain a green build
+- [x] **R21 CI gate: homepage first-load JS under 500 KB** ✱ — **GREEN as of 12 Sep 2026**: measurement corrected from a whole-directory `du` (un-greenable — framework baseline alone was 592,620 bytes) to Next.js's own per-route first-load accounting (`scripts/check-homepage-weight.ts`); same 512,000-byte threshold, no bypass, no D10 exception. Measures **496,956 bytes**.
+- [ ] **R21 underlying deliverable: all 84 images to R2 as WebP/AVIF, zero base64/`cdn.shopify.com`, real homepage transfer weight measured** ✱ — Phase 14 task 9/2a, **NOT STARTED**. The gate above has never measured this and still doesn't; it is JS-only
 - [ ] **R21: zero `cdn.shopify.com` references; zero large base64 payloads** ✱
 - [ ] Responsive WebP/AVIF from R2 with immutable caching
 - [ ] Alt text on every image
