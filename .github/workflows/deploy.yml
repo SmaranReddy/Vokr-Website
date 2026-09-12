@@ -337,7 +337,13 @@ jobs:
           # once a real key exists and BREVO_API_KEY_READY says so: Cloud Run
           # refuses a revision that references a secret with no version.
           # See docs/infrastructure/brevo.md.
-          SECRETS="DATABASE_URL=DATABASE_URL:latest"
+          # ORIGIN_AUTH_SECRET (D9 / ADR-031) must be listed here, not
+          # mounted by hand: --set-secrets is declarative and replaces the
+          # whole list, so an out-of-band `--update-secrets` is silently
+          # dropped by the next pipeline deploy. That is exactly what
+          # happened to revision vokr-00013-6fk — the origin check shipped
+          # and sat inert because the secret it reads was gone.
+          SECRETS="DATABASE_URL=DATABASE_URL:latest,ORIGIN_AUTH_SECRET=ORIGIN_AUTH_SECRET:latest"
           if [ "${BREVO_API_KEY_READY:-}" = "true" ]; then
             SECRETS="$SECRETS,BREVO_API_KEY=BREVO_API_KEY:latest"
           fi
@@ -420,7 +426,22 @@ jobs:
             echo "FAIL: serving revision $LATEST runs '$REV_IMAGE', expected '$EXPECTED'." >&2
             exit 1
           }
-          echo "OK: max-instances=3, dedicated runtime SA, 100% on $LATEST serving the digest built from ${{ github.sha }}."
+          # D9 / ADR-031. The origin check fails OPEN when
+          # ORIGIN_AUTH_SECRET is unset, so a revision missing it serves
+          # every direct run.app request happily and nothing looks wrong.
+          # Assert the mount, or the protection is decorative.
+          SECRET_REFS=$(gcloud run revisions describe "$LATEST" \
+            --region="${{ vars.GCP_REGION }}" \
+            --format='value(spec.containers[0].env[].valueFrom.secretKeyRef.name)')
+          case "$SECRET_REFS" in
+            *ORIGIN_AUTH_SECRET*) ;;
+            *)
+              echo "FAIL: serving revision $LATEST does not mount ORIGIN_AUTH_SECRET; the D9 origin check would fail open." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "OK: max-instances=3, dedicated runtime SA, ORIGIN_AUTH_SECRET mounted, 100% on $LATEST serving the digest built from ${{ github.sha }}."
 
       - name: Smoke test
         env:

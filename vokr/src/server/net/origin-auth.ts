@@ -18,18 +18,43 @@ export const ORIGIN_AUTH_HEADER = "x-vokr-origin-auth";
 export const VERIFIED_ORIGIN_HEADER = "x-vokr-verified-origin";
 
 /**
- * True when either no origin secret is configured (local/dev/preview —
- * there is no Worker in front and nothing to check against) or the
- * request carries exactly the configured secret. A falsy
- * `configuredSecret` always short-circuits to `true` rather than being
- * compared — an unset app-side secret must never be satisfied by an
- * unset/empty request header.
+ * Paths that stay reachable on the origin's own hostname without the
+ * Worker's header, because infrastructure outside Cloudflare calls them
+ * directly:
+ *
+ *  - Cloud Run's **startup probe** (`deploy.yml`:
+ *    `--startup-probe=httpGet.path=/api/health`). A 404 there fails the
+ *    probe, so the revision never becomes ready and the deploy rolls
+ *    back — verified against the production build locally before this
+ *    exemption existed.
+ *  - the pipeline's **smoke test**, which runs against the Cloud Run URL.
+ *  - the **Cloud Scheduler keep-warm job**, which pings `/api/health`
+ *    every 5 minutes (Phase 20 task 4.1).
+ *
+ * `/api/health` returns only `{"status":"ok"|"error"}` — no customer
+ * data and no identity — so this one open path leaks nothing. It does
+ * touch Postgres, so it stays a load surface, bounded by
+ * `max-instances=3`; re-pointing the keep-warm job at `vokr.shop` after
+ * cutover (`cloud-run.md`) narrows it further.
+ */
+const ORIGIN_CHECK_EXEMPT_PATHS = new Set(["/api/health"]);
+
+/**
+ * True when the request may proceed: it targets an exempt path, or no
+ * origin secret is configured (local/dev/preview — there is no Worker in
+ * front and nothing to check against), or it carries exactly the
+ * configured secret. A falsy `configuredSecret` always short-circuits to
+ * `true` rather than being compared — an unset app-side secret must
+ * never be satisfied by an unset/empty request header.
  */
 export function isOriginAuthorized(
   request: Request,
   configuredSecret: string | undefined,
 ): boolean {
   if (!configuredSecret) {
+    return true;
+  }
+  if (ORIGIN_CHECK_EXEMPT_PATHS.has(new URL(request.url).pathname)) {
     return true;
   }
   return request.headers.get(ORIGIN_AUTH_HEADER) === configuredSecret;

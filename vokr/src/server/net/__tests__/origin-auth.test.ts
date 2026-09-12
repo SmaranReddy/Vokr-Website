@@ -5,8 +5,17 @@ import {
   ORIGIN_AUTH_HEADER,
 } from "@/server/net/origin-auth";
 
-function requestWithAuthHeader(value: string | undefined): Request {
-  return new Request("https://vokr.shop/api/health", {
+/**
+ * `/cart` rather than `/api/health`: the health path is deliberately
+ * exempt (Cloud Run's startup probe, the pipeline smoke test and the
+ * keep-warm job all call it directly, with no Worker header), so it
+ * would pass every assertion below for the wrong reason.
+ */
+function requestWithAuthHeader(
+  value: string | undefined,
+  path = "/cart",
+): Request {
+  return new Request(`https://vokr.shop${path}`, {
     headers: value !== undefined ? { [ORIGIN_AUTH_HEADER]: value } : {},
   });
 }
@@ -35,5 +44,25 @@ describe("isOriginAuthorized", () => {
   it("refuses when the header value does not match — the run.app bypass D9 closes", () => {
     const request = requestWithAuthHeader("forged-by-client");
     expect(isOriginAuthorized(request, "s3cret")).toBe(false);
+  });
+
+  it("exempts /api/health, so Cloud Run's startup probe still passes", () => {
+    // Removing this exemption fails the probe (httpGet /api/health), so
+    // the revision never goes ready and the deploy rolls back.
+    const probe = requestWithAuthHeader(undefined, "/api/health");
+    expect(isOriginAuthorized(probe, "s3cret")).toBe(true);
+  });
+
+  it("exempts only the exact health path, not paths that merely start with it", () => {
+    for (const path of ["/api/health/../admin", "/api/healthz", "/api/health2"]) {
+      expect(isOriginAuthorized(requestWithAuthHeader(undefined, path), "s3cret")).toBe(
+        false,
+      );
+    }
+  });
+
+  it("ignores the query string when matching the exemption", () => {
+    const probe = requestWithAuthHeader(undefined, "/api/health?probe=1");
+    expect(isOriginAuthorized(probe, "s3cret")).toBe(true);
   });
 });
