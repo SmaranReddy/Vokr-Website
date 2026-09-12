@@ -127,17 +127,17 @@ jobs:
       - name: Homepage weight budget
         run: |
           set -euo pipefail
-          # Phase 14 task 9 (R21). Deliberately the LAST step: it is deferred
-          # and currently red (plan §0.3 D10), and a failing step skips every
-          # step after it — so it runs after the Docker gates rather than
-          # hiding them. Threshold and logic unchanged.
-          # Guards against an accidental regression to the legacy
-          # multi-megabyte homepage the Phase 0 audit found and Phase 4
-          # replaced. Generous headroom (500 KB) — this is a budget, not a
-          # precision measurement.
-          SIZE=$(find .next/static/chunks -maxdepth 1 -name "*.js" -exec du -cb {} + | tail -1 | cut -f1)
-          echo "Homepage JS chunk weight: ${SIZE} bytes"
-          if [ "$SIZE" -gt 512000 ]; then
-            echo "FAIL: homepage JS chunks exceed the 500 KB budget" >&2
-            exit 1
-          fi
+          # Phase 14 task 9 (R21). Deliberately the LAST step: a failing
+          # step skips every step after it, so it runs after the Docker
+          # gates rather than hiding them. Threshold unchanged (500 KB /
+          # 512,000 bytes) — only the measurement changed, 12 Sep 2026
+          # (see Vokr-Implementation-Plan.md's R21 notes for why): this
+          # used to sum every `.js` file across every route's compiled
+          # output in one flat directory, which is not what R21 defines
+          # and could not go green on JS work alone (the shared framework
+          # runtime plus Next's own static legacy-browser polyfill exceed
+          # the budget by themselves, before any app code). It now reads
+          # Next.js's own per-route first-load JS accounting for the `/`
+          # route specifically — see scripts/check-homepage-weight.ts for
+          # the full explanation and every failure mode.
+          npm run check:homepage-weight
