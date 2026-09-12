@@ -446,7 +446,19 @@ jobs:
       - name: Smoke test
         env:
           SMOKE_TEST_BASE_URL: ${{ steps.deployed.outputs.url }}
-        run: npm run smoke-test
+        run: |
+          set -euo pipefail
+          # D9 (ADR-031): the smoke test runs against the Cloud Run URL,
+          # which the origin check refuses without the Worker's secret —
+          # so it authenticates the same way the Worker does. Exempting
+          # these paths instead would have meant the deploy gate only ever
+          # tested the unprotected surface. Masked before it is used, so it
+          # cannot surface in the log through this step or any later one.
+          ORIGIN_AUTH_SECRET=$(gcloud secrets versions access latest \
+            --secret=ORIGIN_AUTH_SECRET --project="${{ vars.GCP_PROJECT_ID }}")
+          echo "::add-mask::$ORIGIN_AUTH_SECRET"
+          export ORIGIN_AUTH_SECRET
+          npm run smoke-test
 
       - name: Roll back to the previous revision
         # Only once a deploy was attempted. A failure before it (for example
