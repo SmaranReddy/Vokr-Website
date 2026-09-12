@@ -4295,6 +4295,30 @@ than hidden by moving a threshold.
 
 ---
 
+**D10 reapplied — PR #2, 12 September 2026.** Same mechanism as PR #1,
+confirmed before use rather than assumed: `master` carries **no branch
+protection rule** (`gh api repos/.../branches/master/protection` →
+`404 Branch not protected`), so there is no required-status-check gate to
+override in the first place, and neither `ci.yml` nor `deploy.yml`
+contains a flag, input or condition that skips the homepage weight
+budget step — `workflow_dispatch: apply_migrations` is a different,
+unrelated `deploy.yml` input (whether to run pending Prisma migrations
+before a deploy). **D10 was, and remains, a human decision to merge with
+one known, already-deferred check red — not a technical bypass** — made
+again here by the operator for the same reason: PR #2 (D9 origin
+protection: `src/proxy.ts`, `src/server/net/origin-auth.ts`,
+`src/server/net/client-ip.ts`) touches none of the client-rendered pages
+R21 governs, and CI confirms it — every step passed (install, Prisma
+generate, lint, typecheck, unit tests, production build, the
+client-bundle secret-name scan, the Docker image build, the container
+`/api/health` check) except `Homepage weight budget`, which read exactly
+**1,291,561 bytes against the unchanged 512,000 budget** — identical to
+the figure already on record above, confirming this PR did not move the
+number in either direction. The gate itself is untouched in this PR: no
+edit to `ci.yml`, no threshold change, no `continue-on-error`.
+
+---
+
 **R1 is still open.** This deploy was performed with direct `gcloud`
 commands, not by `deploy.yml`, because the pipeline only triggers on a
 push to `master` and `master` has not been advanced (PR #1 is open, not
