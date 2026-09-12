@@ -258,3 +258,21 @@ application-side origin check (`src/proxy.ts`,
 `src/server/net/client-ip.ts` — Phase 3 files, needs its own approval);
 re-verify all five Zoho mailboxes and Brevo's authentication status after
 the nameserver change.
+
+**12 Sep 2026 — updated, see Vokr-Implementation-Plan.md's "SIXTH PASS"
+for the full record.** Cloudflare access was supplied. The Worker is
+deployed (script `vokr-edge`, zone `5a4aa976bc53a628879dea5ed6eaf85a`,
+custom domain `vokr.shop` attached) and proven end-to-end against the
+real Cloud Run origin over Cloudflare's own edge (a temporary
+`workers.dev` test, disabled again immediately after). `ORIGIN_AUTH_SECRET`
+now lives in Secret Manager (`vokr-website` project, ADR-032 for the
+seventh-secret exception) and on the Worker; Cloud Run has it mounted
+(revision `vokr-00013-6fk`). The application-side check this file called
+"not done — needs its own approval" **is now implemented and unit-tested**
+(`src/server/net/origin-auth.ts`, `src/proxy.ts`,
+`src/server/net/client-ip.ts`) but **not yet deployed** — it is
+uncommitted in the working tree, so Cloud Run is still running the
+pre-existing image and `run.app` remains bypassable until it is committed,
+pushed and built through CI/CD. Zone status is still `pending` and
+Hostinger's nameservers are unchanged — nothing here has touched
+Hostinger.

@@ -40,6 +40,14 @@ const serverSchema = z.object({
   R2_ACCESS_KEY_ID: optionalString,
   R2_SECRET_ACCESS_KEY: optionalString,
   R2_BUCKET_NAME: optionalString,
+
+  // D9 (ADR-031): the shared secret the Cloudflare Worker
+  // (`infra/cloudflare/edge-worker.mjs`) stamps onto every request it
+  // forwards, checked in `src/proxy.ts` via `src/server/net/origin-auth.ts`.
+  // Optional here for the same reason as the other secrets above: unset in
+  // local/dev/preview, where there is no Worker in front and the check is
+  // skipped; set in production via Secret Manager (`ORIGIN_AUTH_SECRET`).
+  ORIGIN_AUTH_SECRET: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
