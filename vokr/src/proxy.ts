@@ -1,7 +1,28 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { clientEnv } from "@/lib/env";
+import { clientEnv, requireServerEnv } from "@/lib/env";
+import {
+  isOriginAuthorized,
+  VERIFIED_ORIGIN_HEADER,
+} from "@/server/net/origin-auth";
+
+// Read once at module load (boot), never per request.
+const originAuthSecret = requireServerEnv().ORIGIN_AUTH_SECRET;
+
+/**
+ * `NextResponse.next({ request })` is how a header set here reaches
+ * downstream Server Components and Route Handlers without ever being
+ * sent back to the browser in `response.headers`. Rebuilt from the live
+ * `request.headers` at each call site (rather than cloned once) so it
+ * still carries whatever the Supabase cookie refresh below has written
+ * into `request` by the time it runs.
+ */
+function nextWithVerifiedOrigin(request: NextRequest) {
+  const headers = new Headers(request.headers);
+  headers.set(VERIFIED_ORIGIN_HEADER, "1");
+  return NextResponse.next({ request: { headers } });
+}
 
 /**
  * Next.js 16 renamed the `middleware` file convention to `proxy` (the old
@@ -26,7 +47,15 @@ import { clientEnv } from "@/lib/env";
  * Vokr-Implementation-Plan.md §11.
  */
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  // D9 (ADR-031): once ORIGIN_AUTH_SECRET is configured (production), a
+  // request that skips the Cloudflare Worker — e.g. straight to `run.app`
+  // — never carries the matching header and is refused here. Unconfigured
+  // (local/dev/preview, no Worker in front) always passes.
+  if (!isOriginAuthorized(request, originAuthSecret)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
+  let response = nextWithVerifiedOrigin(request);
 
   const url = clientEnv.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -44,7 +73,7 @@ export async function proxy(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
         });
-        response = NextResponse.next({ request });
+        response = nextWithVerifiedOrigin(request);
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options);
         });

@@ -4295,6 +4295,30 @@ than hidden by moving a threshold.
 
 ---
 
+**D10 reapplied — PR #2, 12 September 2026.** Same mechanism as PR #1,
+confirmed before use rather than assumed: `master` carries **no branch
+protection rule** (`gh api repos/.../branches/master/protection` →
+`404 Branch not protected`), so there is no required-status-check gate to
+override in the first place, and neither `ci.yml` nor `deploy.yml`
+contains a flag, input or condition that skips the homepage weight
+budget step — `workflow_dispatch: apply_migrations` is a different,
+unrelated `deploy.yml` input (whether to run pending Prisma migrations
+before a deploy). **D10 was, and remains, a human decision to merge with
+one known, already-deferred check red — not a technical bypass** — made
+again here by the operator for the same reason: PR #2 (D9 origin
+protection: `src/proxy.ts`, `src/server/net/origin-auth.ts`,
+`src/server/net/client-ip.ts`) touches none of the client-rendered pages
+R21 governs, and CI confirms it — every step passed (install, Prisma
+generate, lint, typecheck, unit tests, production build, the
+client-bundle secret-name scan, the Docker image build, the container
+`/api/health` check) except `Homepage weight budget`, which read exactly
+**1,291,561 bytes against the unchanged 512,000 budget** — identical to
+the figure already on record above, confirming this PR did not move the
+number in either direction. The gate itself is untouched in this PR: no
+edit to `ci.yml`, no threshold change, no `continue-on-error`.
+
+---
+
 **R1 is still open.** This deploy was performed with direct `gcloud`
 commands, not by `deploy.yml`, because the pipeline only triggers on a
 push to `master` and `master` has not been advanced (PR #1 is open, not
@@ -4741,6 +4765,172 @@ excluded from this pass by instruction and remains deferred.**
   created, read or stored.
 
 `https://vokr.shop/` is **not** live with this application.
+
+---
+
+**FIFTH PASS — 11 September 2026, same day. Cutover attempted; blocked at
+the same access gate as the fourth pass. No state changed.**
+
+- **Access re-checked, presence only:** `CLOUDFLARE_API_TOKEN`,
+  `CLOUDFLARE_ACCOUNT_ID`, `HOSTINGER_API_TOKEN`, `ORIGIN_AUTH_SECRET` —
+  none set, in this session or the persistent environment.
+  `npx wrangler@4 whoami` exits 1, unauthenticated. No Hostinger CLI/API
+  access exists in this environment. **Nothing was deployed, no DNS
+  record was changed, no nameserver was changed.**
+- **Cloud Run re-verified healthy** (project `vokr-website`, not
+  `haett-dev`/`haett-prod` — three unrelated projects on this account
+  were ruled out first): `gcloud run services describe vokr
+  --project=vokr-website --region=asia-south1` — `Ready=True`,
+  `latestReadyRevisionName: vokr-00012-lvh`, 100% traffic, address
+  `https://vokr-plxgen7xla-el.a.run.app` (matches `wrangler.toml`'s
+  `ORIGIN_HOST`, so the prepared Worker still points at the right
+  origin). Direct probe: `GET /api/health` → `200 {"status":"ok"}`.
+- **Public DNS re-probed** (`cloudflare-dns.com/dns-query`, since this
+  reads any resolver, not just Cloudflare's zone): `vokr.shop` NS is
+  still `aster.dns-parking.com` / `helios.dns-parking.com` (Hostinger).
+  Apex A drifted again — now `2.57.91.11`, `88.222.222.135`, a third
+  distinct pair across three passes, still Hostinger-owned. `GET
+  https://vokr.shop/` → `200`, `server: hcdn`, `platform: hostinger` —
+  unchanged, still the legacy page. **Cloudflare is not authoritative;
+  nothing to verify a Worker route or origin protection against.**
+- **Rollback path:** trivially exists, because nothing was changed.
+  Hostinger remains authoritative with its current records untouched.
+- **Origin protection (D9's own condition) still not implemented.**
+  `src/proxy.ts` and `src/server/net/client-ip.ts` do not enforce the
+  Worker secret — confirmed unchanged this pass, out of scope by
+  instruction (Phase 3 files). Even if Cloudflare access existed today,
+  cutting over now would put `vokr.shop` in front of Cloud Run while
+  `run.app` stays fully bypassable — the D9-approved architecture is not
+  yet what it would be running.
+
+**Blocked on, in order:** (1) a Cloudflare API token scoped to the
+`vokr.shop` zone (Zone DNS Edit, Zone Settings Edit, Account → Workers
+Scripts/Routes Edit) plus the account ID, to verify the zone, deploy the
+Worker and set `ORIGIN_AUTH_SECRET`; (2) Hostinger access (API token, or
+the domain owner performing the nameserver change by hand) — not
+attempted before (1) is deployed and verified; (3) separately, approval
+and implementation of the Phase 3 origin-check change, without which the
+security architecture D9 describes is incomplete regardless of DNS.
+
+`https://vokr.shop/` is **not** live with this application.
+
+---
+
+**SIXTH PASS — 12 September 2026. Cloudflare access supplied; Worker
+deployed and live-tested; origin protection implemented in code but not
+yet on Cloud Run. Hostinger not touched.**
+
+- **Access.** `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` supplied via
+  `vokr/.env.local` (git-ignored). Verified via `/user/tokens/verify`:
+  `active`. Zone `vokr.shop` confirmed on the given account (zone id
+  `5a4aa976bc53a628879dea5ed6eaf85a`), status **`pending`** — nameservers
+  are still Hostinger's, unchanged. The token cannot read Page
+  Rules/Redirect Rules (`Unauthorized to access requested resource`,
+  code 9109) — the `www→apex` redirect rule from the 11 Sep pass could
+  not be re-verified; not a blocker, only an unverified item.
+- **DNS re-verified record-by-record against this file's own table**: all
+  11 records present and unchanged (MX ×3, SPF, `zoho-verification`,
+  `brevo-code`, `_dmarc`, both Brevo DKIM CNAMEs DNS-only, Zoho DKIM
+  `zmail._domainkey`, `www` CNAME proxied to apex) — no apex A/AAAA, no
+  `ftp` A, matching the precondition the Worker's custom domain needs.
+- **Worker deployed**, via the Cloudflare API directly (`wrangler` fails
+  to install in this environment — Windows/OneDrive file locks plus a
+  broken `node` PATH inside its own postinstall's `cmd.exe` subprocess;
+  worth fixing separately, not blocking): script `vokr-edge`, module
+  `edge-worker.mjs` unchanged from the prepared version, bindings
+  `ORIGIN_AUTH_SECRET` (secret_text) and `ORIGIN_HOST` (plain_text,
+  `vokr-plxgen7xla-el.a.run.app`) confirmed present via the bindings
+  endpoint. Custom domain attached: hostname `vokr.shop`, service
+  `vokr-edge`, cert `7a861b79-8865-4ce5-9aa5-7b9a63bc0d3b`, `enabled:
+  true` — this created the zone's one new record, a proxied placeholder
+  `AAAA vokr.shop 100::`, replacing nothing (no prior apex record
+  existed).
+- **Live-tested on Cloudflare's real edge**, not just Node emulation: the
+  `workers.dev` test subdomain was enabled only for this check, `GET
+  /api/health` through it returned `200 {"status":"ok"}` from the real
+  Cloud Run origin, a nonexistent path correctly returned the app's own
+  404 (proving genuine pass-through, not a Worker-level response), and
+  the subdomain was disabled again immediately after — the committed
+  `workers_dev = false` posture (single entry point, the custom domain
+  only) is unchanged. `node --test infra/cloudflare/edge-worker.test.mjs`
+  also re-run: 5 pass + 1 skipped (LIVE not set).
+- **Origin secret, generated this pass (`openssl rand -hex 32`, never
+  logged/printed/committed)**, lives in two places, put there directly —
+  the same value both times, never re-derived:
+  - **Secret Manager**, `vokr-website` project: secret `ORIGIN_AUTH_SECRET`
+    created (version 1). This is the **seventh active secret** in that
+    project (previously six: `BREVO_API_KEY`, `DATABASE_URL`,
+    `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`,
+    `SUPABASE_SERVICE_ROLE_KEY`) — **ADR-032: approved by the operator
+    this pass** (instruction: "using Secret Manager rather than exposing
+    the secret"), superseding the domain-and-dns.md note that this
+    needed its own ADR against the six-secret free tier. Cost: ~$0.06/mo.
+  - `roles/secretmanager.secretAccessor` granted to
+    `vokr-cloud-run@vokr-website.iam.gserviceaccount.com` on that secret.
+  - Mounted onto Cloud Run: `gcloud run services update vokr
+    --update-secrets=ORIGIN_AUTH_SECRET=ORIGIN_AUTH_SECRET:latest` →
+    revision **`vokr-00013-6fk`**, `Ready=True`, 100% traffic, `GET
+    /api/health` still `200`. The old image ignores the new env var, so
+    this is infrastructure-only — no behaviour change yet.
+  - Set on the Worker as `wrangler secret put`-equivalent via the API
+    (the `secret_text` binding above) — confirmed present, value never
+    read back (Cloudflare's API does not return secret values).
+- **Application-side origin check implemented** (the piece
+  domain-and-dns.md flagged as "not done — needs its own approval";
+  approved this pass by the operator's explicit instruction):
+  - `src/server/net/origin-auth.ts` (new) — `ORIGIN_AUTH_HEADER`
+    (`x-vokr-origin-auth`, matching the Worker exactly),
+    `VERIFIED_ORIGIN_HEADER` (`x-vokr-verified-origin`, internal to the
+    app), and `isOriginAuthorized()`: passes everything when no secret is
+    configured (local/dev/preview, unchanged behaviour), else requires an
+    exact header match.
+  - `src/proxy.ts` — refuses with `404` before any Supabase work when
+    `isOriginAuthorized()` fails; stamps `VERIFIED_ORIGIN_HEADER` on the
+    request forwarded downstream (via `NextResponse.next({ request:
+    { headers } })`, never sent back to the browser) once it passes.
+    `ORIGIN_AUTH_SECRET` read once at module load via
+    `requireServerEnv()`, per this file's own "load once at boot" rule.
+  - `src/server/net/client-ip.ts` — `getClientIp()` now returns
+    `"unknown"` immediately unless the request carries
+    `VERIFIED_ORIGIN_HEADER: "1"`, closing exactly the gap D9 named: "a
+    forged `cf-connecting-ip` is ignored."
+  - `src/lib/env.ts` — `ORIGIN_AUTH_SECRET` added to `serverSchema` as
+    optional, same pattern as the other five secrets there.
+  - Tests: `src/server/net/__tests__/origin-auth.test.ts` (new, 4 cases)
+    and `client-ip.test.ts` rewritten (7 cases, including the forged-IP
+    and wrong-header-value cases) — both pass.
+    `client-ip-bucketing.integration.test.ts` updated to stamp
+    `VERIFIED_ORIGIN_HEADER` on its synthetic requests (it would
+    otherwise collapse every simulated IP to `"unknown"` and its
+    per-IP-bucket assertion would fail); **not run** — Docker Desktop's
+    daemon is not running in this environment, so `test:integration`'s
+    Postgres was unavailable this pass.
+  - `npm run lint`, `npm run typecheck`, `npm run test` (252/252, 29
+    files, no regressions), and `npm run build` all pass. (`npm run
+    lint`/`typecheck`/`build` had to run via PowerShell, not this
+    session's Bash — Bash's `npm run <script>` fails with `'node' is not
+    recognized`, a `cmd.exe`-vs-Git-Bash `PATH` mismatch unrelated to the
+    code; worth fixing separately.)
+- **Not done — this is the part that still leaves `run.app` open.** None
+  of the code above is deployed to Cloud Run yet. It exists only in this
+  working tree, uncommitted (alongside pre-existing unrelated uncommitted
+  changes to the auth pages/routes, left untouched per instruction).
+  Cloud Run is still serving the pre-existing image on revision
+  `vokr-00013-6fk` — the *same application code* as `vokr-00012-lvh`,
+  only the Secret Manager mount is new. **Until this is committed, pushed
+  and built through the existing CI/CD pipeline, a direct request to
+  `https://vokr-plxgen7xla-el.a.run.app` still bypasses the origin check
+  entirely** — the D9 security architecture is implemented but not live.
+- **Hostinger:** not touched. Nameservers remain
+  `aster`/`helios.dns-parking.com`. No nameserver change was made or
+  attempted this pass, per instruction.
+
+`https://vokr.shop/` is **not** live with this application. The Worker is
+deployed and proven against the real Cloud Run origin; what remains
+before cutover is (1) deciding whether to commit/push the origin-check
+code and let CI/CD deploy it — recommended before cutover, since
+otherwise `run.app` stays open the moment `vokr.shop` starts resolving
+through the Worker — and (2) the Hostinger nameserver change itself.
 
 ---
 

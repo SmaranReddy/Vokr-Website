@@ -9,6 +9,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 import { consumeRateLimit } from "@/server/rate-limit";
 import { getClientIp } from "@/server/net/client-ip";
+import { VERIFIED_ORIGIN_HEADER } from "@/server/net/origin-auth";
 import { prisma } from "@/server/db/client";
 
 /**
@@ -43,8 +44,15 @@ function ipKey(action: string, request: Request): string {
   return `auth:${action}:ip:${getClientIp(request)}`;
 }
 
+// D9 (ADR-031): `getClientIp` now trusts these headers only once the
+// request has passed the Worker's origin check (`src/proxy.ts` stamps
+// this) — see `src/server/net/__tests__/origin-auth.test.ts` for that
+// gate itself. Every request built here stands in for one that already
+// passed it, so the forwarded-IP headers below are the thing under test.
 function requestFrom(headers: Record<string, string>): Request {
-  return new Request("https://vokr.shop/api/auth/signin", { headers });
+  return new Request("https://vokr.shop/api/auth/signin", {
+    headers: { ...headers, [VERIFIED_ORIGIN_HEADER]: "1" },
+  });
 }
 
 /** Row ids this file created, so cleanup never deletes another file's rows. */
