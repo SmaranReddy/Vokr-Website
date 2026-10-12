@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { logServerError } from "@/lib/log";
 import { completeSignIn } from "@/server/auth/complete-sign-in";
 import {
   applyCookies,
@@ -27,6 +28,20 @@ export async function GET(request: NextRequest) {
 
     const code = url.searchParams.get("code");
     if (!code) {
+      // Every redirect below is a dead end for diagnosis unless the reason
+      // is written down: the browser only ever sees `?error=oauth`. The
+      // Phase 3 email-confirmation defect (callback never established a
+      // session) was invisible for exactly this reason.
+      logServerError(
+        "auth/callback",
+        crypto.randomUUID(),
+        new Error(
+          "no `code` query parameter on callback — " +
+            `params=[${[...url.searchParams.keys()].join(",") || "none"}] ` +
+            "(an implicit-flow link returns tokens in the URL fragment, " +
+            "which never reaches the server)",
+        ),
+      );
       return applyCookies(
         NextResponse.redirect(new URL("/sign-in?error=oauth", url.origin)),
         cookiesToSet,
@@ -35,6 +50,15 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error || !data.user) {
+      logServerError(
+        "auth/callback",
+        crypto.randomUUID(),
+        new Error(
+          "exchangeCodeForSession() did not return a user" +
+            (error ? "" : " (no error reported)"),
+          { cause: error },
+        ),
+      );
       return applyCookies(
         NextResponse.redirect(new URL("/sign-in?error=oauth", url.origin)),
         cookiesToSet,
@@ -52,7 +76,8 @@ export async function GET(request: NextRequest) {
       NextResponse.redirect(new URL("/", url.origin)),
       cookiesToSet,
     );
-  } catch {
+  } catch (error) {
+    logServerError("auth/callback", crypto.randomUUID(), error);
     return applyCookies(
       NextResponse.redirect(new URL("/sign-in?error=oauth", url.origin)),
       cookiesToSet,

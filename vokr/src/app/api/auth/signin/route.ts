@@ -6,6 +6,7 @@ import {
   ValidationError,
   toErrorResponse,
 } from "@/lib/errors";
+import { logServerError } from "@/lib/log";
 import { completeSignIn } from "@/server/auth/complete-sign-in";
 import {
   applyCookies,
@@ -75,7 +76,8 @@ export async function POST(request: NextRequest) {
       cookiesToSet,
     );
   } catch (error) {
-    const { status, body } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error);
+    logServerError("auth/signin", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }
 }

@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { ResetPasswordForm } from "@/components/auth/reset-password-form";
 import { Container } from "@/components/ui/container";
 import { createMetadata } from "@/lib/metadata";
@@ -11,7 +13,15 @@ export default function ResetPasswordPage() {
         <h1 className="mb-8 text-2xl font-semibold tracking-tight">
           Set a new password
         </h1>
-        <ResetPasswordForm />
+        {/* The form reads `?error=link` via useSearchParams, which needs a
+            Suspense boundary on a statically prerendered page. */}
+        <Suspense
+          fallback={
+            <p className="text-sm text-foreground/70">Verifying your link…</p>
+          }
+        >
+          <ResetPasswordForm />
+        </Suspense>
       </div>
     </Container>
   );

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { toErrorResponse } from "@/lib/errors";
+import { logServerError } from "@/lib/log";
 import {
   applyCookies,
   createRouteSupabaseClient,
@@ -20,7 +21,8 @@ export async function POST(request: NextRequest) {
       cookiesToSet,
     );
   } catch (error) {
-    const { status, body } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error);
+    logServerError("auth/signout", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }
 }
