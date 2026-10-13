@@ -95,7 +95,9 @@ export const FAQ_ITEMS = [
     id: "faq-subscription",
     question: "Do you offer a subscription plan?",
     answer:
-      "Yes — Vokr Subscribe delivers a fresh pair every 3, 6, or 12 months at 15% off. You can pause or cancel anytime.",
+      // The legacy answer ("Yes — … at 15% off. You can pause or cancel
+      // anytime.") described a program that does not exist (§2A.6 row L1).
+      "Not yet. Vokr Subscribe isn't available, so no subscription plan or subscription discount is offered at this time.",
   },
 ];
 

@@ -74,6 +74,16 @@ describe("CartDrawer — ordering disabled", () => {
     expect(checkout.hasAttribute("title")).toBe(false);
   });
 
+  it("disables quantity changes but still allows removing an item", () => {
+    cart = FILLED_CART;
+    render(<CartDrawer />);
+
+    for (const name of ["Increase quantity", "Decrease quantity"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect((screen.getByRole("button", { name: "Remove" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("tells a customer with an empty bag that ordering is unavailable", () => {
     cart = { cartId: null, items: [], subtotalPaise: 0, taxPaise: 0, totalPaise: 0 };
     render(<CartDrawer />);

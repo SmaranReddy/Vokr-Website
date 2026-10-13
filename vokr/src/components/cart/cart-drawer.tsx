@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { MAX_CART_ITEM_QUANTITY, MIN_CART_ITEM_QUANTITY } from "@/lib/cart";
-import { ORDERING_UNAVAILABLE_MESSAGE } from "@/config/commerce";
+import { ORDERING_ENABLED, ORDERING_UNAVAILABLE_MESSAGE } from "@/config/commerce";
 import type { CartLine } from "@/server/cart";
 
 import { useCart } from "./cart-provider";
@@ -48,7 +48,7 @@ function CartLineRow({ line }: { line: CartLine }) {
           <button
             type="button"
             aria-label="Decrease quantity"
-            disabled={isLoading || line.quantity <= MIN_CART_ITEM_QUANTITY}
+            disabled={!ORDERING_ENABLED || isLoading || line.quantity <= MIN_CART_ITEM_QUANTITY}
             onClick={() => void updateQuantity(line.cartItemId, line.quantity - 1)}
             className="h-7 w-7 border border-border-strong text-sm disabled:opacity-40"
           >
@@ -58,7 +58,7 @@ function CartLineRow({ line }: { line: CartLine }) {
           <button
             type="button"
             aria-label="Increase quantity"
-            disabled={isLoading || line.quantity >= MAX_CART_ITEM_QUANTITY}
+            disabled={!ORDERING_ENABLED || isLoading || line.quantity >= MAX_CART_ITEM_QUANTITY}
             onClick={() => void updateQuantity(line.cartItemId, line.quantity + 1)}
             className="h-7 w-7 border border-border-strong text-sm disabled:opacity-40"
           >

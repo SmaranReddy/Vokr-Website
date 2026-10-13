@@ -1,4 +1,6 @@
 import { createMetadata } from "@/lib/metadata";
+import { ProgramUnavailableNotice } from "@/components/marketing/program-unavailable-notice";
+import { AMBASSADOR_UNAVAILABLE } from "@/config/programs";
 import { AmbassadorApplyForm } from "./ambassador-apply-form";
 
 /**
@@ -31,6 +33,8 @@ const PERKS = [
 export default function VokrAmbassadorsPage() {
   return (
     <>
+      <ProgramUnavailableNotice>{AMBASSADOR_UNAVAILABLE}</ProgramUnavailableNotice>
+
       {/* HERO */}
       <section className="px-5 py-16 text-center sm:py-20">
         <p className="mb-3 text-[11px] font-semibold tracking-[.15em] text-muted uppercase">

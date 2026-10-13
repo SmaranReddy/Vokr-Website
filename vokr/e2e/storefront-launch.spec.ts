@@ -129,3 +129,29 @@ test.describe("storefront launch — purchasing is unavailable", () => {
     await expect(page.locator("#main").getByText("Add to Cart")).toHaveCount(0);
   });
 });
+
+test.describe("storefront launch — the cart API refuses purchases", () => {
+  // Bypassing the disabled button by calling the public API directly
+  // must not work, whatever the variant's status (§2A.6 row L1).
+  test("POST /api/cart/items is refused", async ({ request }) => {
+    const response = await request.post("/api/cart/items", {
+      data: { variantId: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", quantity: 1 },
+    });
+    expect(response.status()).toBe(403);
+    const body = (await response.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("ORDERING_UNAVAILABLE");
+    expect(body.error.message).toBe(ORDERING_UNAVAILABLE_MESSAGE);
+  });
+
+  test("PATCH /api/cart/items/[id] is refused", async ({ request }) => {
+    const response = await request.patch("/api/cart/items/any-item", {
+      data: { quantity: 3 },
+    });
+    expect(response.status()).toBe(403);
+  });
+
+  test("the bag stays readable", async ({ request }) => {
+    const response = await request.get("/api/cart");
+    expect(response.status()).toBe(200);
+  });
+});

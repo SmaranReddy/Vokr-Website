@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { createMetadata } from "@/lib/metadata";
+import { ProgramUnavailableNotice } from "@/components/marketing/program-unavailable-notice";
+import { SUBSCRIPTION_UNAVAILABLE } from "@/config/programs";
 
 /**
  * `subscription.html` — Vokr-Implementation-Plan.md §2A's approved
@@ -36,6 +38,8 @@ const HOW_SUBSCRIBE_WORKS = [
 export default function SubscriptionPage() {
   return (
     <>
+      <ProgramUnavailableNotice>{SUBSCRIPTION_UNAVAILABLE}</ProgramUnavailableNotice>
+
       {/* HERO */}
       <section className="px-5 py-16 text-center sm:py-20">
         <div className="mx-auto max-w-2xl">

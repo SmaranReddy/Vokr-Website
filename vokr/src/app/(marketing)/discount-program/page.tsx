@@ -1,4 +1,6 @@
 import { createMetadata } from "@/lib/metadata";
+import { ProgramUnavailableNotice } from "@/components/marketing/program-unavailable-notice";
+import { DISCOUNT_UNAVAILABLE } from "@/config/programs";
 import { VerifyForm } from "./verify-form";
 
 /**
@@ -38,6 +40,8 @@ const WHO_QUALIFIES = [
 export default function DiscountProgramPage() {
   return (
     <>
+      <ProgramUnavailableNotice>{DISCOUNT_UNAVAILABLE}</ProgramUnavailableNotice>
+
       {/* HERO */}
       <section className="px-5 py-16 text-center sm:py-20">
         <div className="mx-auto max-w-2xl">

@@ -3,6 +3,7 @@ import {
   ConflictError,
   InternalError,
   NotFoundError,
+  OrderingUnavailableError,
   RateLimitError,
   UnauthorizedError,
   ValidationError,
@@ -13,6 +14,7 @@ describe("toErrorResponse", () => {
   it.each([
     [ValidationError, 400, "VALIDATION_ERROR"],
     [UnauthorizedError, 401, "UNAUTHORIZED"],
+    [OrderingUnavailableError, 403, "ORDERING_UNAVAILABLE"],
     [NotFoundError, 404, "NOT_FOUND"],
     [ConflictError, 409, "CONFLICT"],
     [RateLimitError, 429, "RATE_LIMITED"],

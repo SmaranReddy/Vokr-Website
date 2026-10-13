@@ -5,6 +5,12 @@ import {
   assertSupersetAroundCardList,
 } from "./fidelity/extract";
 import { ORDERING_UNAVAILABLE_MESSAGE } from "../src/config/commerce";
+import {
+  AMBASSADOR_UNAVAILABLE,
+  DISCOUNT_UNAVAILABLE,
+  REFERRAL_UNAVAILABLE,
+  SUBSCRIPTION_UNAVAILABLE,
+} from "../src/config/programs";
 
 /**
  * §2A.7 fidelity regression — text-content diff (item 1) and structural
@@ -67,6 +73,20 @@ const ORDER_STATUS_DEVIATIONS: Deviation[] = [
   },
   { legacy: "by email and SMS the moment", migrated: "by email the moment" },
 ];
+
+// The /support-faq page answered "Yes"
+// to a subscription plan that does not exist.
+const FAQ_SUBSCRIPTION_DEVIATION: Deviation = {
+  legacy:
+    "Yes — Vokr Subscribe delivers a fresh pair every 3, 6, or 12 months at 15% off. You can pause or cancel anytime.",
+  migrated:
+    "Not yet. Vokr Subscribe isn't available, so no subscription plan or subscription discount is offered at this time.",
+};
+
+/** Program pages whose offer does not exist open with a notice. */
+function programNotice(notice: string): Deviation {
+  return { legacy: /^/, migrated: `${notice} ` };
+}
 
 /** D8 forms: the submit label stays; a visible note follows the form. */
 function formNote(label: string, note: string): Deviation {
@@ -170,7 +190,11 @@ const CASES: FidelityCase[] = [
     route: "/support-exchange-returns",
     legacyFile: "support-exchange-returns.html",
   },
-  { route: "/support-faq", legacyFile: "support-faq.html" },
+  {
+    route: "/support-faq",
+    legacyFile: "support-faq.html",
+    deviations: [FAQ_SUBSCRIPTION_DEVIATION],
+  },
   { route: "/support-help", legacyFile: "support-help.html" },
   { route: "/support-contact", legacyFile: "support-contact.html" },
   {
@@ -248,6 +272,7 @@ const CASES: FidelityCase[] = [
     route: "/vokr-ambassadors",
     legacyFile: "vokr-ambassadors.html",
     deviations: [
+      programNotice(AMBASSADOR_UNAVAILABLE),
       formNote(
         "Submit Application",
         "Online ambassador applications aren't open yet, so this form can't be submitted.",
@@ -268,6 +293,7 @@ const CASES: FidelityCase[] = [
     route: "/discount-program",
     legacyFile: "discount-program.html",
     deviations: [
+      programNotice(DISCOUNT_UNAVAILABLE),
       formNote(
         "Verify & Get Code",
         "Discount verification isn't available yet, so this form can't be submitted.",
@@ -278,13 +304,18 @@ const CASES: FidelityCase[] = [
     route: "/refer-a-friend",
     legacyFile: "refer-a-friend.html",
     deviations: [
+      programNotice(REFERRAL_UNAVAILABLE),
       formNote(
         "Get My Link",
         "Referral links aren't available yet, so this form can't be submitted.",
       ),
     ],
   },
-  { route: "/subscription", legacyFile: "subscription.html" },
+  {
+    route: "/subscription",
+    legacyFile: "subscription.html",
+    deviations: [programNotice(SUBSCRIPTION_UNAVAILABLE)],
+  },
   {
     route: "/analyze-your-shoes",
     legacyFile: "analyze-your-shoes.html",

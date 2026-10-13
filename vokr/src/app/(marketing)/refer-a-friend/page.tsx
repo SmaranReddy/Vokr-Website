@@ -1,4 +1,6 @@
 import { createMetadata } from "@/lib/metadata";
+import { ProgramUnavailableNotice } from "@/components/marketing/program-unavailable-notice";
+import { REFERRAL_UNAVAILABLE } from "@/config/programs";
 import { ReferralForm } from "./referral-form";
 
 /**
@@ -37,6 +39,8 @@ const HOW_IT_WORKS = [
 export default function ReferAFriendPage() {
   return (
     <>
+      <ProgramUnavailableNotice>{REFERRAL_UNAVAILABLE}</ProgramUnavailableNotice>
+
       {/* HERO */}
       <section className="px-5 py-16 text-center sm:py-20">
         <div className="mx-auto max-w-2xl">
