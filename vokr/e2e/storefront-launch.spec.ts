@@ -12,7 +12,7 @@ import { ORDERING_UNAVAILABLE_MESSAGE } from "../src/config/commerce";
  * - no placeholder `href="#"`, every internal link resolves, and every
  *   same-page/cross-page `#fragment` has a target;
  * - no purchase can be started, and the reason is visible;
- * - no uncaught runtime errors.
+ * - no uncaught runtime errors and no browser-console errors.
  */
 
 const SHOP_ROUTES = SHOP_SLUGS.map((slug) => `/shop/${slug}`);
@@ -53,6 +53,12 @@ test.describe("storefront launch — links and runtime errors", () => {
     test(`links: ${route}`, async ({ page, request, baseURL }) => {
       const pageErrors: string[] = [];
       page.on("pageerror", (error) => pageErrors.push(error.message));
+      // Console errors too: hydration mismatches, React warnings and
+      // failed resource loads never surface as a `pageerror`.
+      const consoleErrors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") consoleErrors.push(message.text());
+      });
 
       await page.goto(route);
       await page.waitForLoadState("networkidle");
@@ -83,6 +89,7 @@ test.describe("storefront launch — links and runtime errors", () => {
       }
 
       expect(pageErrors, `${route} threw at runtime`).toEqual([]);
+      expect(consoleErrors, `${route} logged console errors`).toEqual([]);
     });
   }
 });
