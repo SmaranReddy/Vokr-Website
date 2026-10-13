@@ -35,11 +35,6 @@ const POSTS = [
     body: "Simple habits — most of them under two minutes — that meaningfully extend the life of any pair of sneakers, Vokr or otherwise.",
   },
   {
-    tag: "Community",
-    title: "What 250,000 pairs of feet taught us about fit",
-    body: "Patterns we noticed across thousands of customer fit-quiz responses, and how they shaped Model 001.",
-  },
-  {
     tag: "Sustainability",
     title: 'What "recycled materials" actually means at Vokr',
     body: "A transparent breakdown of exactly which components in our shoes are recycled, and which aren't yet.",
@@ -78,9 +73,12 @@ export default function BlogPage() {
                 </span>
                 <h4 className="mb-2 text-base font-bold">{post.title}</h4>
                 <p className="mb-4 text-sm text-muted">{post.body}</p>
-                <a href="#" className="text-[13px] font-semibold underline underline-offset-2">
-                  Read more &rarr;
-                </a>
+                {/* The legacy "Read more →" linked to "#": none of these
+                    posts has been published, so the card says so instead
+                    of offering a dead link (§2A.6 row L1). */}
+                <p className="text-[13px] font-semibold text-muted">
+                  Not yet published
+                </p>
               </div>
             ))}
           </div>

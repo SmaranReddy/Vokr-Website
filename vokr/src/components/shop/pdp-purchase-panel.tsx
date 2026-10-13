@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useCart } from "@/components/cart/cart-provider";
+import {
+  ORDERING_ENABLED,
+  ORDERING_UNAVAILABLE_MESSAGE,
+} from "@/config/commerce";
 import type { CatalogVariant } from "@/server/catalog";
 
 /**
@@ -19,8 +23,11 @@ function displaySizeLabel(sizeLabel: string): string {
 
 /**
  * The legacy `.pdp-size-grid` / `#pdpAddBtn` — real size selection driven
- * by the live catalog variants. "Add to Cart" now calls the Phase 5 cart
- * API (`useCart().addItem`) instead of staying inert.
+ * by the live catalog variants. "Add to Cart" calls the Phase 5 cart
+ * API (`useCart().addItem`) — but only once `ORDERING_ENABLED` is on.
+ * Until checkout and payment ship, the button is disabled and a visible
+ * notice (wired via `aria-describedby`) says ordering isn't available,
+ * whatever the variants' status or stock (§2A.6 row L1).
  */
 export function PdpPurchasePanel({
   variants,
@@ -35,10 +42,17 @@ export function PdpPurchasePanel({
   // on failure it surfaces `CartProvider`'s own error banner — one place
   // for that message rather than a second copy here.
   async function handleAddToCart() {
-    if (!selected) return;
+    if (!ORDERING_ENABLED || !selected) return;
     await addItem(selected.id, 1);
     openCart();
   }
+
+  const canAdd = ORDERING_ENABLED && Boolean(selected) && !isLoading;
+  const describedBy = !ORDERING_ENABLED
+    ? "pdp-ordering-unavailable"
+    : selected
+      ? undefined
+      : "pdp-size-required";
 
   return (
     <div>
@@ -71,25 +85,32 @@ export function PdpPurchasePanel({
         })}
       </div>
 
-      {/* The label is the legacy's, verbatim and unconditional. Phase 5
-          needs a size before it can resolve a variant, but "Select a size"
-          / "Add to Cart — IN 8" are wording changes to approved content
-          (§2A.4) and break the §2A.7 text diff on all five PDPs. The
-          requirement is carried by the disabled state plus an `.sr-only`
-          description instead, which announces the reason without altering
-          any visible string. */}
+      {/* The label is the legacy's, verbatim and unconditional (§2A.4,
+          §2A.7). Why it is disabled is carried by `aria-describedby`: the
+          visible ordering notice while ordering is off (§2A.6 row L1),
+          otherwise the `.sr-only` size requirement. */}
       <button
         type="button"
-        disabled={!selected || isLoading}
-        aria-describedby={selected ? undefined : "pdp-size-required"}
+        disabled={!canAdd}
+        aria-describedby={describedBy}
         onClick={() => void handleAddToCart()}
         className="w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
       >
         Add to Cart
       </button>
-      <p id="pdp-size-required" className="sr-only">
-        Select a size to add this item to your cart.
-      </p>
+      {ORDERING_ENABLED ? (
+        <p id="pdp-size-required" className="sr-only">
+          Select a size to add this item to your cart.
+        </p>
+      ) : (
+        <p
+          id="pdp-ordering-unavailable"
+          role="note"
+          className="mt-3 border border-border-strong bg-surface-2 px-4 py-3 text-sm font-medium text-foreground"
+        >
+          {ORDERING_UNAVAILABLE_MESSAGE}
+        </p>
+      )}
       <p className="mt-3 text-xs text-muted">
         Free shipping on orders over ₹4,999. Free 30-day exchanges &amp;
         returns.

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { MAX_CART_ITEM_QUANTITY, MIN_CART_ITEM_QUANTITY } from "@/lib/cart";
+import { ORDERING_UNAVAILABLE_MESSAGE } from "@/config/commerce";
 import type { CartLine } from "@/server/cart";
 
 import { useCart } from "./cart-provider";
@@ -82,7 +83,7 @@ function CartLineRow({ line }: { line: CartLine }) {
 }
 
 export function CartDrawer() {
-  const { cart, isOpen, closeCart, error, isLoading } = useCart();
+  const { cart, isOpen, closeCart, error } = useCart();
 
   // Escape-to-close, matching every other overlay in this codebase's
   // interaction model.
@@ -140,7 +141,12 @@ export function CartDrawer() {
 
         <div className="flex-1 overflow-y-auto px-5">
           {cart.items.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted">Your bag is empty.</p>
+            <div className="py-10 text-center">
+              <p className="text-sm text-muted">Your bag is empty.</p>
+              <p role="note" className="mt-3 text-xs leading-relaxed text-foreground">
+                {ORDERING_UNAVAILABLE_MESSAGE}
+              </p>
+            </div>
           ) : (
             <ul>
               {cart.items.map((line) => (
@@ -172,15 +178,24 @@ export function CartDrawer() {
               shipping calculated at checkout.
             </p>
 
+            {/* Checkout and payment are not production-ready (§2A.6 row L1):
+                genuinely `disabled`, with the reason as visible text rather
+                than a tooltip. */}
             <button
               type="button"
-              aria-disabled="true"
-              title="Checkout launches in a later phase"
-              disabled={isLoading}
-              className="mt-4 w-full cursor-default bg-foreground px-6 py-3.5 text-sm font-semibold text-background opacity-70"
+              disabled
+              aria-describedby="cart-ordering-unavailable"
+              className="mt-4 w-full cursor-not-allowed bg-foreground px-6 py-3.5 text-sm font-semibold text-background opacity-40"
             >
               Checkout
             </button>
+            <p
+              id="cart-ordering-unavailable"
+              role="note"
+              className="mt-2 text-xs leading-relaxed text-foreground"
+            >
+              {ORDERING_UNAVAILABLE_MESSAGE}
+            </p>
           </div>
         )}
       </aside>

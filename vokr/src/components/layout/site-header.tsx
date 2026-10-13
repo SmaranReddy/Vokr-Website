@@ -18,6 +18,9 @@ import { HeaderSearch } from "@/components/layout/header-search";
  *   replacing the legacy's cosmetic slide-over sign-in panel, which the
  *   plan records this phase as *replacing* rather than migrating
  *   (§0.2 Phase 3 evidence log, item 12).
+ * - The announcement bars' "Available now" / "Shop now" read as
+ *   purchasable while ordering is disabled; both now say "Explore"
+ *   (§2A.6 row L1).
  * - The cart affordance (icon + count, matching the legacy `#cartToggle`)
  *   now opens the real cart drawer built in Phase 5
  *   (`src/components/cart/cart-drawer.tsx`), reading its count from
@@ -29,15 +32,15 @@ export function SiteHeader() {
   return (
     <>
       <div className="border-b border-[#222] bg-black px-4 py-3 text-center text-[13px] text-white">
-        Introducing Vokr Model x in White &amp; Black. Available now{" "}
+        Introducing Vokr Model x in White &amp; Black.{" "}
         <Link href="/shop/model-x" className="underline underline-offset-2">
-          &rarr;
+          Explore &rarr;
         </Link>
       </div>
       <div className="border-b border-[#222] bg-black px-4 py-3 text-center text-[13px] text-white">
         Introducing Model 001 in Black.{" "}
         <Link href="/shop/model-001" className="underline underline-offset-2">
-          Shop now &rarr;
+          Explore &rarr;
         </Link>
       </div>
 

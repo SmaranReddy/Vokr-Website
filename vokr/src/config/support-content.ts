@@ -17,7 +17,7 @@ export const ORDER_STATUS_STEPS = [
   },
   {
     title: "Shipped",
-    body: "You'll receive tracking details by email and SMS the moment your order leaves our facility.",
+    body: "You'll receive tracking details by email the moment your order leaves our facility.",
   },
   {
     title: "Delivered",

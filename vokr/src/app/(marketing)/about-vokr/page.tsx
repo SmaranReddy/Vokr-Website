@@ -31,10 +31,10 @@ const BELIEFS = [
   },
 ];
 
+// "250K+ Happy customers" and "4.7/5 Average rating" were removed under
+// §2A.6 row L1 — neither figure could be substantiated.
 const STATS = [
-  { num: "250K+", label: "Happy customers" },
   { num: "2021", label: "Founded" },
-  { num: "4.7/5", label: "Average rating" },
   { num: "30-day", label: "Free returns" },
 ];
 
@@ -118,7 +118,7 @@ export default function AboutVokrPage() {
             still obsessing over.
           </p>
         </div>
-        <div className="mx-auto grid max-w-3xl grid-cols-2 border-y border-border sm:grid-cols-4">
+        <div className="mx-auto grid max-w-3xl grid-cols-2 border-y border-border">
           {STATS.map((stat) => (
             <div
               key={stat.label}

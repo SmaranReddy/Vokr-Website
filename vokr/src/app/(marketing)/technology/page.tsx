@@ -87,8 +87,7 @@ export default function TechnologyPage() {
             Every Vokr shoe uses a copper-infused antimicrobial lining.
             Copper ions naturally disrupt the bacteria that cause shoe odor,
             so your pair stays fresher for longer — even worn two or three
-            days in a row, which is exactly how most of our customers wear
-            them.
+            days in a row.
           </p>
         </div>
       </section>
