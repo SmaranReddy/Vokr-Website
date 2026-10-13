@@ -1,48 +1,69 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 /**
- * This page is the target of the email link Supabase's
- * `resetPasswordForEmail()` sends. The link carries a one-time
- * `?code=...` that must be exchanged for a temporary recovery session
- * *in this browser* before `auth.updateUser({ password })` is allowed —
- * that exchange, and the password update itself, both have to happen
- * client-side, since the recovery session lives only in this tab.
+ * The page a verified recovery link lands on.
+ *
+ * `GET /api/auth/reset/confirm` has already redeemed the link's
+ * `token_hash` with `verifyOtp()` on the server and written the recovery
+ * session as cookies, so all this component does is confirm a session
+ * exists and collect the new password.
+ *
+ * It used to call `exchangeCodeForSession(code)` here instead. That needed
+ * the PKCE code-verifier cookie written by the response to
+ * `POST /api/auth/reset`, which exists only in the browser that submitted
+ * the forgot-password form — so opening the link in a private window, a
+ * second browser, a phone or webmail always failed with the "invalid or
+ * has expired" message below. See Vokr-Implementation-Plan.md, Phase 3
+ * defect log.
+ *
+ * `updateUser()` stays client-side, as before: `@supabase/ssr` does not
+ * mark session cookies `HttpOnly`, so the browser client reads the
+ * server-established session from `document.cookie`.
  */
 export function ResetPasswordForm() {
   const router = useRouter();
-  const [code] = useState(() =>
-    typeof window === "undefined"
-      ? null
-      : new URLSearchParams(window.location.search).get("code"),
-  );
+  // A rejected link is redirected here with `?error=link`. Read through
+  // `useSearchParams` rather than `window.location` so the value is stable
+  // across the server prerender and hydration; trusted over the session
+  // check below, so a visitor who already holds a session is never shown a
+  // password form off a link that failed. Requires the Suspense boundary
+  // this component is rendered inside.
+  const rejected = useSearchParams().get("error") === "link";
   const [ready, setReady] = useState(false);
-  const [linkError, setLinkError] = useState(code === null);
+  const [sessionMissing, setSessionMissing] = useState(false);
+  const linkError = rejected || sessionMissing;
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!code) {
+    if (rejected) {
       return;
     }
 
+    let active = true;
     const supabase = createSupabaseBrowserClient();
-    supabase.auth
-      .exchangeCodeForSession(code)
-      .then(({ error: exchangeError }) => {
-        if (exchangeError) {
-          setLinkError(true);
-        } else {
-          setReady(true);
-        }
-      });
-  }, [code]);
+    supabase.auth.getUser().then(({ data, error: sessionError }) => {
+      if (!active) {
+        return;
+      }
+      if (sessionError || !data.user) {
+        setSessionMissing(true);
+      } else {
+        setReady(true);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [rejected]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,6 +80,11 @@ export function ResetPasswordForm() {
       setStatus("idle");
       return;
     }
+
+    // Drop the recovery session before leaving: it was minted from an
+    // emailed link, so it should not outlive the reset it was issued for.
+    // Sign-out goes through the API route that owns session cookies.
+    await fetch("/api/auth/signout", { method: "POST" });
 
     setStatus("done");
     router.push("/sign-in");
