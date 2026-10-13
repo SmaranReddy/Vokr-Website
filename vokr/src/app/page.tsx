@@ -57,77 +57,6 @@ const COMFORT_ITEMS: AccordionItemData[] = [
   },
 ];
 
-interface Testimonial {
-  handle: string | null;
-  quote: string;
-  name: string;
-  role: string;
-  /** Present only on the legacy's two `.tc-imgcard` variants. */
-  image?: { src: string; alt: string; ratio: string; transform: string };
-}
-
-// Legacy row order (`.test-row1` / `.test-row2`): Rohan, Priyanka, Arjun
-// (image card) / Sneha (image card), Karan, Aditya.
-const TESTIMONIALS: Testimonial[] = [
-  {
-    handle: "@rohansethiblr",
-    quote:
-      "Wore these through back-to-back client meetings and a flight to Delhi. Still felt like I'd just put them on.",
-    name: "Rohan Sethi",
-    role: "VP Product, Razorpay · Bengaluru",
-  },
-  {
-    handle: "@priyankamehta_vc",
-    quote:
-      "Three weeks in Mumbai and I only packed one pair of shoes. That was a first.",
-    name: "Priyanka Mehta",
-    role: "Partner, Sequoia India · Mumbai",
-  },
-  {
-    handle: null,
-    // `.tc-imgcard` — the legacy card leads with a tilted shoe photo above
-    // the quote. Thumb ratio, image and the rotate/scale transform are the
-    // approved values from `vokr-production/index.html`.
-    image: {
-      src: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
-      alt: "Vokr black shoes — tilted view",
-      ratio: "4/3",
-      transform: "rotate(-8deg) scale(1.18)",
-    },
-    quote:
-      "My architect friends in Hyderabad kept asking where I got them. Told all of them.",
-    name: "Arjun Nair",
-    role: "Principal Architect, Mumbai",
-  },
-  {
-    handle: null,
-    image: {
-      src: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772",
-      alt: "Vokr black shoes — tilted view",
-      // The legacy card overrides `.tc-imgcard-thumb`'s 4/3 inline.
-      ratio: "16/9",
-      transform: "rotate(6deg) scale(1.22)",
-    },
-    quote: "From Koramangala to Connaught Place — one shoe, zero complaints.",
-    name: "Sneha Krishnan",
-    role: "Co-founder, Setu · Bengaluru",
-  },
-  {
-    handle: "@karankapoordesign",
-    quote:
-      "I design experiences for a living. Vokr understood what most shoe brands still haven't.",
-    name: "Karan Kapoor",
-    role: "Head of Design, Swiggy · Bengaluru",
-  },
-  {
-    handle: "@adityareddyblr",
-    quote:
-      "Six months. Every day. Office, gym, travel. These are the only shoes I reach for now.",
-    name: "Aditya Reddy",
-    role: "Engineering Manager, Google India · Hyderabad",
-  },
-];
-
 // `.tech-card` — each card leads with a material close-up. The legacy's
 // second card genuinely reuses the antimicrobial-lining photograph under a
 // different alt; that pairing is reproduced rather than corrected, since
@@ -154,6 +83,34 @@ const TECH_CARDS = [
   },
 ];
 
+// `.ig-grid` tiles. The legacy overlaid each with a customer-style
+// Instagram handle and closed with a "Follow @vokr" link to "#"; the
+// handles were unverifiable social proof and no real account is published,
+// so both were removed under §2A.6 row L1. The photographs are Vokr's own
+// product shots, so the alt text now says what they are.
+const INSTAGRAM_TILES = [
+  {
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639",
+    alt: "Vokr Model x — White/Black, side view",
+  },
+  {
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
+    alt: "Vokr Model 001 — Black, side view",
+  },
+  {
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772",
+    alt: "Vokr shoe — White, side view",
+  },
+  {
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639",
+    alt: "Vokr Model x — White/Black, side view",
+  },
+  {
+    img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
+    alt: "Vokr Model 001 — Black, side view",
+  },
+];
+
 export default function Home() {
   return (
     <>
@@ -172,7 +129,7 @@ export default function Home() {
             White &amp; Black
           </h1>
           <p className="max-w-xs text-[15px] text-muted">
-            The White &amp; Black. Available now in limited quantities.
+            The White &amp; Black. Online ordering isn&apos;t open yet.
           </p>
           <Link
             href="/shop/model-x"
@@ -248,64 +205,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* TESTIMONIALS */}
-      <section className="bg-black px-5 py-16 text-white">
-        <div className="mx-auto max-w-[1200px]">
-          <p className="mb-3 text-[11px] font-semibold tracking-[.15em] text-white/65 uppercase">
-            250,000+ customers love their Vokr
-          </p>
-          <h2 className="mb-10 text-3xl font-bold tracking-tight sm:text-4xl">
-            What our customers say
-          </h2>
-          <div className="grid grid-cols-1 gap-3 wide:grid-cols-3">
-            {TESTIMONIALS.map((t) => (
-              <div
-                key={t.name}
-                className={`border border-white/10 bg-white/5 ${
-                  t.image ? "overflow-hidden" : "p-7"
-                }`}
-              >
-                {t.image && (
-                  <div
-                    className="overflow-hidden bg-[#111]"
-                    style={{ aspectRatio: t.image.ratio }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-                    <img
-                      src={t.image.src}
-                      alt={t.image.alt}
-                      className="h-full w-full object-cover"
-                      style={{
-                        transform: t.image.transform,
-                        transformOrigin: "center center",
-                      }}
-                    />
-                  </div>
-                )}
-                <div className={t.image ? "p-5" : ""}>
-                  {t.handle && (
-                    <p className="mb-3 text-[10px] tracking-[.06em] text-white/60 uppercase">
-                      {t.handle} · View post on X
-                    </p>
-                  )}
-                  <p className="mb-5 text-[15px] leading-relaxed">
-                    &quot;{t.quote}&quot;
-                  </p>
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-sm font-bold">
-                      {t.name[0]}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold">{t.name}</p>
-                      <p className="text-xs text-white/65">{t.role}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* TESTIMONIALS — removed under §2A.6 row L1: the "250,000+
+          customers" figure and six attributed quotes (named people at real
+          companies, with social handles) could not be substantiated. */}
 
       {/* ACCORDION — Everything that makes Vokr, Vokr */}
       <section className="px-5 py-16 sm:py-20">
@@ -375,24 +277,18 @@ export default function Home() {
                 </Link>
                 <p className="mb-1 text-sm font-bold">{product.name}</p>
                 <p className="mb-3 text-sm text-muted">{product.desc}</p>
-                {/* D6, resolved 12 Sep 2026 — option (b), manager-approved
-                    (§0.3 D6, §2A.6): the control navigates to its PDP, where
-                    a size can be chosen and the real Phase 5 add-to-cart
-                    runs. The card carries no size selector and Phase 5
-                    resolves price, GST and stock from a variant ID, so there
-                    is nothing to add from here directly without inventing a
-                    default size. The legacy label is unchanged; the sr-only
-                    suffix names the destination for screen readers without
-                    altering visible content (§2A.4) or the §2A.7 text diff,
-                    which excludes `.sr-only`. */}
+                {/* D6 (12 Sep 2026) made this control navigate to its PDP.
+                    §2A.6 row L1 relabels it from the legacy "Add to Cart":
+                    ordering is not available, so a purchase verb here would
+                    imply something the storefront cannot do. */}
                 <Link
                   href={product.href}
                   className="inline-block border border-border-strong px-5 py-2.5 text-[13px] font-semibold hover:border-foreground"
                 >
-                  Add to Cart
+                  View Details
                   <span className="sr-only">
                     {" — "}
-                    {product.name}: choose a size on the product page
+                    {product.name}
                   </span>
                 </Link>
               </div>
@@ -427,9 +323,9 @@ export default function Home() {
             ))}
           </div>
           <p className="mt-8 text-center">
-            <a href="#" className="text-sm font-semibold underline underline-offset-2">
+            <Link href="/technology" className="text-sm font-semibold underline underline-offset-2">
               Learn More
-            </a>
+            </Link>
           </p>
         </div>
       </section>
@@ -534,60 +430,22 @@ export default function Home() {
             (`.ig-item:nth-child(n+4)` / `(n+3)`) rather than wrapping it,
             so the strip is always exactly one row. */}
         <div className="mx-auto grid max-w-[1200px] grid-cols-2 gap-[3px] narrow:grid-cols-3 wide:grid-cols-5">
-          {[
-            {
-              img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639",
-              handle: "deepika.dayswear",
-            },
-            {
-              img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
-              handle: "arjun.onthemove",
-            },
-            {
-              img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772",
-              handle: "karan.streets",
-            },
-            {
-              img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639",
-              handle: "priya.in.motion",
-            },
-            {
-              img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
-              handle: "soles.and.souls",
-            },
-          ].map((item, index) => (
+          {INSTAGRAM_TILES.map((item, index) => (
             <div
-              key={item.handle}
-              className={`group relative aspect-2/3 overflow-hidden bg-surface-2 ${
+              key={index}
+              className={`relative aspect-2/3 overflow-hidden bg-surface-2 ${
                 index >= 3 ? "hidden wide:block" : index >= 2 ? "hidden narrow:block" : ""
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-              <img src={item.img} alt={`@${item.handle}`} className="h-full w-full object-cover" />
-              <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
-                {item.handle}
-              </span>
+              <img src={item.img} alt={item.alt} className="h-full w-full object-cover" />
             </div>
           ))}
         </div>
-        <p className="mt-6 text-center">
-          <a href="#" className="text-sm font-semibold underline underline-offset-2">
-            Follow @vokr
-          </a>
-        </p>
       </section>
 
-      {/* PRESS */}
-      <section className="border-t border-border px-5 py-14 text-center">
-        <p className="mx-auto mb-8 max-w-lg text-xl font-medium sm:text-2xl">
-          &quot;The most thoughtfully designed sneakers ever.&quot;
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-8 text-sm font-semibold text-muted">
-          <span>Verve</span>
-          <span>Man&apos;s World</span>
-          <span>Humans of Bombay</span>
-        </div>
-      </section>
+      {/* PRESS — removed under §2A.6 row L1: an unattributed quote beside
+          three outlet names, with no citation to substantiate it. */}
 
       {/* SUPPORT (collapsed group — linked from hamburger "Support" section) */}
       <SupportGroup />

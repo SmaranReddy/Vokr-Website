@@ -28,61 +28,15 @@ export function SiteFooter() {
               Get first access to new products, community events and founder
               updates.*
             </p>
-            <div className="mb-10 max-w-[360px]">
+            {/* `id="signup"` is the target of the `/#signup` links on
+                /blog and /community, which had no destination before. */}
+            <div id="signup" className="mb-10 max-w-[360px] scroll-mt-20">
               <NewsletterForm />
             </div>
-            <p className="mb-3.5 text-xs font-semibold text-white/60">
-              Stay Connected
-            </p>
-            {/* Legacy hrefs are literal "#" placeholders — no real handle is
-                published in the approved content, so none is invented here (§2A.4). */}
-            <div className="flex gap-3">
-              <a
-                href="#"
-                aria-label="Instagram"
-                className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-white/20 text-white/80 hover:border-white hover:bg-white hover:text-black"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <rect x="2" y="2" width="20" height="20" rx="5" />
-                  <circle cx="12" cy="12" r="4" />
-                  <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
-                </svg>
-              </a>
-              <a
-                href="#"
-                aria-label="X"
-                className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-white/20 text-white/80 hover:border-white hover:bg-white hover:text-black"
-              >
-                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                  <path d="M15.2 1.9h2.75l-6 6.9 7.07 9.3H13.4l-4.34-5.67-4.96 5.67H1.4l6.44-7.35L1.05 1.9H6.7l3.93 5.19L15.2 1.9zm-.97 14.6h1.52L5.9 3.45H4.27l10 13.05z" />
-                </svg>
-              </a>
-              <a
-                href="#"
-                aria-label="Facebook"
-                className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-white/20 text-white/80 hover:border-white hover:bg-white hover:text-black"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z" />
-                </svg>
-              </a>
-            </div>
+            {/* "Stay Connected" and its Instagram / X / Facebook icons were
+                removed under §2A.6 row L1: the legacy hrefs were literal "#"
+                placeholders and no real handle is published, so they were
+                dead links. Restore them once official profiles exist. */}
           </div>
 
           {FOOTER_LINK_GROUPS.map((group) => (

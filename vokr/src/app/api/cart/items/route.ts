@@ -5,6 +5,7 @@ import { logServerError } from "@/lib/log";
 import { getSession } from "@/server/auth/session";
 import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { addItem } from "@/server/cart";
+import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { assertCartMutationAllowed } from "@/server/cart/rate-limit";
 import { addItemBodySchema } from "@/server/cart/schemas";
 
@@ -12,6 +13,8 @@ export async function POST(request: NextRequest) {
   let cookiesToSet: CookieWrite[] = [];
 
   try {
+    assertOrderingEnabled();
+
     const session = await getSession(request);
     cookiesToSet = session.cookiesToSet;
 

@@ -8,11 +8,9 @@ export const metadata = createMetadata({
 });
 
 /**
- * `terms.html`, transcribed verbatim (Vokr-Implementation-Plan.md §2A.4).
- * Clause 4 still reads "order confirmation email/SMS" — **R14** (Phase 4
- * task 7, §2A.6) proposes amending this to "email" only, since SMS is
- * deferred, but that change is legal copy pending manager approval and
- * is not applied here.
+ * `terms.html`, transcribed verbatim (Vokr-Implementation-Plan.md §2A.4),
+ * with one approved amendment: **R14** (§2A.6) — clause 4's "order
+ * confirmation email/SMS" now reads "email", since SMS is not implemented.
  */
 export default function TermsPage() {
   return (
@@ -44,7 +42,7 @@ export default function TermsPage() {
       <p>
         <strong>4. Order Confirmation.</strong> Placing an order is an offer
         to purchase. Your order is confirmed only once you receive an order
-        confirmation email/SMS with your order ID. Vokr reserves the right
+        confirmation email with your order ID. Vokr reserves the right
         to cancel any order due to stock unavailability, pricing errors, or
         suspected fraudulent activity, in which case a full refund will be
         issued.

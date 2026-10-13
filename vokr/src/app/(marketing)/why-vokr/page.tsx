@@ -9,7 +9,7 @@ import { createMetadata } from "@/lib/metadata";
  * Tailwind tokens, see `src/app/page.tsx`). Header, nav, cart, search,
  * account panel and footer are provided globally by `src/app/layout.tsx`
  * and are not reproduced here. The legacy page has no closing CTA band —
- * it ends after the testimonial cards.
+ * it ended after testimonial cards, which §2A.6 row L1 removed.
  */
 
 export const metadata = createMetadata({
@@ -37,24 +37,6 @@ const REASONS = [
     icon: "🌿",
     title: "Lower-impact by design",
     body: "We build with recycled materials wherever we can, and make shoes meant to last multiple seasons, not one.",
-  },
-];
-
-const TESTIMONIALS = [
-  {
-    quote:
-      "Wore these through back-to-back client meetings and a flight to Delhi. Still felt like I'd just put them on.",
-    name: "Rohan Sethi",
-  },
-  {
-    quote:
-      "Three weeks in Mumbai and I only packed one pair of shoes. That was a first.",
-    name: "Priyanka Mehta",
-  },
-  {
-    quote:
-      "Six months. Every day. Office, gym, travel. These are the only shoes I reach for now.",
-    name: "Aditya Reddy",
   },
 ];
 
@@ -127,22 +109,8 @@ export default function WhyVokrPage() {
         </div>
       </section>
 
-      {/* WHAT PEOPLE SAY AFTER THEY SWITCH */}
-      <section className="px-5 py-16 sm:py-20">
-        <div className="mx-auto max-w-[1200px]">
-          <h2 className="mb-10 text-3xl font-bold tracking-tight sm:text-4xl">
-            What people say after they switch
-          </h2>
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
-            {TESTIMONIALS.map((t) => (
-              <div key={t.name} className="rounded-2xl border border-border-strong p-6">
-                <p className="text-[15px] leading-relaxed">&quot;{t.quote}&quot;</p>
-                <h4 className="mt-3.5 text-sm font-bold">{t.name}</h4>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* WHAT PEOPLE SAY AFTER THEY SWITCH — removed under §2A.6 row L1:
+          three attributed customer quotes that could not be substantiated. */}
     </>
   );
 }

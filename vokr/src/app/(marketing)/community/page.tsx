@@ -37,24 +37,6 @@ const BENEFITS = [
   },
 ];
 
-const POSTS = [
-  {
-    handle: "@karankapoordesign",
-    quote:
-      "I design experiences for a living. Vokr understood what most shoe brands still haven't.",
-  },
-  {
-    handle: "@adityareddyblr",
-    quote:
-      "Six months. Every day. Office, gym, travel. These are the only shoes I reach for now.",
-  },
-  {
-    handle: "@priyankamehta_vc",
-    quote:
-      "Three weeks in Mumbai and I only packed one pair of shoes. That was a first.",
-  },
-];
-
 export default function CommunityPage() {
   return (
     <>
@@ -65,7 +47,7 @@ export default function CommunityPage() {
             Community
           </p>
           <h1 className="mb-4 text-4xl leading-[1.08] font-bold tracking-tight sm:text-5xl">
-            250,000+ people, one shoe they actually reach for every day.
+            One shoe you actually reach for every day.
           </h1>
           <p className="text-lg leading-relaxed text-muted">
             The Vokr community is where customers, ambassadors, and our own
@@ -92,30 +74,8 @@ export default function CommunityPage() {
         </div>
       </section>
 
-      {/* FROM THE COMMUNITY */}
-      <section className="border-t border-border px-5 py-16 sm:py-20">
-        <div className="mx-auto max-w-3xl">
-          <h2 className="mb-10 text-3xl font-bold tracking-tight sm:text-4xl">
-            From the community
-          </h2>
-          <ul className="space-y-6">
-            {POSTS.map((post) => (
-              <li key={post.handle} className="flex gap-4">
-                <div
-                  aria-hidden="true"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-lg font-bold"
-                >
-                  @
-                </div>
-                <div>
-                  <h4 className="mb-1 text-base font-bold">{post.handle}</h4>
-                  <p className="text-sm text-muted">&quot;{post.quote}&quot;</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
+      {/* FROM THE COMMUNITY — removed under §2A.6 row L1: three quotes
+          attributed to social handles that could not be substantiated. */}
 
       {/* CTA BAND */}
       <section className="border-t border-border bg-surface-2 px-5 py-16 text-center sm:py-20">

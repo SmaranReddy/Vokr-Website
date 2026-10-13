@@ -10,36 +10,43 @@
  */
 export function OrderStatusForm() {
   return (
-    <form
-      onSubmit={(event) => event.preventDefault()}
-      className="mb-8 flex flex-col gap-3 sm:flex-row"
-    >
-      <label htmlFor="order-number" className="sr-only">
-        Order number
-      </label>
-      <input
-        id="order-number"
-        type="text"
-        placeholder="Order number (e.g. VK-10234)"
-        className="flex-1 border border-border-strong px-4 py-3 text-sm outline-none focus:border-foreground"
-      />
-      <label htmlFor="order-email" className="sr-only">
-        Email address
-      </label>
-      <input
-        id="order-email"
-        type="email"
-        placeholder="Email address"
-        className="flex-1 border border-border-strong px-4 py-3 text-sm outline-none focus:border-foreground"
-      />
-      <button
-        type="submit"
-        aria-disabled="true"
-        title="Order tracking launches once real orders exist (Phase 9)"
-        className="cursor-default bg-foreground px-6 py-3 text-sm font-semibold text-background opacity-60"
+    <>
+      <form
+        onSubmit={(event) => event.preventDefault()}
+        className="mb-8 flex flex-col gap-3 sm:flex-row"
       >
-        Track Order
-      </button>
-    </form>
+        <label htmlFor="order-number" className="sr-only">
+          Order number
+        </label>
+        <input
+          id="order-number"
+          type="text"
+          placeholder="Order number (e.g. VK-10234)"
+          className="flex-1 border border-border-strong px-4 py-3 text-sm outline-none focus:border-foreground"
+        />
+        <label htmlFor="order-email" className="sr-only">
+          Email address
+        </label>
+        <input
+          id="order-email"
+          type="email"
+          placeholder="Email address"
+          className="flex-1 border border-border-strong px-4 py-3 text-sm outline-none focus:border-foreground"
+        />
+        <button
+          type="submit"
+          aria-disabled="true"
+          aria-describedby="order-status-unavailable"
+          className="cursor-default bg-foreground px-6 py-3 text-sm font-semibold text-background opacity-60"
+        >
+          Track Order
+        </button>
+      </form>
+      {/* Visible reason this control is inert (§2A.6 row L1) — the
+          former `title` tooltip was neither visible nor reliably announced. */}
+      <p id="order-status-unavailable" role="note" className="mt-3 text-sm text-muted">
+        {"Online order tracking isn't available yet — online ordering hasn't opened, so there are no orders to track."}
+      </p>
+    </>
   );
 }

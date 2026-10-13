@@ -7,7 +7,11 @@ export const metadata = createMetadata({
   alternates: { canonical: "/privacy-policy" },
 });
 
-/** `privacy-policy.html`, transcribed verbatim (Vokr-Implementation-Plan.md §2A.4). */
+/**
+ * `privacy-policy.html`, transcribed verbatim (Vokr-Implementation-Plan.md
+ * §2A.4), except that the two "email/SMS" / "emails or SMS" references now
+ * say email only — SMS is not implemented (§2A.6 row R14).
+ */
 export default function PrivacyPolicyPage() {
   return (
     <LegalPageShell
@@ -48,7 +52,7 @@ export default function PrivacyPolicyPage() {
         — Personalize your experience, including size recommendations from
         our Find Your Fit quiz
         <br />
-        — Send you order updates via email/SMS and, with your consent,
+        — Send you order updates via email and, with your consent,
         marketing communications
         <br />
         — Improve our products, website, and services over time
@@ -84,7 +88,7 @@ export default function PrivacyPolicyPage() {
         <strong>7. Your Rights &amp; Choices.</strong> You can:
       </p>
       <p>
-        — Unsubscribe from marketing emails or SMS at any time using the
+        — Unsubscribe from marketing emails at any time using the
         link/instructions provided
         <br />
         — Request access to, correction of, or deletion of your personal

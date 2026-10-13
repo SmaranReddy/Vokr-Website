@@ -17,3 +17,19 @@ describe("createMetadata", () => {
     expect(metadata.description).toBe(siteConfig.description);
   });
 });
+
+describe("siteConfig.description", () => {
+  // It is the meta description of every page without its own, so it is
+  // what search results show (§2A.6 row L1).
+  it("is customer-facing copy, not internal project wording", () => {
+    expect(siteConfig.description).not.toMatch(
+      /application|foundation|rebuil|D2C|production|storefront/i,
+    );
+  });
+
+  it("makes no rating, customer-count, discount or availability claim", () => {
+    expect(siteConfig.description).not.toMatch(
+      /\d+(\.\d+)?\s*(\/\s*5|stars?|★)|\d[\d,]*\+|review|rated|customers|% off|discount|available now|in stock|free shipping/i,
+    );
+  });
+});

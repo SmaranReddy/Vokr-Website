@@ -17,7 +17,7 @@ export const ORDER_STATUS_STEPS = [
   },
   {
     title: "Shipped",
-    body: "You'll receive tracking details by email and SMS the moment your order leaves our facility.",
+    body: "You'll receive tracking details by email the moment your order leaves our facility.",
   },
   {
     title: "Delivered",
@@ -95,7 +95,9 @@ export const FAQ_ITEMS = [
     id: "faq-subscription",
     question: "Do you offer a subscription plan?",
     answer:
-      "Yes — Vokr Subscribe delivers a fresh pair every 3, 6, or 12 months at 15% off. You can pause or cancel anytime.",
+      // The legacy answer ("Yes — … at 15% off. You can pause or cancel
+      // anytime.") described a program that does not exist (§2A.6 row L1).
+      "No. Vokr Subscribe isn't available and offers no subscriptions, discounts or other benefits at this time.",
   },
 ];
 

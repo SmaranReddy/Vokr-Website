@@ -8,6 +8,7 @@
 export type ErrorCode =
   | "VALIDATION_ERROR"
   | "UNAUTHORIZED"
+  | "ORDERING_UNAVAILABLE"
   | "NOT_FOUND"
   | "CONFLICT"
   | "RATE_LIMITED"
@@ -41,6 +42,16 @@ export class ValidationError extends AppError {
 export class UnauthorizedError extends AppError {
   readonly code = "UNAUTHORIZED" as const;
   readonly status = 401;
+}
+
+/**
+ * 403 — a purchase action was attempted while ordering is disabled
+ * (`ORDERING_ENABLED`, Vokr-Implementation-Plan.md §2A.6 row L1). Its
+ * message is the same customer-facing text the UI shows.
+ */
+export class OrderingUnavailableError extends AppError {
+  readonly code = "ORDERING_UNAVAILABLE" as const;
+  readonly status = 403;
 }
 
 /** 404 — the requested resource does not exist (or is not visible). */

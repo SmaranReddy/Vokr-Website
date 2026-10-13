@@ -5,6 +5,7 @@ import { logServerError } from "@/lib/log";
 import { getSession } from "@/server/auth/session";
 import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { removeItem, updateQuantity } from "@/server/cart";
+import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { assertCartMutationAllowed } from "@/server/cart/rate-limit";
 import { updateQuantityBodySchema } from "@/server/cart/schemas";
 
@@ -15,6 +16,8 @@ export async function PATCH(
   let cookiesToSet: CookieWrite[] = [];
 
   try {
+    assertOrderingEnabled();
+
     const { id } = await context.params;
     const session = await getSession(request);
     cookiesToSet = session.cookiesToSet;

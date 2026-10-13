@@ -191,7 +191,7 @@ export function FitQuizModal() {
               href="/shop/model-x"
               className="mb-4 inline-block text-sm font-semibold underline underline-offset-4"
             >
-              Shop Model x in this size &rarr;
+              View Model x &rarr;
             </Link>
             <button
               type="button"
