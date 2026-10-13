@@ -97,7 +97,7 @@ export const FAQ_ITEMS = [
     answer:
       // The legacy answer ("Yes — … at 15% off. You can pause or cancel
       // anytime.") described a program that does not exist (§2A.6 row L1).
-      "Not yet. Vokr Subscribe isn't available, so no subscription plan or subscription discount is offered at this time.",
+      "No. Vokr Subscribe isn't available and offers no subscriptions, discounts or other benefits at this time.",
   },
 ];
 

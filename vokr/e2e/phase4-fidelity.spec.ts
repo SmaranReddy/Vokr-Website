@@ -6,10 +6,10 @@ import {
 } from "./fidelity/extract";
 import { ORDERING_UNAVAILABLE_MESSAGE } from "../src/config/commerce";
 import {
-  AMBASSADOR_UNAVAILABLE,
-  DISCOUNT_UNAVAILABLE,
-  REFERRAL_UNAVAILABLE,
-  SUBSCRIPTION_UNAVAILABLE,
+  AMBASSADOR_PROGRAM,
+  DISCOUNT_PROGRAM,
+  REFERRAL_PROGRAM,
+  SUBSCRIPTION_PROGRAM,
 } from "../src/config/programs";
 
 /**
@@ -80,13 +80,8 @@ const FAQ_SUBSCRIPTION_DEVIATION: Deviation = {
   legacy:
     "Yes — Vokr Subscribe delivers a fresh pair every 3, 6, or 12 months at 15% off. You can pause or cancel anytime.",
   migrated:
-    "Not yet. Vokr Subscribe isn't available, so no subscription plan or subscription discount is offered at this time.",
+    "No. Vokr Subscribe isn't available and offers no subscriptions, discounts or other benefits at this time.",
 };
-
-/** Program pages whose offer does not exist open with a notice. */
-function programNotice(notice: string): Deviation {
-  return { legacy: /^/, migrated: `${notice} ` };
-}
 
 /** D8 forms: the submit label stays; a visible note follows the form. */
 function formNote(label: string, note: string): Deviation {
@@ -269,17 +264,6 @@ const CASES: FidelityCase[] = [
   },
   { route: "/jobs", legacyFile: "jobs.html" },
   {
-    route: "/vokr-ambassadors",
-    legacyFile: "vokr-ambassadors.html",
-    deviations: [
-      programNotice(AMBASSADOR_UNAVAILABLE),
-      formNote(
-        "Submit Application",
-        "Online ambassador applications aren't open yet, so this form can't be submitted.",
-      ),
-    ],
-  },
-  {
     route: "/wholesale-orders",
     legacyFile: "wholesale-orders.html",
     deviations: [
@@ -288,33 +272,6 @@ const CASES: FidelityCase[] = [
         "Online wholesale inquiries aren't available yet, so this form can't be submitted.",
       ),
     ],
-  },
-  {
-    route: "/discount-program",
-    legacyFile: "discount-program.html",
-    deviations: [
-      programNotice(DISCOUNT_UNAVAILABLE),
-      formNote(
-        "Verify & Get Code",
-        "Discount verification isn't available yet, so this form can't be submitted.",
-      ),
-    ],
-  },
-  {
-    route: "/refer-a-friend",
-    legacyFile: "refer-a-friend.html",
-    deviations: [
-      programNotice(REFERRAL_UNAVAILABLE),
-      formNote(
-        "Get My Link",
-        "Referral links aren't available yet, so this form can't be submitted.",
-      ),
-    ],
-  },
-  {
-    route: "/subscription",
-    legacyFile: "subscription.html",
-    deviations: [programNotice(SUBSCRIPTION_UNAVAILABLE)],
   },
   {
     route: "/analyze-your-shoes",
@@ -382,5 +339,23 @@ for (const { route, legacyFile, supersetOk, deviations = [], headingDeviations }
       migrated.headings,
       "heading tag/order/text must match the legacy page",
     ).toEqual(expectedHeadings);
+  });
+}
+
+// §2A.6 row L1: these four legacy pages advertised programs that do not
+// exist. Their legacy content is withdrawn entirely, so there is no text to
+// diff; instead each route must render exactly the program's name and its
+// unavailability notice.
+for (const [route, program] of [
+  ["/subscription", SUBSCRIPTION_PROGRAM],
+  ["/refer-a-friend", REFERRAL_PROGRAM],
+  ["/discount-program", DISCOUNT_PROGRAM],
+  ["/vokr-ambassadors", AMBASSADOR_PROGRAM],
+] as const) {
+  test(`§2A.6 L1 withdrawn program — ${route}`, async ({ page }) => {
+    await page.goto(route);
+    const migrated = extractStructure(await page.locator("#main").innerHTML());
+    expect(migrated.text).toBe(`${program.name} ${program.notice} Back to home →`);
+    expect(migrated.headings).toEqual([{ tag: "h1", text: program.name }]);
   });
 }

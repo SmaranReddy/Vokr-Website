@@ -51,6 +51,16 @@ const pages: Record<string, () => Promise<ReactElement>> = {
   },
 };
 
+/** Offers and calls to action for programs that do not exist. */
+const UNAVAILABLE_OFFERS: { label: string; pattern: RegExp }[] = [
+  { label: "referral reward", pattern: /₹\s?500|Give .* Get|Vokr credit/ },
+  { label: "percentage discount", pattern: /\d+% off|discounted price/i },
+  { label: "subscription call to action", pattern: /Start your subscription|Pick your style|Pause or cancel/i },
+  { label: "ambassador perks", pattern: /Commission on referrals|Free pairs, first|Apply Now|Submit Application/ },
+  { label: "referral call to action", pattern: /Get My Link|referral link/i },
+  { label: "discount call to action", pattern: /Verify &amp; Get Code|Verify & Get Code|Who qualifies/i },
+];
+
 async function renderPage(name: string): Promise<string> {
   const load = pages[name];
   if (!load) throw new Error(`No page registered as "${name}"`);
@@ -84,7 +94,7 @@ describe("storefront content — removed claims stay removed", () => {
   for (const name of Object.keys(pages)) {
     it(`${name} renders none of the removed claims`, async () => {
       const html = await renderPage(name);
-      for (const { label, pattern } of BANNED) {
+      for (const { label, pattern } of [...BANNED, ...UNAVAILABLE_OFFERS]) {
         expect(html, `${name}: ${label}`).not.toMatch(pattern);
       }
     });
@@ -130,23 +140,34 @@ describe("storefront content — removed claims stay removed", () => {
   }
 
   it.each([
-    ["/subscription", "SUBSCRIPTION_UNAVAILABLE"],
-    ["/refer-a-friend", "REFERRAL_UNAVAILABLE"],
-    ["/discount-program", "DISCOUNT_UNAVAILABLE"],
-    ["/vokr-ambassadors", "AMBASSADOR_UNAVAILABLE"],
-  ] as const)("%s opens by marking its program as unavailable", async (name, key) => {
-    const programs = await import("@/config/programs");
-    const notice = programs[key];
+    ["/subscription", "SUBSCRIPTION_PROGRAM"],
+    ["/refer-a-friend", "REFERRAL_PROGRAM"],
+    ["/discount-program", "DISCOUNT_PROGRAM"],
+    ["/vokr-ambassadors", "AMBASSADOR_PROGRAM"],
+  ] as const)("%s renders only the unavailable notice — no offer or call to action", async (name, key) => {
+    const program = (await import("@/config/programs"))[key];
     const html = await renderPage(name);
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const first = doc.querySelector('[role="note"]');
-    expect(first?.textContent).toBe(notice);
-    // Nothing on the page may come before the notice except its wrapper.
-    expect(html.indexOf(notice)).toBeLessThan(html.indexOf("<h1"));
+
+    expect(doc.querySelector("h1")?.textContent).toBe(program.name);
+    expect(doc.querySelector('[role="note"]')?.textContent).toBe(program.notice);
+    expect(program.notice).toMatch(/isn't available\. It offers no .* or other benefits at this time\.$/);
+
+    // The only interactive element is the way back home.
+    expect(doc.querySelectorAll("form, button, input, select, textarea")).toHaveLength(0);
+    const links = Array.from(doc.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    expect(links).toEqual(["/"]);
+
+    for (const { label, pattern } of UNAVAILABLE_OFFERS) {
+      expect(html, `${name}: ${label}`).not.toMatch(pattern);
+    }
   });
 
-  it("the FAQ says there is no subscription plan", async () => {
+  it("the FAQ says there is no subscription plan and promises nothing", async () => {
     const html = await renderPage("/support-faq");
-    expect(html).toContain("Not yet. Vokr Subscribe isn");
+    expect(html).toContain("No. Vokr Subscribe isn");
+    for (const { label, pattern } of UNAVAILABLE_OFFERS) {
+      expect(html, `/support-faq: ${label}`).not.toMatch(pattern);
+    }
   });
 });

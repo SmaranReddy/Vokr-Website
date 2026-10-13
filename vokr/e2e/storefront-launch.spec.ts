@@ -33,6 +33,13 @@ const BANNED: { label: string; pattern: RegExp }[] = [
   { label: "uncited press strip", pattern: /Humans of Bombay|most thoughtfully designed/ },
   { label: "SMS promise", pattern: /\bSMS\b/ },
   { label: "availability promise", pattern: /Available now|limited quantities/i },
+  { label: "referral reward", pattern: /₹\s?500|Vokr credit/ },
+  { label: "percentage discount", pattern: /\d+% off|discounted price/i },
+  {
+    label: "program call to action",
+    pattern:
+      /Start your subscription|Commission on referrals|Get My Link|Verify &amp; Get Code|Submit Application|Apply Now/,
+  },
 ];
 
 test.describe("storefront launch — removed claims stay removed", () => {

@@ -1,17 +1,37 @@
 /**
- * Notices for program pages whose offers do not exist yet (§2A.6 row L1).
- * Shown by `ProgramUnavailableNotice` at the top of each page, and
- * asserted by the unit and e2e regression tests.
+ * Programs the approved legacy site advertised but that do not exist
+ * (§2A.6 row L1): no subscription system, referral ledger, discount
+ * verification or ambassador pipeline is built or scoped. Each page keeps
+ * its route, title and navigation entry, but renders only this name and
+ * notice — none of the legacy offers ("Give ₹500. Get ₹500.", "15% off",
+ * commissions) or calls to action. Asserted by unit and e2e tests.
  */
+export interface UnavailableProgram {
+  /** Page heading — the program's own name from the legacy page. */
+  name: string;
+  notice: string;
+}
 
-export const SUBSCRIPTION_UNAVAILABLE =
-  "Vokr Subscribe isn't available yet. No subscriptions, subscription discounts or scheduled shipments are offered at this time.";
+export const SUBSCRIPTION_PROGRAM: UnavailableProgram = {
+  name: "Vokr Subscribe",
+  notice:
+    "Vokr Subscribe isn't available. It offers no subscriptions, discounts or other benefits at this time.",
+};
 
-export const REFERRAL_UNAVAILABLE =
-  "The referral program isn't available yet. No referral discounts or Vokr credit are offered at this time.";
+export const REFERRAL_PROGRAM: UnavailableProgram = {
+  name: "Refer a Friend",
+  notice:
+    "The referral program isn't available. It offers no discounts, credit or other benefits at this time.",
+};
 
-export const DISCOUNT_UNAVAILABLE =
-  "The discount program isn't available yet. No discount codes are offered at this time.";
+export const DISCOUNT_PROGRAM: UnavailableProgram = {
+  name: "Discount Program",
+  notice:
+    "The discount program isn't available. It offers no discounts, codes or other benefits at this time.",
+};
 
-export const AMBASSADOR_UNAVAILABLE =
-  "The Vokr Ambassador program isn't open yet. No ambassador perks or referral commissions are offered at this time.";
+export const AMBASSADOR_PROGRAM: UnavailableProgram = {
+  name: "Vokr Ambassadors",
+  notice:
+    "The Vokr Ambassador program isn't available. It offers no perks, commissions or other benefits at this time.",
+};
