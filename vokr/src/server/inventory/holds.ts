@@ -1,6 +1,6 @@
 import { ReservationState } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
-import { ConflictError } from "@/lib/errors";
+import { ConflictError, OutOfStockError, type UnavailableLine } from "@/lib/errors";
 import { MAX_CART_ITEM_QUANTITY } from "@/lib/cart";
 
 /**
@@ -36,18 +36,14 @@ export interface HoldLine {
   quantity: number;
 }
 
-export interface UnavailableLine {
-  variantId: string;
-  requested: number;
-  available: number;
-}
+export type { UnavailableLine };
 
 export type HoldOwner = { userId: string } | { guestSessionId: string };
 
-/** 409 — at least one line cannot be held. Nothing was reserved: the whole transaction rolled back. */
-export class InsufficientStockError extends ConflictError {
+/** 409 `OUT_OF_STOCK` — at least one line cannot be held. Nothing was reserved: the whole transaction rolled back. */
+export class InsufficientStockError extends OutOfStockError {
   constructor(readonly unavailable: readonly UnavailableLine[]) {
-    super("Some items in your bag are no longer available in the quantity requested.");
+    super("Some items in your bag are no longer available in the quantity requested.", unavailable);
   }
 }
 

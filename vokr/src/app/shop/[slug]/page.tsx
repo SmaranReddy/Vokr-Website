@@ -18,6 +18,15 @@ import { ReviewsSummary } from "@/components/shop/reviews-summary";
  */
 
 /**
+ * Which sizes are sold out is stock, and stock moves. The page is
+ * regenerated at most every 60 s — the catalog cache's own TTL — instead
+ * of keeping the build's stock forever. It is a display only: adding to
+ * the cart re-checks stock, and the reservation's row lock (Phase 8) is
+ * the check no page, cache or browser can get past.
+ */
+export const revalidate = 60;
+
+/**
  * Pre-populates the 5 launch slugs at build time when the database is
  * reachable. Falls back to an empty list — not a build failure — when it
  * isn't: `dynamicParams` defaults to `true`, so every slug still renders

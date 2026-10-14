@@ -1,6 +1,6 @@
 import { CheckoutPaymentMethod, CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
-import { ConflictError, ValidationError } from "@/lib/errors";
+import { CheckoutStaleError, ConflictError, ReservationExpiredError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { findOwnedSession } from "@/server/checkout/service";
 import { assertValidCheckoutTransition } from "@/server/checkout/state-machine";
@@ -144,14 +144,14 @@ export async function createPaymentOrder(
   const holdLapsed = session.expiresAt.getTime() <= now.getTime();
   if (existing?.providerOrderId) {
     if (holdLapsed) {
-      throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
+      throw new ReservationExpiredError("Your reservation has lapsed. Please start checkout again.");
     }
     return toOrderView(existing.id, existing.providerOrderId, existing);
   }
 
   // A new Razorpay order is only created against a live snapshot and hold.
   if (holdLapsed) {
-    throw new ConflictError("Checkout pricing has expired. Please review your order again.");
+    throw new CheckoutStaleError("Checkout pricing has expired. Please review your order again.");
   }
 
   const payment = existing ?? (await claimPayment(checkoutSessionId, snapshot.totalPaise));
@@ -203,7 +203,7 @@ export async function createPaymentOrder(
     console.warn(
       `[payments] payment=${payment.id} session=${checkoutSessionId} is "${after.state}" after order creation — order withheld`,
     );
-    throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
+    throw new ReservationExpiredError("Your reservation has lapsed. Please start checkout again.");
   }
 
   const stored = await prisma.payment.findUniqueOrThrow({

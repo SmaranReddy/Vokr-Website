@@ -3170,7 +3170,14 @@ route sits behind `ORDERING_ENABLED = false`.
 **Open:**
 1. Cloud Scheduler job 3 is not created. Deploying also needs `MAINTENANCE_OIDC_AUDIENCE` and `MAINTENANCE_OIDC_SERVICE_ACCOUNT` set on the service.
    The job must target `https://vokr.shop/api/jobs/maintenance`, because `run.app` requests are refused by the origin check. The Cloudflare Worker forwards `Authorization` unchanged.
-2. Sold-out UI (task 8): the PDP disables sizes only for non-active variants. Catalog availability already subtracts `quantity_reserved`. There is no checkout UI yet for the reservation-denied message.
+2. Sold-out UI (task 8): **PDP and API done on branch `feat/stock-aware-shopping`, not deployed (14 Oct 2026).**
+   - The PDP disables sold-out sizes: struck through, with ", sold out" in the accessible name and the visible label unchanged (§2A).
+   - The page is regenerated every 60 s instead of keeping build-time stock.
+   - Stock and reservation failures carry typed 409 codes: `OUT_OF_STOCK` (with `details.unavailable`), `RESERVATION_EXPIRED` and `CHECKOUT_STALE`, so a client can act on them.
+   - Adding to the cart now checks the whole line, not just the added units. That check is still advisory; the reservation's row lock remains authoritative.
+   - The cart drawer already marks out-of-stock and unavailable lines.
+   - **Still open:** the checkout flow stops at pricing and never calls reserve, so no checkout UI for these messages exists yet. It belongs with the payment-step UI (Open 4).
+   *Original text:* the PDP disables sizes only for non-active variants. Catalog availability already subtracts `quantity_reserved`. There is no checkout UI yet for the reservation-denied message.
 3. Cart and guest-session pruning is deferred. `checkout_sessions` references both through `ON DELETE SET NULL`, which would violate its one-identity CHECK, so a retention rule for checkout sessions comes first.
 4. Payment-step UI: Razorpay Checkout's own `timeout` should be derived from the hold's remaining time, not a flat 15 minutes.
 5. **Before `ORDERING_ENABLED` can be true:** a capture that still lands after its hold was released is recorded with a `needs reconciliation` warning, but nothing refunds it or alerts anyone. That can still happen: a Razorpay Checkout modal opened before the hold lapsed stays usable in the browser, and a new attempt made from it after the release never reaches this server first. It needs a refund or alert path (Phase 9 or admin). How Razorpay's automatic-capture settings treat late authorizations is to be confirmed against Razorpay's documentation.

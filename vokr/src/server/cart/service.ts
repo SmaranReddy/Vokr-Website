@@ -1,6 +1,6 @@
 import { CartStatus } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { NotFoundError, OutOfStockError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import type { TransactionClient } from "@/server/auth/upgrade";
 import {
@@ -302,6 +302,18 @@ export interface AddItemParams {
   quantity: number;
 }
 
+/**
+ * Advisory only: availability comes from the catalog cache (up to a minute
+ * old), so this refuses the obvious case early. The authoritative check is
+ * the reservation's row-locked `SELECT … FOR UPDATE` (Phase 8), which no
+ * browser state can get past.
+ */
+function assertAdvisoryStock(variantId: string, requested: number, available: number): void {
+  if (available < requested) {
+    throw new OutOfStockError("Not enough stock available for this variant.", [{ variantId, requested, available }]);
+  }
+}
+
 /** Validates existence, purchasability and advisory stock before ever touching `cart_items` (plan §5 Phase 5, task 4). */
 export async function addItem(
   identity: Identity,
@@ -313,11 +325,7 @@ export async function addItem(
   // variant — the existing catalog contract (R6), reused rather than
   // duplicated.
   const variant = await getVariantById(variantId);
-  if (variant.quantityAvailable < quantity) {
-    throw new ConflictError(
-      "Not enough stock available for this variant.",
-    );
-  }
+  assertAdvisoryStock(variantId, quantity, variant.quantityAvailable);
 
   return prisma.$transaction(async (tx) => {
     const cartId = await getOrCreateOpenCartId(tx, identityCartWhere(identity));
@@ -332,6 +340,8 @@ export async function addItem(
         existing.quantity + quantity,
         MAX_CART_ITEM_QUANTITY,
       );
+      // The line as a whole, not just the units being added, must fit.
+      assertAdvisoryStock(variantId, mergedQuantity, variant.quantityAvailable);
       await tx.cartItem.update({
         where: { id: existing.id },
         data: { quantity: mergedQuantity },
@@ -360,11 +370,7 @@ export async function updateQuantity(
     const item = await findOwnedOpenCartItem(tx, identity, cartItemId);
 
     const variant = await getVariantById(item.variantId);
-    if (variant.quantityAvailable < quantity) {
-      throw new ConflictError(
-        "Not enough stock available for this variant.",
-      );
-    }
+    assertAdvisoryStock(item.variantId, quantity, variant.quantityAvailable);
 
     await tx.cartItem.update({
       where: { id: item.id },

@@ -98,3 +98,38 @@ describe("PdpPurchasePanel — ordering disabled", () => {
     expect(isDisabled(screen.getByRole("button", { name: "IN 9" }))).toBe(true);
   });
 });
+
+describe("PdpPurchasePanel — stock", () => {
+  const STOCKED = [
+    variant({ id: "v-8", sizeLabel: "IN 8", quantityAvailable: 3 }),
+    variant({ id: "v-10", sizeLabel: "IN 10", quantityAvailable: 0 }),
+  ];
+
+  it("disables a size with nothing left and says so in its accessible name", () => {
+    render(<PdpPurchasePanel variants={STOCKED} />);
+
+    const soldOut = screen.getByRole("button", { name: "IN 10, sold out" });
+    expect(isDisabled(soldOut)).toBe(true);
+    expect(soldOut.className).toContain("line-through");
+    expect(isDisabled(screen.getByRole("button", { name: "IN 8" }))).toBe(false);
+  });
+
+  it("keeps the size's visible label unchanged — the reason is screen-reader text only", () => {
+    render(<PdpPurchasePanel variants={STOCKED} />);
+
+    const soldOut = screen.getByRole("button", { name: /IN 10/ });
+    const visible = [...soldOut.childNodes]
+      .filter((node) => !(node instanceof HTMLElement && node.classList.contains("sr-only")))
+      .map((node) => node.textContent)
+      .join("");
+    expect(visible).toBe("IN 10");
+  });
+
+  it("does not let a sold-out size be selected", () => {
+    render(<PdpPurchasePanel variants={STOCKED} />);
+
+    const soldOut = screen.getByRole("button", { name: "IN 10, sold out" });
+    fireEvent.click(soldOut);
+    expect(soldOut.getAttribute("aria-pressed")).toBe("false");
+  });
+});
