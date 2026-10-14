@@ -79,6 +79,8 @@ class FakeRefunds implements RazorpayRefundClient {
   loseNextCreateResponse = false;
   /** Every call fails like this, once each, until the queue is empty. */
   readonly failures: Error[] = [];
+  /** Whether the refund list echoes `receipt` (unverified without test keys). */
+  echoReceipt = true;
 
   payment(id: string, status: string, overrides: Partial<RazorpayPaymentDetail> = {}) {
     this.payments.set(id, {
@@ -107,7 +109,10 @@ class FakeRefunds implements RazorpayRefundClient {
 
   async listPaymentRefunds(paymentId: string) {
     this.maybeFail();
-    return (this.refunds.get(paymentId) ?? []).map((refund) => ({ ...refund }));
+    return (this.refunds.get(paymentId) ?? []).map((refund) => ({
+      ...refund,
+      receipt: this.echoReceipt ? refund.receipt : null,
+    }));
   }
 
   async createRefund(input: { paymentId: string; amountPaise: number; receipt: string; idempotencyKey: string }) {
@@ -207,6 +212,14 @@ async function issuesOf(sessionId: string) {
       lastError: true,
       resolvedAt: true,
     },
+    orderBy: { providerPaymentId: "asc" },
+  });
+}
+
+async function paymentRowOf(sessionId: string) {
+  return prisma.payment.findUniqueOrThrow({
+    where: { checkoutSessionId: sessionId },
+    select: { status: true, providerPaymentId: true },
   });
 }
 
@@ -468,9 +481,9 @@ describe("resolving it: what the job will not decide alone", () => {
 
   it.each([
     ["a partial refund made outside the job", (r: FakeRefunds) => r.payment(PAY_ID, "captured", { amount_refunded: 100, refund_status: "partial" })],
-    ["a refund the job did not make", (r: FakeRefunds) => {
-      r.payment(PAY_ID, "captured", { amount_refunded: AMOUNT, refund_status: "full" });
-      r.refunds.set(PAY_ID, [{ id: "rfnd_dashboard", payment_id: PAY_ID, amount: AMOUNT, currency: "INR", status: "pending", receipt: null }]);
+    ["a partial refund the job did not make", (r: FakeRefunds) => {
+      r.payment(PAY_ID, "captured", { amount_refunded: 100, refund_status: "partial" });
+      r.refunds.set(PAY_ID, [{ id: "rfnd_dashboard", payment_id: PAY_ID, amount: 100, currency: "INR", status: "pending", receipt: null }]);
     }],
     ["a status this code does not know", (r: FakeRefunds) => r.payment(PAY_ID, "disputed")],
     ["an amount that does not match the issue", (r: FakeRefunds) => r.payment(PAY_ID, "captured", { amount: AMOUNT + 1 })],
@@ -560,5 +573,165 @@ describe("refundKeyFor", () => {
   it("refuses an id that would make an invalid key rather than sending one", () => {
     expect(() => refundKeyFor("pay with spaces")).toThrow();
     expect(() => refundKeyFor("x".repeat(40))).toThrow();
+  });
+});
+
+describe("a second payment on the same Razorpay order", () => {
+  const SECOND = "pay_LateCapture0002";
+
+  it("on an order already paid: the order stays paid on the first payment, the second opens an issue", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, variantId, orderId } = await payingSession(razorpay);
+    await deliver("payment.captured", orderId);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+
+    const result = await deliver("payment.captured", orderId, { paymentId: SECOND });
+
+    expect(result.status).toBe(200);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+    expect(await paymentRowOf(sessionId)).toEqual({ status: PaymentStatus.captured, providerPaymentId: PAY_ID });
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 4, quantityReserved: 0 });
+    expect(await issuesOf(sessionId)).toEqual([
+      expect.objectContaining({ providerPaymentId: SECOND, state: PaymentIssueState.open, reason: "additional_payment" }),
+    ]);
+  });
+
+  it("on an expired order: each payment opens its own issue and each is refunded once", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, orderId } = await payingSession(razorpay);
+    await releaseByExpiry(sessionId, razorpay);
+    await deliver("payment.captured", orderId);
+    await deliver("payment.captured", orderId, { paymentId: SECOND });
+    await deliver("payment.captured", orderId, { paymentId: SECOND });
+
+    expect((await issuesOf(sessionId)).map((issue) => issue.providerPaymentId)).toEqual([PAY_ID, SECOND]);
+
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "captured");
+    refunds.payment(SECOND, "captured");
+    refunds.newRefundStatus = "processed";
+    await resolvePaymentIssues(refunds);
+
+    expect((await issuesOf(sessionId)).map((issue) => issue.state)).toEqual([
+      PaymentIssueState.refunded,
+      PaymentIssueState.refunded,
+    ]);
+    expect(refunds.createCalls).toBe(2);
+  });
+
+  it("refunding the second payment never marks the paid order refunded", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, orderId } = await payingSession(razorpay);
+    await deliver("payment.captured", orderId);
+    await deliver("payment.captured", orderId, { paymentId: SECOND });
+
+    const refunds = new FakeRefunds();
+    refunds.payment(SECOND, "captured");
+    refunds.newRefundStatus = "processed";
+    await resolvePaymentIssues(refunds);
+    await deliver("refund.processed", orderId, { paymentId: SECOND, status: "refunded" });
+
+    expect(await paymentRowOf(sessionId)).toEqual({ status: PaymentStatus.captured, providerPaymentId: PAY_ID });
+    expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refunded);
+  });
+});
+
+describe("closing without guesswork", () => {
+  it("adopts its own refund by id when Razorpay's list does not echo the receipt", async () => {
+    const { sessionId } = await lateCapture();
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "captured");
+    await resolvePaymentIssues(refunds);
+    refunds.echoReceipt = false;
+
+    const report = await resolvePaymentIssues(refunds);
+
+    expect(report.outcomes.refund_pending).toBe(1);
+    expect(refunds.createCalls).toBe(1);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refund_initiated);
+  });
+
+  it("waits on a full refund Razorpay made itself, and closes once it is processed", async () => {
+    const { sessionId } = await lateCapture();
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "refunded", { amount_refunded: AMOUNT, refund_status: "full" });
+    refunds.refunds.set(PAY_ID, [
+      { id: "rfnd_auto", payment_id: PAY_ID, amount: AMOUNT, currency: "INR", status: "pending", receipt: null },
+    ]);
+
+    const waiting = await resolvePaymentIssues(refunds);
+    expect(waiting.outcomes.refund_pending).toBe(1);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.open);
+
+    refunds.settle(PAY_ID, "processed");
+    await resolvePaymentIssues(refunds);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refunded);
+    expect(refunds.createCalls).toBe(0);
+  });
+
+  it("a manual-review issue closes once a full refund made by a person is processed", async () => {
+    const { sessionId, orderId } = await lateCapture();
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "captured", { amount_refunded: 100, refund_status: "partial" });
+    await resolvePaymentIssues(refunds);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.manual_review);
+
+    // The person refunds the rest in the dashboard; Razorpay reports it.
+    refunds.payment(PAY_ID, "refunded", { amount_refunded: AMOUNT, refund_status: "full" });
+    refunds.refunds.set(PAY_ID, [
+      { id: "rfnd_a", payment_id: PAY_ID, amount: 100, currency: "INR", status: "processed", receipt: null },
+      { id: "rfnd_b", payment_id: PAY_ID, amount: AMOUNT - 100, currency: "INR", status: "processed", receipt: null },
+    ]);
+    await resolvePaymentIssues(refunds);
+
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refunded);
+    expect(refunds.createCalls).toBe(0);
+    await deliver("refund.processed", orderId, { status: "refunded" });
+    expect((await paymentOf(sessionId)).status).toBe(PaymentStatus.refunded);
+  });
+});
+
+describe("a late payment whose webhook never arrives", () => {
+  it("is found by the maintenance job re-reading recently closed orders", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, orderId } = await payingSession(razorpay);
+    await releaseByExpiry(sessionId, razorpay);
+    razorpay.payments.set(orderId, [
+      { id: PAY_ID, order_id: orderId, amount: AMOUNT, currency: "INR", status: "captured" } as RazorpayPayment,
+    ]);
+
+    const report = await runMaintenance(razorpay, null);
+
+    expect(report.ok).toBe(true);
+    expect(await issuesOf(sessionId)).toEqual([
+      expect.objectContaining({ providerPaymentId: PAY_ID, reason: "session_expired" }),
+    ]);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.expired);
+  });
+
+  it("finds a second capture on a paid order too, and re-reads each order at most every 30 minutes", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, orderId } = await payingSession(razorpay);
+    await deliver("payment.captured", orderId);
+    razorpay.payments.set(orderId, [
+      { id: PAY_ID, order_id: orderId, amount: AMOUNT, currency: "INR", status: "captured" } as RazorpayPayment,
+      { id: "pay_LateCapture0002", order_id: orderId, amount: AMOUNT, currency: "INR", status: "captured" } as RazorpayPayment,
+    ]);
+    let reads = 0;
+    const list = razorpay.listOrderPayments.bind(razorpay);
+    razorpay.listOrderPayments = async (id: string) => {
+      if (id === orderId) reads += 1;
+      return list(id);
+    };
+
+    await runMaintenance(razorpay, null);
+    await runMaintenance(razorpay, null);
+
+    expect(reads).toBe(1);
+    expect(await issuesOf(sessionId)).toEqual([
+      expect.objectContaining({ providerPaymentId: "pay_LateCapture0002", reason: "additional_payment" }),
+    ]);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
   });
 });

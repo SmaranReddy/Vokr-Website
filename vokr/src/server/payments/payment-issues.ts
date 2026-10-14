@@ -24,13 +24,17 @@ export async function recordPaymentIssue(
   }
 }
 
-/** A full refund was observed (webhook or API read): the issue is resolved. */
-export async function closeIssueAsRefunded(tx: Prisma.TransactionClient, paymentId: string): Promise<void> {
+/**
+ * A full refund of this Razorpay payment was observed (webhook or API
+ * read): its issue is resolved — including one a person took over in
+ * `manual_review` and refunded in the dashboard.
+ */
+export async function closeIssueAsRefunded(tx: Prisma.TransactionClient, providerPaymentId: string): Promise<void> {
   const closed = await tx.paymentIssue.updateMany({
-    where: { paymentId, state: { in: LIVE_ISSUE_STATES } },
+    where: { providerPaymentId, state: { in: [...LIVE_ISSUE_STATES, PaymentIssueState.manual_review] } },
     data: { state: PaymentIssueState.refunded, resolvedAt: new Date() },
   });
-  if (closed.count === 1) console.info(`[payments] LATE_PAYMENT refunded payment=${paymentId}`);
+  if (closed.count === 1) console.info(`[payments] LATE_PAYMENT refunded razorpay_payment=${providerPaymentId}`);
 }
 
 /** Razorpay accepted the refund: remember it, so later runs adopt it rather than create another. */

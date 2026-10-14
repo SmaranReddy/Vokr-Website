@@ -1,7 +1,7 @@
 import { invalidateCatalogCache } from "@/server/catalog";
 import { resolvePaymentIssues, type PaymentIssueReport } from "@/server/payments/late-payment";
 import type { RazorpayClient, RazorpayRefundClient } from "@/server/payments/razorpay";
-import { reconcilePendingPayments } from "@/server/payments/reconcile";
+import { reconcileClosedOrders, reconcilePendingPayments } from "@/server/payments/reconcile";
 
 import { expireReservations, type ExpiryReport } from "./expire-reservations";
 import { pruneExpiredRows, type PruneReport } from "./prune";
@@ -10,7 +10,16 @@ type Step<T> = { status: "ok"; result: T } | { status: "error" } | { status: "no
 
 export interface MaintenanceReport {
   ok: boolean;
-  reconciliation: Step<{ checked: number; applied: number; ignored: number; rejected: number }>;
+  reconciliation: Step<{
+    checked: number;
+    applied: number;
+    ignored: number;
+    rejected: number;
+    /** Closed orders re-read for a payment whose webhook never came. */
+    closedOrdersChecked: number;
+    /** Observations that need a refund or a person (late or extra money). */
+    warnings: number;
+  }>;
   expiry: Step<ExpiryReport>;
   latePayments: Step<PaymentIssueReport>;
   pruning: Step<PruneReport>;
@@ -45,9 +54,13 @@ export async function runMaintenance(
 ): Promise<MaintenanceReport> {
   const reconciliation: MaintenanceReport["reconciliation"] = razorpay
     ? await step("reconciliation", async () => {
-        const { checked, outcomes } = await reconcilePendingPayments(razorpay);
+        const pending = await reconcilePendingPayments(razorpay);
+        const closed = await reconcileClosedOrders(razorpay);
+        const outcomes = [...pending.outcomes, ...closed.outcomes];
         return {
-          checked,
+          checked: pending.checked,
+          closedOrdersChecked: closed.checked,
+          warnings: outcomes.filter((outcome) => outcome.kind !== "rejected" && outcome.warning).length,
           applied: outcomes.filter((outcome) => outcome.kind === "applied").length,
           ignored: outcomes.filter((outcome) => outcome.kind === "ignored").length,
           rejected: outcomes.filter((outcome) => outcome.kind === "rejected").length,

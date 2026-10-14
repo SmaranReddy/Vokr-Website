@@ -415,7 +415,11 @@ model Payment {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  issue PaymentIssue?
+  /// When the maintenance job last re-read this order from Razorpay after
+  /// its session closed, looking for a payment whose webhook never came.
+  lateCheckedAt DateTime? @map("late_checked_at") @db.Timestamptz(6)
+
+  issues PaymentIssue[]
 
   @@index([status, createdAt])
   @@map("payments")
@@ -440,14 +444,16 @@ enum PaymentIssueState {
   @@map("payment_issue_state")
 }
 
-/// One durable record per payment that can no longer be fulfilled. It is
-/// written in the same transaction as the payment transition that revealed
-/// it, so neither a log line nor a crash can lose it, and
-/// `UNIQUE(payment_id)` makes every redelivery and race converge on one row.
+/// One durable record per Razorpay payment (attempt) that cannot be
+/// fulfilled: a late payment for a session holding no stock, or a second
+/// payment on an order already paid. It is written in the same transaction
+/// as the observation that revealed it, so neither a log line nor a crash
+/// can lose it, and `UNIQUE(provider_payment_id)` makes every redelivery
+/// and race converge on one row.
 model PaymentIssue {
   id String @id @default(uuid(7)) @db.Uuid
 
-  paymentId String  @unique @map("payment_id") @db.Uuid
+  paymentId String  @map("payment_id") @db.Uuid
   payment   Payment @relation(fields: [paymentId], references: [id])
 
   state PaymentIssueState @default(open)
@@ -455,7 +461,7 @@ model PaymentIssue {
   reason String
 
   /// The Razorpay payment (attempt) the money is on — what gets refunded.
-  providerPaymentId String @map("provider_payment_id")
+  providerPaymentId String @unique @map("provider_payment_id")
   amountPaise       Int    @map("amount_paise")
   currency          String @default("INR")
 
@@ -468,6 +474,7 @@ model PaymentIssue {
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
 
+  @@index([paymentId])
   @@index([state, createdAt])
   @@map("payment_issues")
 }

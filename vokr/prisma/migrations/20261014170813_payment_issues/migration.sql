@@ -1,6 +1,9 @@
 -- CreateEnum
 CREATE TYPE "payment_issue_state" AS ENUM ('open', 'refund_initiated', 'refunded', 'manual_review');
 
+-- AlterTable
+ALTER TABLE "payments" ADD COLUMN     "late_checked_at" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE "payment_issues" (
     "id" UUID NOT NULL,
@@ -21,7 +24,10 @@ CREATE TABLE "payment_issues" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "payment_issues_payment_id_key" ON "payment_issues"("payment_id");
+CREATE UNIQUE INDEX "payment_issues_provider_payment_id_key" ON "payment_issues"("provider_payment_id");
+
+-- CreateIndex
+CREATE INDEX "payment_issues_payment_id_idx" ON "payment_issues"("payment_id");
 
 -- CreateIndex
 CREATE INDEX "payment_issues_state_created_at_idx" ON "payment_issues"("state", "created_at");
@@ -33,8 +39,8 @@ ALTER TABLE "payment_issues" ADD CONSTRAINT "payment_issues_payment_id_fkey" FOR
 -- Hand-written additions below this line, same convention as every prior
 -- migration: Prisma's schema language has no CHECK-constraint primitive.
 --
--- Purely additive: a new enum, a new table, its indexes, FK, CHECKs and
--- RLS. Nothing existing is altered, so no backfill is needed (production
+-- Purely additive: a new enum, a new table with its indexes, FK, CHECKs and
+-- RLS, and one nullable column on `payments`. No backfill is needed (production
 -- holds 0 payments, 14 Oct 2026).
 -- ---------------------------------------------------------------------
 

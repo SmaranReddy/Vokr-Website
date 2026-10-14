@@ -23,7 +23,13 @@ export type ApplyOutcome =
       /** Set when the payment moved but something around it needs a human. */
       warning?: string;
     }
-  | { kind: "ignored"; paymentId: string; reason: string }
+  | {
+      kind: "ignored";
+      paymentId: string;
+      reason: string;
+      /** Set when the order did not move but the money needs a human or a refund. */
+      warning?: string;
+    }
   | { kind: "rejected"; reason: string };
 
 /** Maps Razorpay's payment `status` string; `created` (no attempt outcome yet) and anything unknown map to `null`. */
@@ -81,7 +87,13 @@ export async function applyPaymentObservation(
 
   const payment = await tx.payment.findUniqueOrThrow({
     where: { id: paymentId },
-    select: { status: true, amountPaise: true, currency: true, checkoutSessionId: true },
+    select: {
+      status: true,
+      amountPaise: true,
+      currency: true,
+      checkoutSessionId: true,
+      providerPaymentId: true,
+    },
   });
 
   if (observation.amountPaise !== payment.amountPaise || observation.currency !== payment.currency) {
@@ -92,6 +104,30 @@ export async function applyPaymentObservation(
       kind: "rejected",
       reason: `amount mismatch: expected ${payment.amountPaise} ${payment.currency}, got ${observation.amountPaise} ${observation.currency}`,
     };
+  }
+
+  // A different payment (attempt) on an order already settled by another
+  // one: a customer who paid twice from the same Checkout. The order keeps
+  // its payment and its stock; the extra money gets its own issue, and a
+  // refund of it never touches the order's row.
+  const settled = payment.status === PaymentStatus.captured || payment.status === PaymentStatus.refunded;
+  if (settled && payment.providerPaymentId && payment.providerPaymentId !== observation.providerPaymentId) {
+    if (observation.status === PaymentStatus.authorized || observation.status === PaymentStatus.captured) {
+      await recordPaymentIssue(tx, {
+        paymentId,
+        providerPaymentId: observation.providerPaymentId,
+        amountPaise: payment.amountPaise,
+        currency: payment.currency,
+        reason: "additional_payment",
+      });
+      const warning = `${observation.status} a second payment on an order already ${payment.status} — needs reconciliation; refund issue opened`;
+      console.error(`[payments] payment=${paymentId} ${warning}`);
+      return { kind: "ignored", paymentId, reason: "additional payment on a settled order", warning };
+    }
+    if (observation.status === PaymentStatus.refunded) {
+      await closeIssueAsRefunded(tx, observation.providerPaymentId);
+    }
+    return { kind: "ignored", paymentId, reason: `another attempt's ${observation.status}; the order's payment is unchanged` };
   }
 
   const next = nextPaymentStatus(payment.status, observation.status);
@@ -163,7 +199,7 @@ export async function applyPaymentObservation(
       console.error(`[payments] payment=${paymentId} ${warning}`);
     }
   } else if (next === PaymentStatus.refunded) {
-    await closeIssueAsRefunded(tx, paymentId);
+    await closeIssueAsRefunded(tx, observation.providerPaymentId);
   }
 
   return { kind: "applied", paymentId, from: payment.status, to: next, warning };

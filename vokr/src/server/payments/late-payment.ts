@@ -78,7 +78,8 @@ interface LiveIssue {
 
 export async function resolvePaymentIssues(razorpay: RazorpayRefundClient): Promise<PaymentIssueReport> {
   const issues = await prisma.paymentIssue.findMany({
-    where: { state: { in: LIVE_STATES } },
+    // `manual_review` issues are only watched, for a refund a person made.
+    where: { state: { in: [...LIVE_STATES, PaymentIssueState.manual_review] } },
     select: {
       id: true,
       paymentId: true,
@@ -89,7 +90,8 @@ export async function resolvePaymentIssues(razorpay: RazorpayRefundClient): Prom
       refundId: true,
       attempts: true,
     },
-    orderBy: { createdAt: "asc" },
+    // Enum order: open and refund_initiated first, watched manual_review last.
+    orderBy: [{ state: "asc" }, { createdAt: "asc" }],
     take: BATCH_SIZE,
   });
 
@@ -110,7 +112,7 @@ export async function resolvePaymentIssues(razorpay: RazorpayRefundClient): Prom
       errors += 1;
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[payments/late] issue=${issue.id} payment=${issue.paymentId} failed: ${message}`);
-      await recordFailure(issue, message);
+      if (issue.state !== PaymentIssueState.manual_review) await recordFailure(issue, message);
     }
   }
 
@@ -123,16 +125,37 @@ export async function resolvePaymentIssues(razorpay: RazorpayRefundClient): Prom
 
 async function resolveIssue(razorpay: RazorpayRefundClient, issue: LiveIssue): Promise<IssueOutcome> {
   const key = refundKeyFor(issue.providerPaymentId);
+  const watchingOnly = issue.state === PaymentIssueState.manual_review;
 
   let remote;
+  let refunds: RazorpayRefund[];
   try {
     remote = await razorpay.fetchPayment(issue.providerPaymentId);
+    refunds =
+      remote.status === "captured" || remote.status === "refunded"
+        ? await razorpay.listPaymentRefunds(issue.providerPaymentId)
+        : [];
   } catch (error) {
     return transient(error);
   }
 
+  // The refunds themselves decide, not the payment's summary fields: a
+  // refund still `pending` already counts in `amount_refunded`. Whoever
+  // made them — this job, Razorpay's auto-refund, a person in the
+  // dashboard — processed refunds covering the amount close the issue.
+  const processed = sum(refunds.filter((refund) => refund.status === "processed"));
+  if (processed >= issue.amountPaise || (remote.status === "refunded" && refunds.length === 0)) {
+    await markRefunded(issue);
+    return "refunded";
+  }
+  // A person owns a manual-review issue; the job only watches for that refund.
+  if (watchingOnly) return "manual_review";
+
   if (remote.amount !== issue.amountPaise || remote.currency !== issue.currency) {
-    return toManualReview(issue, `Razorpay reports ${remote.amount} ${remote.currency}, issue is for ${issue.amountPaise} ${issue.currency}`);
+    return toManualReview(
+      issue,
+      `Razorpay reports ${remote.amount} ${remote.currency}, issue is for ${issue.amountPaise} ${issue.currency}`,
+    );
   }
   // Late authorizations are captured by Razorpay's auto-capture, or
   // auto-refunded when they are not; either way a later run sees it.
@@ -141,32 +164,21 @@ async function resolveIssue(razorpay: RazorpayRefundClient, issue: LiveIssue): P
     return toManualReview(issue, `unexpected Razorpay payment status "${remote.status}"`);
   }
 
-  // The refunds themselves decide, not the payment's summary fields: a
-  // refund still `pending` already counts in `amount_refunded`.
-  let refunds: RazorpayRefund[];
-  try {
-    refunds = await razorpay.listPaymentRefunds(issue.providerPaymentId);
-  } catch (error) {
-    return transient(error);
-  }
-  const ours = refunds.filter((refund) => refund.receipt === key);
-  const foreign = refunds.filter((refund) => refund.receipt !== key);
+  // Ours by receipt, or by the id recorded when Razorpay accepted it
+  // (in case the list does not echo the receipt).
+  const isOurs = (refund: RazorpayRefund) => refund.receipt === key || refund.id === issue.refundId;
+  const ours = refunds.filter(isOurs);
+  const foreign = refunds.filter((refund) => !isOurs(refund));
   if (ours.length > 1) return toManualReview(issue, `${ours.length} refunds carry this job's receipt`);
-  if (foreign.length > 0) {
-    const processed = refunds
-      .filter((refund) => refund.status === "processed")
-      .reduce((total, refund) => total + refund.amount, 0);
-    if (processed >= issue.amountPaise) {
-      await markRefunded(issue);
-      return "refunded";
-    }
-    return toManualReview(issue, `${foreign.length} refund(s) not made by this job`);
+  if (refunds.some((refund) => refund.status === "failed")) {
+    const failed = refunds.find((refund) => refund.status === "failed");
+    return toManualReview(issue, `refund ${failed?.id} failed`);
   }
-  // Refunded with no refund entity to show for it (Razorpay's own
-  // auto-refund of an authorization it never captured).
-  if (remote.status === "refunded" && refunds.length === 0) {
-    await markRefunded(issue);
-    return "refunded";
+  if (foreign.length > 0) {
+    // A full refund someone else started (Razorpay's auto-refund, the
+    // dashboard) is waited on, never duplicated; anything less is a person's call.
+    if (sum(refunds) >= issue.amountPaise) return "refund_pending";
+    return toManualReview(issue, `${foreign.length} refund(s) not made by this job cover only ${sum(refunds)}`);
   }
 
   let refund = ours[0];
@@ -205,6 +217,10 @@ async function resolveIssue(razorpay: RazorpayRefundClient, issue: LiveIssue): P
   return "refund_pending";
 }
 
+function sum(refunds: readonly RazorpayRefund[]): number {
+  return refunds.reduce((total, refund) => total + refund.amount, 0);
+}
+
 /** A Razorpay 409 ("still in progress") is not a failure: the next run looks again. Anything else is. */
 function transient(error: unknown): IssueOutcome {
   if (error instanceof RazorpayApiError && error.status === 409) return "retry_later";
@@ -216,9 +232,15 @@ async function markRefunded(issue: LiveIssue): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUniqueOrThrow({
       where: { id: issue.paymentId },
-      select: { providerOrderId: true, status: true },
+      select: { providerOrderId: true, providerPaymentId: true, status: true },
     });
-    if (payment.providerOrderId && payment.status === PaymentStatus.captured) {
+    // Only the order's own payment moves the order's row; refunding a
+    // second payment on a paid order leaves the order paid.
+    if (
+      payment.providerOrderId &&
+      payment.status === PaymentStatus.captured &&
+      payment.providerPaymentId === issue.providerPaymentId
+    ) {
       await applyPaymentObservation(tx, {
         providerOrderId: payment.providerOrderId,
         providerPaymentId: issue.providerPaymentId,
@@ -229,7 +251,7 @@ async function markRefunded(issue: LiveIssue): Promise<void> {
     }
     // An `authorized` payment Razorpay refunded without capturing cannot
     // move to `refunded` locally; the issue still closes.
-    await closeIssueAsRefunded(tx, issue.paymentId);
+    await closeIssueAsRefunded(tx, issue.providerPaymentId);
   });
 }
 

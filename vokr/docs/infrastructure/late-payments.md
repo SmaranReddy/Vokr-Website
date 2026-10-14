@@ -12,20 +12,27 @@ payment can authorize late. By default Razorpay auto-captures anything
 authorized within 3 days. Either way, money can arrive after the
 maintenance job released the stock and the session became `expired`.
 
+A customer can also pay twice on one Razorpay order. For example, a UPI
+attempt is still pending when they retry by card, and the UPI one authorizes
+later. The order is then paid once, and the second payment is extra money.
+
 ## What the code does
 
 1. **Recording, in the payment-apply transaction.** This runs for a webhook and for reconciliation alike.
    - When an `authorized` or `captured` arrives for a session holding no stock, the session is never marked `paid` and stock is never touched.
    - If the session was still `payment_pending`, it moves to `expired`.
-   - One `payment_issues` row opens, in state `open`. `UNIQUE(payment_id)` makes duplicates and races converge on one row.
-2. **Resolving, in the maintenance job's `latePayments` step,** every 5 minutes. No network call runs inside a transaction.
+   - One `payment_issues` row opens, in state `open`. It is keyed by the Razorpay payment id: `UNIQUE(provider_payment_id)` makes duplicates and races converge on one row.
+   - A second payment (a different `pay_…`) on an order already `captured` or `refunded` opens its own issue (`additional_payment`). The order keeps its first payment, its `paid` state and its stock, and refunding the second payment never touches the order's row.
+2. **Finding them without a webhook.** In the `reconciliation` step, every order created in the last 4 days whose session is no longer `payment_pending` is re-read from Razorpay at most every 30 minutes (`payments.late_checked_at`). Every attempt that moved money is applied through the same path a webhook uses.
+3. **Resolving, in the maintenance job's `latePayments` step,** every 5 minutes. No network call runs inside a transaction.
    - It reads the payment from Razorpay.
    - `authorized`: it waits. Razorpay either captures it or auto-refunds it.
-   - `captured`: it lists the payment's refunds and adopts its own, matched by receipt. Only if none exists does it create one full refund, with `X-Refund-Idempotency` and a receipt both set to `vokr_late_<razorpay payment id>` and an identical body on every retry.
+   - `captured`: it lists the payment's refunds and adopts its own, matched by receipt or by the refund id it recorded. Only if none exists does it create one full refund, with `X-Refund-Idempotency` and a receipt both set to `vokr_late_<razorpay payment id>` and an identical body on every retry.
    - Razorpay also refuses to refund beyond the captured amount.
-   - When the refund is `processed`, or a `refund.processed` webhook arrives, the payment becomes `refunded` and the issue is `refunded`.
-3. **`manual_review`.** The job stops and logs at error level when it sees:
-   - a partial refund, or one it did not make;
+   - It waits on a full refund someone else started, such as Razorpay's auto-refund or the dashboard.
+   - When processed refunds cover the amount, or a `refund.processed` webhook arrives, the issue is `refunded`. The order's payment row moves to `refunded` only when the refunded payment is the order's own.
+4. **`manual_review`.** The job stops and logs at error level when it sees:
+   - a partial refund it did not make;
    - an unknown payment status;
    - an amount mismatch;
    - a failed refund;
@@ -63,10 +70,8 @@ SELECT state, reason, provider_payment_id, amount_paise, refund_id, attempts, la
 ## Resolving `manual_review` by hand
 
 1. Look at the payment in the Razorpay dashboard. Its refunds, `amount_refunded` and status are the truth.
-2. Refund there if that is the decision. A full refund shows up as a `refund.processed` webhook, which moves the payment to `refunded`; the issue itself stays `manual_review`.
-3. Close the issue with a recorded reason. There is no admin UI yet (Phase 12), so this is a deliberate, reviewed SQL statement against production, run by the owner:
-   `UPDATE payment_issues SET state = 'refunded', resolved_at = now(), last_error = '<who, why>' WHERE id = '<id>' AND state = 'manual_review';`
-   Use it only for a full refund. For anything else, leave the row in `manual_review` and track it outside the database.
+2. Decide there, and refund there if that is the decision.
+3. Nothing needs to be written to the database. The job keeps watching `manual_review` issues: once processed refunds cover the amount, it closes the issue (`refunded`), and so does a `refund.processed` webhook. An issue that should stay unrefunded stays in `manual_review`. A resolution state for that belongs with the Phase 12 admin tools.
 
 ## Decisions left to the owner (plan §0.3)
 
