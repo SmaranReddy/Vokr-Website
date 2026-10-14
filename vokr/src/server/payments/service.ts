@@ -135,13 +135,22 @@ export async function createPaymentOrder(
     where: { checkoutSessionId },
     select: PAYMENT_SELECT,
   });
+  // From `reserved` on, `expires_at` is the stock hold's expiry (Phase 8).
+  // Past it, the browser is never given an order to pay — not even the
+  // existing one: the maintenance job may release the stock at any moment
+  // after, and a payment started now could be captured for stock no longer
+  // held. A payment already in flight is unaffected; it is the hold that
+  // the job keeps while Razorpay reports the attempt unfinished.
+  const holdLapsed = session.expiresAt.getTime() <= now.getTime();
   if (existing?.providerOrderId) {
+    if (holdLapsed) {
+      throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
+    }
     return toOrderView(existing.id, existing.providerOrderId, existing);
   }
 
-  // A new Razorpay order is only created against a live snapshot; an
-  // existing one (above) is returned regardless — its amount is fixed.
-  if (session.expiresAt.getTime() <= now.getTime()) {
+  // A new Razorpay order is only created against a live snapshot and hold.
+  if (holdLapsed) {
     throw new ConflictError("Checkout pricing has expired. Please review your order again.");
   }
 
@@ -180,6 +189,21 @@ export async function createPaymentOrder(
         select: { id: true },
       }),
     );
+  }
+
+  // The stock hold may have lapsed while Razorpay was being called: the
+  // maintenance job then moved the session to `expired` and released the
+  // stock, and the conditional update above matched nothing. The order must
+  // not reach the browser, or the customer could pay for stock no longer held.
+  const after = await prisma.checkoutSession.findUniqueOrThrow({
+    where: { id: checkoutSessionId },
+    select: { state: true },
+  });
+  if (after.state !== CheckoutState.payment_pending && after.state !== CheckoutState.paid) {
+    console.warn(
+      `[payments] payment=${payment.id} session=${checkoutSessionId} is "${after.state}" after order creation — order withheld`,
+    );
+    throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
   }
 
   const stored = await prisma.payment.findUniqueOrThrow({

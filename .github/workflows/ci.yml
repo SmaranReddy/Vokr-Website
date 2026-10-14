@@ -18,6 +18,64 @@ permissions:
   contents: read
 
 jobs:
+  # Phase 8 Testing Requirements: the reservation, concurrency, payment and
+  # expiry suites only mean something against a real Postgres, so they run
+  # on every PR against a throwaway one — the same `prisma migrate deploy`
+  # the pipeline runs, from an empty database. Never a real database: the
+  # service container exists only for this job.
+  integration:
+    name: Integration tests (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: vokr_ci
+          POSTGRES_PASSWORD: vokr_ci
+          POSTGRES_DB: vokr_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vokr_ci -d vokr_ci"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: "postgresql://vokr_ci:vokr_ci@localhost:5432/vokr_ci"
+      NEXT_PUBLIC_SITE_URL: "https://vokr.shop"
+      # Test fixtures only — the same values as the local `.env.local`
+      # fixtures, and NOT the answers to decisions D3 (seller state) or D11
+      # (fees). The address-encryption key is generated per run below.
+      CHECKOUT_SELLER_STATE: "Karnataka"
+      CHECKOUT_FLAT_SHIPPING_FEE_PAISE: "9900"
+      CHECKOUT_COD_HANDLING_FEE_PAISE: "4900"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: "vokr/.nvmrc"
+          cache: "npm"
+          cache-dependency-path: "vokr/package-lock.json"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      - name: Apply every migration to the empty database
+        run: npx prisma migrate deploy
+
+      - name: Integration tests
+        run: |
+          set -euo pipefail
+          ADDRESS_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+          export ADDRESS_ENCRYPTION_KEY
+          npm run test:integration
+
   verify:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-latest

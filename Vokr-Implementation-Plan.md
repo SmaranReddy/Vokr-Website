@@ -2968,7 +2968,7 @@ webhook.
    `deploy.yml`'s `--set-secrets` mounts only `DATABASE_URL`, `ORIGIN_AUTH_SECRET` (and `BREVO_API_KEY` when present), so Cloud Run receives no Razorpay secret today. Wire them in deliberately once test keys exist.
 2. Payment-step UI (`payment-step.tsx`, Razorpay Checkout handoff, honest pending state) is not built.
 3. COD (task 11) needs Phase 9 order creation, and D11 for the fee.
-4. Reconciliation has no scheduler yet; the Phase 8 maintenance job will drive it.
+4. Reconciliation has no scheduler yet. Phase 8's `POST /api/jobs/maintenance` drives it, but Cloud Scheduler job 3 has not been created.
 5. Live mode needs D3 / R16.
 
 #### Objective
@@ -3070,7 +3070,91 @@ sequence of webhook deliveries can produce a duplicate charge.
 ### PHASE 8 — Inventory + Concurrency Hardening
 
 #### Status
-**NOT STARTED**
+**SERVER CORE BUILT, 14 Oct 2026 — not complete, not reachable.** Branch
+`feat/phase-8-inventory-reservation`, on `master` `cd542b7`. The reserve
+route sits behind `ORDERING_ENABLED = false`.
+
+**Built:**
+- **Migration `20261014110121_inventory_reservations`** (additive, passes the migration gate's regex). It adds `inventory_reservations` with:
+  - `reservation_state` (`held`/`committed`/`released`/`expired`);
+  - `UNIQUE(checkout_session_id, variant_id)`, so a duplicate request cannot hold twice; this index also serves lookups by session;
+  - `CHECK (quantity > 0)`, a partial index on `expires_at WHERE state = 'held'`, and RLS.
+
+  The Phase 2 `inventory` CHECKs are re-asserted by a test, which also proves they fire with SQLSTATE 23514 when the application is bypassed.
+- **Inventory primitives** live in `src/server/inventory/` (`holdStock`, `commitHolds`, `releaseHolds`):
+  - Each takes the caller's transaction, after the session row is locked.
+  - Inventory rows are locked with `SELECT … FOR UPDATE OF i … ORDER BY variant_id`, and variant/product status is read in the same statement.
+  - All lines are held or none; `expires_at` comes from the DB clock (15 minutes).
+  - One identity can hold at most 10 units of a variant across its live sessions.
+  - Every grant, denial, commit and release is logged.
+- **`runLockingTransaction`** uses the checkout connection: `DIRECT_URL` only when it differs from `DATABASE_URL`, otherwise the shared pool. It sets `lock_timeout` to 5 s and retries only 40P01/40001/55P03/P2034, at most 3 times.
+- **`src/server/checkout/reserve.ts`** moves a session `priced → reserved`:
+  - It locks the session row first, so duplicates serialise.
+  - It reserves the snapshot's lines only when the cart still matches them.
+  - It refuses an expired price.
+  - It sets the session's `expires_at` to the hold's expiry, so `createPaymentOrder`'s liveness gate also refuses a lapsed hold.
+- **Lock order everywhere:** payment → session → inventory.
+- **Phase 7 changes:**
+  - Commit-on-capture happens inside `applyPaymentObservation`, in the same transaction as `payment_pending → paid`.
+  - `createPaymentOrder` re-reads the session after the Razorpay call and withholds the order if the hold lapsed meanwhile.
+  - `reconcileOrder` is factored out of `reconcilePendingPayments`.
+- **Expiry** (`src/server/jobs/expire-reservations.ts`):
+  - A hold with no Razorpay order is released at expiry.
+  - A hold with one is kept until expiry + 15 minutes (`PAYMENT_GRACE_MINUTES`). Razorpay is then read first, outside any transaction, and the result applied through the Phase 7 path.
+  - It is released only if every attempt Razorpay lists is `failed`, or there is none. An attempt still `created` (an unfinished UPI collect or bank page), a status the code does not recognise, or a capture the apply refused all keep the hold (`kept_attempt_unfinished`), and a later run looks again.
+  - The release re-checks state under the locks. An `authorized`, `captured` or `refunded` payment always keeps its hold.
+  - Without Razorpay credentials, a hold that has an order is never released.
+  - `createPaymentOrder` never returns an order, existing or new, once the hold's `expires_at` has passed. During the grace period the browser therefore cannot start a payment that might be captured after release.
+- **Pruning** covers only tables nothing references: rate-limit rows older than 24 hours, webhook events older than 90 days, and released or expired holds older than 7 days.
+- **`POST /api/jobs/maintenance`** runs reconcile → expiry → prune.
+  - It is not behind the ordering gate.
+  - It verifies the Cloud Scheduler OIDC token in-app (the service is `--allow-unauthenticated`): RS256 only, Google issuer, exact `MAINTENANCE_OIDC_AUDIENCE`, `MAINTENANCE_OIDC_SERVICE_ACCOUNT` with `email_verified`, and exp/iat with 60 s skew. Google's keys are cached, and refetched at most once a minute.
+  - Unconfigured, it returns 503; a bad token gets one uniform 401; a failed step returns 500 so Scheduler retries. Every step is idempotent.
+- **CI:** a new `integration` job runs against a throwaway `postgres:17-alpine`: `prisma migrate deploy` from empty, then `npm run test:integration`.
+
+**Evidence:**
+- Local results: `npm run verify` green (lint, typecheck, 486/486 unit tests, build), with no server secret name in `.next/static`. Integration was 120/120 at PR #10's first head, on a database migrated from empty. After the payment-safety fix below it is 126/126.
+- Covered, among others:
+  - 10 buyers for 1 unit give exactly 1 hold and 9 `InsufficientStockError`s, with final stock 1/1.
+  - A blocker transaction proves the row lock is real (`pg_stat_activity` shows the wait).
+  - 16 concurrent opposite-order carts complete without deadlock.
+  - A short second line leaves no partial hold.
+  - 5 duplicate requests hold once.
+  - Expiry releases stock; two overlapping runs release it once.
+  - A failed attempt followed by a captured retry commits once; 5× capture commits once.
+  - Reconciliation finds a missed capture and commits instead of releasing.
+  - A capture after release is recorded but never marks the session paid or touches stock.
+  - A capture racing expiry never ends both paid and released.
+  - An amount mismatch changes no stock.
+  - The architecture test shows nothing in `server/inventory` or `checkout/reserve.ts` imports payments.
+  - OIDC forgeries (other audience, other account, `alg: none`/HS256, wrong key, tampering) are refused.
+- Removing `FOR UPDATE` makes the 10-buyer test fail, because the CHECK backstop fires instead of producing clean denials.
+
+**Deviations, recorded:**
+- **Task 6, "release on failure".** Holds are released at expiry, not on `payment.failed`. Phase 7's `failed` is per-attempt and retryable on the same Razorpay order, so releasing on it would take stock away from a customer who is retrying. There is no abandon transition out of `reserved` either (the Phase 6 state machine has none); expiry covers it.
+- **Index.** The plan's separate index on `checkout_session_id` was not added: `UNIQUE(checkout_session_id, variant_id)` leads with that column and serves the same lookups.
+- **Grace period.** `PAYMENT_GRACE_MINUTES = 15` is an engineering safety margin, not a business decision. It keeps a hold that has a Razorpay order for 15 minutes past expiry, so a late UPI or bank confirmation finds its stock.
+- **Task 7 pruning** is limited to unreferenced tables (see Open 3).
+
+**Deploying it:**
+- Merging to `master` starts a push-triggered deploy. That run builds the image and then **waits at the `production` environment approval**. It does not fail on its own; only if it were approved would its migration gate (mode `check`) refuse the pending migration. Reject or cancel it: the workflow's `concurrency` group queues any later run behind it.
+- To ship it:
+  1. Take a fresh, restore-tested `pg_dump`.
+  2. Merge.
+  3. Reject or cancel the push run.
+  4. Dispatch `deploy.yml` on `master` with `apply_migrations=true`.
+  5. Check the run is on the merge commit and lists exactly one pending migration.
+  6. Approve `production`.
+
+  This is the same sequence as PR #9, whose push run 38548552934 was cancelled.
+
+**Open:**
+1. Cloud Scheduler job 3 is not created. Deploying also needs `MAINTENANCE_OIDC_AUDIENCE` and `MAINTENANCE_OIDC_SERVICE_ACCOUNT` set on the service.
+   The job must target `https://vokr.shop/api/jobs/maintenance`, because `run.app` requests are refused by the origin check. The Cloudflare Worker forwards `Authorization` unchanged.
+2. Sold-out UI (task 8): the PDP disables sizes only for non-active variants. Catalog availability already subtracts `quantity_reserved`. There is no checkout UI yet for the reservation-denied message.
+3. Cart and guest-session pruning is deferred. `checkout_sessions` references both through `ON DELETE SET NULL`, which would violate its one-identity CHECK, so a retention rule for checkout sessions comes first.
+4. Payment-step UI: Razorpay Checkout's own `timeout` should be derived from the hold's remaining time, not a flat 15 minutes.
+5. **Before `ORDERING_ENABLED` can be true:** a capture that still lands after its hold was released is recorded with a `needs reconciliation` warning, but nothing refunds it or alerts anyone. That can still happen: a Razorpay Checkout modal opened before the hold lapsed stays usable in the browser, and a new attempt made from it after the release never reaches this server first. It needs a refund or alert path (Phase 9 or admin). How Razorpay's automatic-capture settings treat late authorizations is to be confirmed against Razorpay's documentation.
 
 #### Objective
 Make overselling impossible: reservation inside a database transaction with
