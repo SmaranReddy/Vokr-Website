@@ -4,7 +4,9 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
 import { ConflictError } from "@/lib/errors";
+import { addItem } from "@/server/cart";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
+import { createCheckoutSession, priceCheckoutSession, setCheckoutAddress } from "@/server/checkout/service";
 import { prisma } from "@/server/db/client";
 import { expireReservations, PAYMENT_GRACE_MINUTES } from "@/server/jobs/expire-reservations";
 import { runMaintenance } from "@/server/jobs/maintenance";
@@ -750,5 +752,44 @@ describe("POST /api/jobs/maintenance (task 7)", () => {
       expect(await response.json()).toEqual({ ok: false, error: "not_configured" });
     }
     expect(await stockOf(variantId)).toEqual({ quantityOnHand: 2, quantityReserved: 1 });
+  });
+});
+
+describe("the real path, end to end: cart → address → pricing → reserve → Razorpay order → verified capture", () => {
+  it("reserves exactly what Phase 6 priced, charges that amount, and commits the stock on capture", async () => {
+    const razorpay = new FakeRazorpay();
+    const variantId = await stockedVariant(fixtures, 3, 250_000);
+    const identity = await guest(fixtures);
+
+    await addItem(identity, { variantId, quantity: 2 });
+    const created = await createCheckoutSession(identity, randomUUID());
+    await setCheckoutAddress(identity, created.id, {
+      name: "Asha Rao",
+      phone: "+919876543210",
+      line1: "12 MG Road",
+      line2: undefined,
+      city: "Mumbai",
+      state: "Maharashtra",
+      pincode: "400001",
+    });
+    const priced = await priceCheckoutSession(identity, created.id, "prepaid");
+    const total = priced.pricingSnapshot?.totalPaise as number;
+    expect(priced.pricingSnapshot?.lines).toMatchObject([{ variantId, quantity: 2 }]);
+
+    const reserved = await reserveCheckoutSession(identity, created.id);
+    expect(reserved.state).toBe(CheckoutState.reserved);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 3, quantityReserved: 2 });
+
+    const order = await createPaymentOrder(identity, created.id, razorpay);
+    expect(order.amountPaise).toBe(total);
+    expect(razorpay.orders.get(order.razorpayOrderId)?.amount).toBe(total);
+
+    await deliver("payment.captured", order.razorpayOrderId, "pay_real_path", total);
+
+    expect(await stateOf(created.id)).toBe(CheckoutState.paid);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 1, quantityReserved: 0 });
+    expect(await reservationsOf(created.id)).toEqual([
+      { variantId, quantity: 2, state: ReservationState.committed },
+    ]);
   });
 });

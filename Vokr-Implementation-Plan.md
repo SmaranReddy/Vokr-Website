@@ -3128,6 +3128,16 @@ route sits behind `ORDERING_ENABLED = false`.
   - OIDC forgeries (other audience, other account, `alg: none`/HS256, wrong key, tampering) are refused.
 - Removing `FOR UPDATE` makes the 10-buyer test fail, because the CHECK backstop fires instead of producing clean denials.
 
+**Deviations, recorded:**
+- **Task 6, "release on failure".** Holds are released at expiry, not on `payment.failed`. Phase 7's `failed` is per-attempt and retryable on the same Razorpay order, so releasing on it would take stock away from a customer who is retrying. There is no abandon transition out of `reserved` either (the Phase 6 state machine has none); expiry covers it.
+- **Index.** The plan's separate index on `checkout_session_id` was not added: `UNIQUE(checkout_session_id, variant_id)` leads with that column and serves the same lookups.
+- **Grace period.** `PAYMENT_GRACE_MINUTES = 15` is an engineering safety margin, not a business decision. It keeps a hold that has a Razorpay order for 15 minutes past expiry, so a late UPI or bank confirmation finds its stock.
+- **Task 7 pruning** is limited to unreferenced tables (see Open 3).
+
+**Deploying it:**
+- Merging to `master` starts the push-triggered deploy, whose migration gate (mode `check`) will refuse this one pending additive migration before the deploy step. Production then stays on its current revision.
+- To ship it: take a fresh `pg_dump`, then dispatch `deploy.yml` with `apply_migrations=true` and approve the `production` environment. This is the same sequence as PR #9.
+
 **Open:**
 1. Cloud Scheduler job 3 is not created. Deploying also needs `MAINTENANCE_OIDC_AUDIENCE` and `MAINTENANCE_OIDC_SERVICE_ACCOUNT` set on the service.
    The job must target `https://vokr.shop/api/jobs/maintenance`, because `run.app` requests are refused by the origin check. The Cloudflare Worker forwards `Authorization` unchanged.
