@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isOriginAuthorized,
-  ORIGIN_AUTH_HEADER,
-} from "@/server/net/origin-auth";
+import { checkOrigin, ORIGIN_AUTH_HEADER } from "@/server/net/origin-auth";
 
 /**
  * `/cart` rather than `/api/health`: the health path is deliberately
@@ -20,49 +17,66 @@ function requestWithAuthHeader(
   });
 }
 
-describe("isOriginAuthorized", () => {
-  it("passes every request when no secret is configured (local/dev/preview)", () => {
-    expect(isOriginAuthorized(requestWithAuthHeader(undefined), undefined)).toBe(
-      true,
+describe("checkOrigin", () => {
+  it("trusts every request when no secret is configured (local/dev/preview)", () => {
+    expect(checkOrigin(requestWithAuthHeader(undefined), undefined)).toBe(
+      "trusted",
     );
-    expect(isOriginAuthorized(requestWithAuthHeader("anything"), undefined)).toBe(
-      true,
+    expect(checkOrigin(requestWithAuthHeader("anything"), undefined)).toBe(
+      "trusted",
     );
-    expect(isOriginAuthorized(requestWithAuthHeader(""), "")).toBe(true);
+    expect(checkOrigin(requestWithAuthHeader(""), "")).toBe("trusted");
   });
 
-  it("passes when the header matches the configured secret exactly", () => {
+  it("trusts a request whose header matches the configured secret exactly", () => {
     const request = requestWithAuthHeader("s3cret");
-    expect(isOriginAuthorized(request, "s3cret")).toBe(true);
+    expect(checkOrigin(request, "s3cret")).toBe("trusted");
   });
 
   it("refuses when the header is missing but a secret is configured", () => {
     const request = requestWithAuthHeader(undefined);
-    expect(isOriginAuthorized(request, "s3cret")).toBe(false);
+    expect(checkOrigin(request, "s3cret")).toBe("refused");
   });
 
   it("refuses when the header value does not match — the run.app bypass D9 closes", () => {
-    const request = requestWithAuthHeader("forged-by-client");
-    expect(isOriginAuthorized(request, "s3cret")).toBe(false);
+    // No trailing-whitespace case: `Headers` trims it (HTTP OWS), so it
+    // would reach this check as the real secret.
+    for (const forged of ["forged-by-client", "", "s3cre", "s3cret2", "S3CRET"]) {
+      expect(checkOrigin(requestWithAuthHeader(forged), "s3cret")).toBe(
+        "refused",
+      );
+    }
   });
 
-  it("exempts /api/health, so Cloud Run's startup probe still passes", () => {
+  it("exempts /api/health without trusting it, so Cloud Run's startup probe still passes", () => {
     // Removing this exemption fails the probe (httpGet /api/health), so
-    // the revision never goes ready and the deploy rolls back.
+    // the revision never goes ready and the deploy rolls back. "exempt",
+    // not "trusted": a direct caller's IP headers must still not count.
     const probe = requestWithAuthHeader(undefined, "/api/health");
-    expect(isOriginAuthorized(probe, "s3cret")).toBe(true);
+    expect(checkOrigin(probe, "s3cret")).toBe("exempt");
+  });
+
+  it("trusts /api/health when it does carry the secret (the smoke test, via the Worker)", () => {
+    const viaWorker = requestWithAuthHeader("s3cret", "/api/health");
+    expect(checkOrigin(viaWorker, "s3cret")).toBe("trusted");
   });
 
   it("exempts only the exact health path, not paths that merely start with it", () => {
-    for (const path of ["/api/health/../admin", "/api/healthz", "/api/health2"]) {
-      expect(isOriginAuthorized(requestWithAuthHeader(undefined, path), "s3cret")).toBe(
-        false,
+    for (const path of [
+      "/api/health/../admin",
+      "/api/healthz",
+      "/api/health2",
+      "/api/health.png",
+      "/API/health",
+    ]) {
+      expect(checkOrigin(requestWithAuthHeader(undefined, path), "s3cret")).toBe(
+        "refused",
       );
     }
   });
 
   it("ignores the query string when matching the exemption", () => {
     const probe = requestWithAuthHeader(undefined, "/api/health?probe=1");
-    expect(isOriginAuthorized(probe, "s3cret")).toBe(true);
+    expect(checkOrigin(probe, "s3cret")).toBe("exempt");
   });
 });

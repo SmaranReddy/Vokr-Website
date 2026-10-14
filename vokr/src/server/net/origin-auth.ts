@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 /**
  * The origin-auth contract between the Cloudflare Worker
  * (`vokr/infra/cloudflare/edge-worker.mjs`) and this application — D9,
@@ -40,22 +42,49 @@ export const VERIFIED_ORIGIN_HEADER = "x-vokr-verified-origin";
 const ORIGIN_CHECK_EXEMPT_PATHS = new Set(["/api/health"]);
 
 /**
- * True when the request may proceed: it targets an exempt path, or no
- * origin secret is configured (local/dev/preview — there is no Worker in
- * front and nothing to check against), or it carries exactly the
- * configured secret. A falsy `configuredSecret` always short-circuits to
- * `true` rather than being compared — an unset app-side secret must
- * never be satisfied by an unset/empty request header.
+ * The three outcomes `src/proxy.ts` acts on:
+ *
+ *  - `"trusted"` — the request carries exactly the configured secret, or
+ *    no secret is configured (local/dev/preview — there is no Worker in
+ *    front and nothing to check against). Only this outcome may stamp
+ *    `VERIFIED_ORIGIN_HEADER`.
+ *  - `"exempt"` — no valid secret, but the path is in
+ *    `ORIGIN_CHECK_EXEMPT_PATHS`. Served, but never trusted: a direct
+ *    caller's `cf-connecting-ip`/`x-forwarded-for` (or a forged
+ *    `VERIFIED_ORIGIN_HEADER`) must not count for anything.
+ *  - `"refused"` — everything else.
  */
-export function isOriginAuthorized(
+export type OriginCheck = "trusted" | "exempt" | "refused";
+
+/**
+ * A falsy `configuredSecret` always short-circuits to `"trusted"` rather
+ * than being compared — an unset app-side secret must never be satisfied
+ * by an unset/empty request header.
+ */
+export function checkOrigin(
   request: Request,
   configuredSecret: string | undefined,
-): boolean {
+): OriginCheck {
   if (!configuredSecret) {
-    return true;
+    return "trusted";
+  }
+  const presented = request.headers.get(ORIGIN_AUTH_HEADER);
+  if (presented !== null && secretsEqual(presented, configuredSecret)) {
+    return "trusted";
   }
   if (ORIGIN_CHECK_EXEMPT_PATHS.has(new URL(request.url).pathname)) {
-    return true;
+    return "exempt";
   }
-  return request.headers.get(ORIGIN_AUTH_HEADER) === configuredSecret;
+  return "refused";
+}
+
+/**
+ * Constant-time comparison. Both sides are hashed first so that
+ * `timingSafeEqual` always sees equal-length inputs and the secret's
+ * length does not leak through an early length mismatch either.
+ */
+function secretsEqual(presented: string, configured: string): boolean {
+  const a = createHash("sha256").update(presented).digest();
+  const b = createHash("sha256").update(configured).digest();
+  return timingSafeEqual(a, b);
 }
