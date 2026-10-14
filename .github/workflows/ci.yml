@@ -82,7 +82,7 @@ jobs:
           # split (Phase 3) keeps the server schema's key list out of any
           # client chunk — assert that holds for every build, not just the
           # day it was fixed.
-          SERVER_ONLY_KEYS="SUPABASE_SERVICE_ROLE_KEY RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET BREVO_API_KEY SENTRY_AUTH_TOKEN R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY"
+          SERVER_ONLY_KEYS="SUPABASE_SERVICE_ROLE_KEY RAZORPAY_KEY_SECRET RAZORPAY_WEBHOOK_SECRET ADDRESS_ENCRYPTION_KEY BREVO_API_KEY SENTRY_AUTH_TOKEN R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY"
           FOUND=0
           for key in $SERVER_ONLY_KEYS; do
             if grep -r "$key" .next/static >/dev/null 2>&1; then
