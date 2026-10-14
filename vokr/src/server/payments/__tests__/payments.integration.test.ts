@@ -5,7 +5,14 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
+import { reserveCheckoutSession } from "@/server/checkout/reserve";
 import { prisma } from "@/server/db/client";
+import {
+  cleanupCheckoutFixtures,
+  newCheckoutFixtures,
+  pricedSession,
+  stockedVariant,
+} from "@/server/inventory/__tests__/checkout-fixtures";
 
 import { RazorpayApiError, type RazorpayClient, type RazorpayOrder, type RazorpayPayment } from "../razorpay";
 import { reconcilePendingPayments, RECONCILE_AFTER_MS } from "../reconcile";
@@ -15,14 +22,14 @@ import { handleRazorpayWebhook } from "../webhook";
 /**
  * Plan §5 Phase 7, Testing Requirements — against a real Postgres, with
  * Razorpay replaced by an in-memory fake (no test-mode credentials exist
- * yet; see the Phase 7 Status). Checkout sessions are written straight
- * into `reserved`, because reservation is Phase 8's step.
+ * yet; see the Phase 7 Status). Sessions reach `reserved` through the real
+ * Phase 8 reservation, so a capture commits a real stock hold.
  */
 
 const WEBHOOK_SECRET = "whsec_integration_fixture";
 const AMOUNT = 999_500;
 
-const createdGuestSessionIds: string[] = [];
+const fixtures = newCheckoutFixtures();
 const createdEventIds: string[] = [];
 
 /** Behaves like Razorpay where it matters: `receipt` is unique, and orders are looked up by it. */
@@ -59,33 +66,24 @@ class FakeRazorpay implements RazorpayClient {
 
 async function reservedSession(
   overrides: { paymentMethod?: "prepaid" | "cod"; expiresAt?: Date; state?: CheckoutState } = {},
-): Promise<{ identity: Identity; sessionId: string }> {
-  const guestSessionId = randomUUID();
-  await prisma.guestSession.create({
-    data: {
-      id: guestSessionId,
-      tokenHash: randomUUID(),
-      expiresAt: new Date(Date.now() + 86_400_000),
-    },
-    select: { id: true },
+): Promise<{ identity: Identity; sessionId: string; variantId: string }> {
+  const variantId = await stockedVariant(fixtures, 5, AMOUNT);
+  const { identity, sessionId } = await pricedSession(fixtures, {
+    lines: [{ variantId, quantity: 1 }],
+    totalPaise: AMOUNT,
+    paymentMethod: overrides.paymentMethod ?? "prepaid",
   });
-  createdGuestSessionIds.push(guestSessionId);
+  if (overrides.state === CheckoutState.priced) return { identity, sessionId, variantId };
 
-  const cart = await prisma.cart.create({ data: { guestSessionId }, select: { id: true } });
-  const expiresAt = overrides.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
-  const session = await prisma.checkoutSession.create({
-    data: {
-      cartId: cart.id,
-      guestSessionId,
-      idempotencyKey: randomUUID(),
-      state: overrides.state ?? CheckoutState.reserved,
-      paymentMethod: overrides.paymentMethod ?? "prepaid",
-      pricingSnapshot: { totalPaise: AMOUNT, lines: [], expiresAt: expiresAt.toISOString() },
-      expiresAt,
-    },
-    select: { id: true },
-  });
-  return { identity: { type: "guest", guestSessionId }, sessionId: session.id };
+  await reserveCheckoutSession(identity, sessionId);
+  if (overrides.state || overrides.expiresAt) {
+    await prisma.checkoutSession.update({
+      where: { id: sessionId },
+      data: { state: overrides.state, expiresAt: overrides.expiresAt },
+      select: { id: true },
+    });
+  }
+  return { identity, sessionId, variantId };
 }
 
 function paymentEvent(
@@ -141,17 +139,7 @@ async function stateOf(sessionId: string) {
 }
 
 afterEach(async () => {
-  await prisma.webhookEvent.deleteMany({ where: { providerEventId: { in: createdEventIds } } });
-  const sessions = await prisma.checkoutSession.findMany({
-    where: { guestSessionId: { in: createdGuestSessionIds } },
-    select: { id: true },
-  });
-  const sessionIds = sessions.map((session) => session.id);
-  await prisma.payment.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });
-  await prisma.checkoutSession.deleteMany({ where: { id: { in: sessionIds } } });
-  await prisma.cart.deleteMany({ where: { guestSessionId: { in: createdGuestSessionIds } } });
-  await prisma.guestSession.deleteMany({ where: { id: { in: createdGuestSessionIds } } });
-  createdGuestSessionIds.length = 0;
+  await cleanupCheckoutFixtures(fixtures, createdEventIds);
   createdEventIds.length = 0;
 });
 

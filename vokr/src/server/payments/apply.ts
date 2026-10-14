@@ -1,5 +1,6 @@
 import { CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { commitHolds } from "@/server/inventory";
 
 import { nextPaymentStatus } from "./state-machine";
 
@@ -50,10 +51,15 @@ export function toPaymentStatus(razorpayStatus: string): PaymentStatus | null {
  * the pricing snapshot: a capture for any other amount is refused and
  * recorded, never treated as payment for the order.
  *
- * On a first capture the checkout session moves `payment_pending → paid`.
+ * On a first capture the checkout session moves `payment_pending → paid`
+ * and its stock holds are committed (Phase 8), in this one transaction.
  * A capture that arrives after the session left `payment_pending` (it
  * expired, say) still records the money, and is reported as such so it
- * can be reconciled or refunded — it is never dropped.
+ * can be reconciled or refunded — it is never dropped, never marks the
+ * session paid, and never touches stock that was already released.
+ *
+ * Lock order: this `payments` row, then the session (by the update), then
+ * inventory rows — the same order the maintenance job's release uses.
  */
 export async function applyPaymentObservation(
   tx: Prisma.TransactionClient,
@@ -110,6 +116,13 @@ export async function applyPaymentObservation(
       console.info(
         `[checkout] session=${payment.checkoutSessionId} transition payment_pending -> paid`,
       );
+      // Same transaction as `→ paid`: the held units leave stock exactly
+      // when the session becomes paid, never separately.
+      const committed = await commitHolds(tx, payment.checkoutSessionId);
+      if (committed === 0) {
+        warning = `captured but checkout session ${payment.checkoutSessionId} had no held stock — needs reconciliation`;
+        console.error(`[payments] payment=${paymentId} ${warning}`);
+      }
     } else {
       warning = `captured but checkout session ${payment.checkoutSessionId} was not payment_pending — needs reconciliation`;
       console.error(`[payments] payment=${paymentId} ${warning}`);

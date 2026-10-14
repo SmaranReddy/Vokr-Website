@@ -2,7 +2,8 @@
 // (authentication + guest sessions) + Phase 5 (server-side cart). See
 // Vokr-Implementation-Plan.md §3.5 for the full entity plan and the
 // reasoning behind every constraint below. Orders and payments land in
-// later phases. Phase 7 adds payments + webhook_events.
+// later phases. Phase 7 adds payments + webhook_events; Phase 8 adds
+// inventory_reservations.
 
 generator client {
   provider = "prisma-client"
@@ -58,7 +59,7 @@ model Product {
 model ProductVariant {
   id String @id @default(uuid(7)) @db.Uuid
 
-  productId String @map("product_id") @db.Uuid
+  productId String  @map("product_id") @db.Uuid
   product   Product @relation(fields: [productId], references: [id])
 
   /// Human-readable stable key, e.g. VK-MX-WHTBLK-IN09. Uppercase, unique,
@@ -78,8 +79,9 @@ model ProductVariant {
 
   status CatalogStatus @default(draft)
 
-  inventory Inventory?
-  cartItems CartItem[]
+  inventory    Inventory?
+  cartItems    CartItem[]
+  reservations InventoryReservation[]
 
   @@unique([productId, colorway, sizeLabel])
   @@index([productId, status])
@@ -147,7 +149,7 @@ model GuestSession {
   lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
   /// 90 days from creation (plan §3.5). Renewed at last-seen time by the
   /// pruning job's window, not by extending this column on every request.
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
 
   carts            Cart[]
   checkoutSessions CheckoutSession[]
@@ -344,7 +346,8 @@ model CheckoutSession {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  payment Payment?
+  payment      Payment?
+  reservations InventoryReservation[]
 
   @@map("checkout_sessions")
 }
@@ -437,4 +440,49 @@ model WebhookEvent {
   @@unique([provider, providerEventId])
   @@index([receivedAt])
   @@map("webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Inventory + Concurrency Hardening. See
+// Vokr-Implementation-Plan.md §5 PHASE 8 and the §3.5 transaction
+// boundary. `src/server/inventory/` is the only writer.
+// ---------------------------------------------------------------------------
+
+/// `held → committed` on a verified capture; `held → released | expired`
+/// otherwise. `committed`, `released` and `expired` are terminal.
+enum ReservationState {
+  held
+  committed
+  released
+  expired
+
+  @@map("reservation_state")
+}
+
+/// A time-boxed hold on stock for one line of one checkout session. While
+/// `held`, its quantity is counted in `inventory.quantity_reserved`; every
+/// state change moves that counter in the same transaction, under the
+/// inventory row's `FOR UPDATE` lock. `UNIQUE(checkout_session_id,
+/// variant_id)` means a duplicate reserve request cannot hold twice.
+model InventoryReservation {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  variantId String         @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  checkoutSessionId String          @map("checkout_session_id") @db.Uuid
+  checkoutSession   CheckoutSession @relation(fields: [checkoutSessionId], references: [id])
+
+  quantity Int
+  state    ReservationState @default(held)
+
+  /// Set from the database clock inside the reservation transaction.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// Also serves lookups by `checkout_session_id` (its leading column).
+  @@unique([checkoutSessionId, variantId])
+  @@map("inventory_reservations")
 }

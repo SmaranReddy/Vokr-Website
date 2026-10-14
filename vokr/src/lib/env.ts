@@ -68,6 +68,13 @@ const serverSchema = z.object({
   // decision D11, Vokr-Implementation-Plan.md §0.3.
   CHECKOUT_FLAT_SHIPPING_FEE_PAISE: optionalString,
   CHECKOUT_COD_HANDLING_FEE_PAISE: optionalString,
+
+  // Phase 8: who may call `POST /api/jobs/maintenance` (Cloud Scheduler
+  // job 3). Not secrets — the OIDC token's audience (the job's URL) and the
+  // scheduler's service-account email. Unset, the endpoint refuses every
+  // call, the same fail-closed rule as RAZORPAY_WEBHOOK_SECRET.
+  MAINTENANCE_OIDC_AUDIENCE: optionalString,
+  MAINTENANCE_OIDC_SERVICE_ACCOUNT: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;

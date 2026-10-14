@@ -141,6 +141,8 @@ export async function createPaymentOrder(
 
   // A new Razorpay order is only created against a live snapshot; an
   // existing one (above) is returned regardless — its amount is fixed.
+  // From `reserved` on, `expires_at` is the stock hold's expiry (Phase 8),
+  // so this also refuses a new order against a lapsed hold.
   if (session.expiresAt.getTime() <= now.getTime()) {
     throw new ConflictError("Checkout pricing has expired. Please review your order again.");
   }
@@ -180,6 +182,21 @@ export async function createPaymentOrder(
         select: { id: true },
       }),
     );
+  }
+
+  // The stock hold may have lapsed while Razorpay was being called: the
+  // maintenance job then moved the session to `expired` and released the
+  // stock, and the conditional update above matched nothing. The order must
+  // not reach the browser, or the customer could pay for stock no longer held.
+  const after = await prisma.checkoutSession.findUniqueOrThrow({
+    where: { id: checkoutSessionId },
+    select: { state: true },
+  });
+  if (after.state !== CheckoutState.payment_pending && after.state !== CheckoutState.paid) {
+    console.warn(
+      `[payments] payment=${payment.id} session=${checkoutSessionId} is "${after.state}" after order creation — order withheld`,
+    );
+    throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
   }
 
   const stored = await prisma.payment.findUniqueOrThrow({

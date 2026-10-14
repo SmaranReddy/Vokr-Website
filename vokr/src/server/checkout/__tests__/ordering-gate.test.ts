@@ -15,6 +15,8 @@ const createCheckoutSession = vi.fn();
 const setCheckoutAddress = vi.fn();
 const priceCheckoutSession = vi.fn();
 const assertCheckoutMutationAllowed = vi.fn();
+const assertReservationAllowed = vi.fn();
+const reserveCheckoutSession = vi.fn();
 const assertServiceabilityLookupAllowed = vi.fn();
 const getServiceability = vi.fn();
 const createPaymentOrder = vi.fn();
@@ -34,6 +36,12 @@ vi.mock("@/server/checkout/service", () => ({
 vi.mock("@/server/checkout/rate-limit", () => ({
   assertCheckoutMutationAllowed: (...args: unknown[]) =>
     assertCheckoutMutationAllowed(...args),
+  assertReservationAllowed: (...args: unknown[]) =>
+    assertReservationAllowed(...args),
+}));
+
+vi.mock("@/server/checkout/reserve", () => ({
+  reserveCheckoutSession: (...args: unknown[]) => reserveCheckoutSession(...args),
 }));
 
 vi.mock("@/server/shipping/serviceability", () => ({
@@ -60,6 +68,8 @@ const addressRoute =
   await import("@/app/api/checkout/session/[id]/address/route");
 const pricingRoute =
   await import("@/app/api/checkout/session/[id]/pricing/route");
+const reserveRoute =
+  await import("@/app/api/checkout/session/[id]/reserve/route");
 const serviceabilityRoute =
   await import("@/app/api/shipping/serviceability/route");
 const { ORDERING_ENABLED, ORDERING_UNAVAILABLE_MESSAGE } =
@@ -97,6 +107,8 @@ function expectNothingBehindTheGateRan() {
     setCheckoutAddress,
     priceCheckoutSession,
     assertCheckoutMutationAllowed,
+    assertReservationAllowed,
+    reserveCheckoutSession,
     assertServiceabilityLookupAllowed,
     getServiceability,
     createPaymentOrder,
@@ -155,6 +167,15 @@ describe("checkout + payments API — ordering disabled", () => {
         `/api/checkout/session/${SESSION_ID}/pricing?paymentMethod=prepaid`,
         "GET",
       ),
+      sessionContext(SESSION_ID),
+    );
+    await expectOrderingUnavailable(response);
+    expectNothingBehindTheGateRan();
+  });
+
+  it("POST /api/checkout/session/[id]/reserve is refused — no stock is held", async () => {
+    const response = await reserveRoute.POST(
+      request(`/api/checkout/session/${SESSION_ID}/reserve`, "POST"),
       sessionContext(SESSION_ID),
     );
     await expectOrderingUnavailable(response);
