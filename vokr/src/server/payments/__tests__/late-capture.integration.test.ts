@@ -735,3 +735,45 @@ describe("a late payment whose webhook never arrives", () => {
     expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
   });
 });
+
+describe("closure comes only from refund entities", () => {
+  it("an order read as refunded while our refund is still pending does not close the issue; a failed refund still escalates", async () => {
+    const { sessionId, orderId, razorpay } = await lateCapture();
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "captured");
+    await resolvePaymentIssues(refunds);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refund_initiated);
+
+    // Razorpay's payment summary may say `refunded` as soon as a full
+    // refund exists, before the money has actually gone back.
+    refunds.payment(PAY_ID, "refunded", { amount_refunded: AMOUNT, refund_status: "full" });
+    razorpay.payments.set(orderId, [
+      { id: PAY_ID, order_id: orderId, amount: AMOUNT, currency: "INR", status: "refunded" } as RazorpayPayment,
+    ]);
+    await runMaintenance(razorpay, refunds);
+
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refund_initiated);
+    expect((await paymentOf(sessionId)).status).toBe(PaymentStatus.captured);
+
+    refunds.settle(PAY_ID, "failed");
+    await runMaintenance(razorpay, refunds);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.manual_review);
+  });
+
+  it("an issue a person owns never fails the maintenance run, even when Razorpay cannot be read for it", async () => {
+    const { sessionId } = await lateCapture();
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "captured", { amount_refunded: 100, refund_status: "partial" });
+    await resolvePaymentIssues(refunds);
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.manual_review);
+
+    refunds.failures.push(new RazorpayApiError(502, "Bad gateway"));
+    const report = await runMaintenance(null, refunds);
+
+    expect(report.ok).toBe(true);
+    expect(report.latePayments.status).toBe("ok");
+    if (report.latePayments.status !== "ok") return;
+    expect(report.latePayments.result.errors).toBe(0);
+    expect(report.latePayments.result.watchErrors).toBe(1);
+  });
+});

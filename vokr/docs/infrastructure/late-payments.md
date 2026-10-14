@@ -23,7 +23,7 @@ later. The order is then paid once, and the second payment is extra money.
    - If the session was still `payment_pending`, it moves to `expired`.
    - One `payment_issues` row opens, in state `open`. It is keyed by the Razorpay payment id: `UNIQUE(provider_payment_id)` makes duplicates and races converge on one row.
    - A second payment (a different `pay_…`) on an order already `captured` or `refunded` opens its own issue (`additional_payment`). The order keeps its first payment, its `paid` state and its stock, and refunding the second payment never touches the order's row.
-2. **Finding them without a webhook.** In the `reconciliation` step, every order created in the last 4 days whose session is no longer `payment_pending` is re-read from Razorpay at most every 30 minutes (`payments.late_checked_at`). Every attempt that moved money is applied through the same path a webhook uses.
+2. **Finding them without a webhook.** In the `reconciliation` step, every order created in the last 4 days whose session is no longer `payment_pending` is re-read from Razorpay at most every 30 minutes (`payments.late_checked_at`). Every `authorized` or `captured` attempt is applied through the same path a webhook uses. A payment's `refunded` summary status is never taken as proof. It can be set while the refund is still pending, so an issue closes only from refund entities or a `refund.processed` webhook.
 3. **Resolving, in the maintenance job's `latePayments` step,** every 5 minutes. No network call runs inside a transaction.
    - It reads the payment from Razorpay.
    - `authorized`: it waits. Razorpay either captures it or auto-refunds it.

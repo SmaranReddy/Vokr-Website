@@ -112,10 +112,16 @@ export const LATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
  * Every order with a Razorpay order created in the last
  * {@link LATE_PAYMENT_WINDOW_MS}, whose session is no longer
  * `payment_pending`, is re-read at most every {@link LATE_CHECK_INTERVAL_MS}.
- * Every attempt that moved money is applied through the same path a
- * webhook uses, most advanced first, so the order's own payment is settled
- * before any extra one is judged against it. Never touches stock: the
- * apply path only commits holds that still exist.
+ * Every attempt that is `authorized` or `captured` is applied through the
+ * same path a webhook uses, most advanced first, so the order's own
+ * payment is settled before any extra one is judged against it. Never
+ * touches stock: the apply path only commits holds that still exist.
+ *
+ * A `refunded` attempt is deliberately *not* applied here. That status is
+ * the payment's summary, which may already say `refunded` while the refund
+ * is still pending; closing an issue on it could hide a refund that later
+ * fails. Refunds close only from refund entities (`late-payment.ts`) or a
+ * `refund.processed` webhook.
  */
 export async function reconcileClosedOrders(
   razorpay: RazorpayClient,
@@ -139,9 +145,7 @@ export async function reconcileClosedOrders(
     const attempts = (await razorpay.listOrderPayments(orderId))
       .map((attempt) => ({ attempt, status: toPaymentStatus(attempt.status) }))
       .filter((entry): entry is { attempt: RazorpayPayment; status: PaymentStatus } =>
-        entry.status === PaymentStatus.authorized ||
-        entry.status === PaymentStatus.captured ||
-        entry.status === PaymentStatus.refunded,
+        entry.status === PaymentStatus.authorized || entry.status === PaymentStatus.captured,
       )
       .sort((a, b) => ATTEMPT_PRIORITY[b.status] - ATTEMPT_PRIORITY[a.status]);
     for (const { attempt, status } of attempts) {

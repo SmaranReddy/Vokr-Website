@@ -61,6 +61,12 @@ export interface PaymentIssueReport {
   examined: number;
   outcomes: Record<IssueOutcome, number>;
   errors: number;
+  /**
+   * Failures while only watching a `manual_review` issue. Logged, never
+   * part of `errors`: a person owns that issue, and one Razorpay can't read
+   * must not turn every maintenance run into a 500 and bury real failures.
+   */
+  watchErrors: number;
   /** Every issue by state after this run — `open` + `manual_review` is what a human watches. */
   totals: Record<PaymentIssueState, number>;
 }
@@ -103,16 +109,22 @@ export async function resolvePaymentIssues(razorpay: RazorpayRefundClient): Prom
     retry_later: 0,
   };
   let errors = 0;
+  let watchErrors = 0;
   for (const issue of issues) {
     try {
       const outcome = await resolveIssue(razorpay, issue);
       outcomes[outcome] += 1;
       console.info(`[payments/late] issue=${issue.id} payment=${issue.paymentId} outcome=${outcome}`);
     } catch (error) {
-      errors += 1;
       const message = error instanceof Error ? error.message : String(error);
+      if (issue.state === PaymentIssueState.manual_review) {
+        watchErrors += 1;
+        console.warn(`[payments/late] issue=${issue.id} payment=${issue.paymentId} watch failed: ${message}`);
+        continue;
+      }
+      errors += 1;
       console.error(`[payments/late] issue=${issue.id} payment=${issue.paymentId} failed: ${message}`);
-      if (issue.state !== PaymentIssueState.manual_review) await recordFailure(issue, message);
+      await recordFailure(issue, message);
     }
   }
 
@@ -120,7 +132,7 @@ export async function resolvePaymentIssues(razorpay: RazorpayRefundClient): Prom
   const totals: Record<PaymentIssueState, number> = { open: 0, refund_initiated: 0, refunded: 0, manual_review: 0 };
   for (const row of grouped) totals[row.state] = row._count._all;
 
-  return { examined: issues.length, outcomes, errors, totals };
+  return { examined: issues.length, outcomes, errors, watchErrors, totals };
 }
 
 async function resolveIssue(razorpay: RazorpayRefundClient, issue: LiveIssue): Promise<IssueOutcome> {
