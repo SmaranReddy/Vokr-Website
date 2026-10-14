@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { clientEnv, requireServerEnv } from "@/lib/env";
 import {
-  isOriginAuthorized,
+  checkOrigin,
+  type OriginCheck,
   VERIFIED_ORIGIN_HEADER,
 } from "@/server/net/origin-auth";
 
@@ -17,12 +18,37 @@ const originAuthSecret = requireServerEnv().ORIGIN_AUTH_SECRET;
  * `request.headers` at each call site (rather than cloned once) so it
  * still carries whatever the Supabase cookie refresh below has written
  * into `request` by the time it runs.
+ *
+ * `VERIFIED_ORIGIN_HEADER` is always written one way or the other — set
+ * when trusted, deleted otherwise — never passed through, so a client
+ * that sends its own copy on an exempt path (`/api/health`) cannot make
+ * `src/server/net/client-ip.ts` trust a forged IP.
  */
-function nextWithVerifiedOrigin(request: NextRequest) {
+function nextWithOriginVerdict(
+  request: NextRequest,
+  verdict: Exclude<OriginCheck, "refused">,
+) {
   const headers = new Headers(request.headers);
-  headers.set(VERIFIED_ORIGIN_HEADER, "1");
+  if (verdict === "trusted") {
+    headers.set(VERIFIED_ORIGIN_HEADER, "1");
+  } else {
+    headers.delete(VERIFIED_ORIGIN_HEADER);
+  }
   return NextResponse.next({ request: { headers } });
 }
+
+/**
+ * Requests that skip the Supabase session refresh: build output, the
+ * favicon and image files. These used to be excluded by the `matcher`
+ * itself, which skipped the origin check too — and because the exclusion
+ * matched on a path *suffix*, `/shop/anything.png` and
+ * `/api/catalog/products/anything.png` reached the dynamic page and the
+ * route handler with no secret at all. The matcher now covers every
+ * request; only the session refresh, which costs a Supabase Auth call,
+ * is skipped here.
+ */
+const SKIP_SESSION_REFRESH =
+  /^\/(?:_next\/static\/|_next\/image|favicon\.ico$)|\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/;
 
 /**
  * Next.js 16 renamed the `middleware` file convention to `proxy` (the old
@@ -51,11 +77,16 @@ export async function proxy(request: NextRequest) {
   // request that skips the Cloudflare Worker — e.g. straight to `run.app`
   // — never carries the matching header and is refused here. Unconfigured
   // (local/dev/preview, no Worker in front) always passes.
-  if (!isOriginAuthorized(request, originAuthSecret)) {
+  const verdict = checkOrigin(request, originAuthSecret);
+  if (verdict === "refused") {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  let response = nextWithVerifiedOrigin(request);
+  let response = nextWithOriginVerdict(request, verdict);
+
+  if (SKIP_SESSION_REFRESH.test(request.nextUrl.pathname)) {
+    return response;
+  }
 
   const url = clientEnv.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -73,7 +104,7 @@ export async function proxy(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
         });
-        response = nextWithVerifiedOrigin(request);
+        response = nextWithOriginVerdict(request, verdict);
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options);
         });
@@ -88,8 +119,10 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+/**
+ * Every request, deliberately — see `SKIP_SESSION_REFRESH`. A path this
+ * matcher does not cover is a path the origin check does not cover.
+ */
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
-  ],
+  matcher: ["/:path*"],
 };

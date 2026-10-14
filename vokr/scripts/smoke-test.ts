@@ -90,16 +90,26 @@ async function checkProductPage(slug: string | null): Promise<CheckResult> {
  * mounted, so it failed open and nothing looked wrong. A deploy-time
  * assertion on the mount catches that; this catches the broader claim,
  * that the bypass is actually closed from the outside.
+ *
+ * `/shop/origin-check.png` covers the second time it was open: the proxy
+ * matcher used to skip any path ending in an image extension, so a
+ * dynamic page with such a suffix rendered with a 200 and no secret
+ * (`/shop/x.png`, 14 Oct 2026). A route handler path would not do here —
+ * `/api/catalog/products/x.png` answers 404 whether bypassed or blocked.
  */
-async function checkOriginProtection(): Promise<CheckResult | null> {
-  if (!originAuthSecret) return null;
-  const res = await fetch(new URL("/", baseUrl));
-  const ok = res.status !== 200;
-  return {
-    name: "GET / without the origin secret is refused",
-    ok,
-    detail: `status=${res.status}${ok ? "" : " — the run.app bypass is OPEN"}`,
-  };
+async function checkOriginProtection(): Promise<CheckResult[]> {
+  if (!originAuthSecret) return [];
+  const results: CheckResult[] = [];
+  for (const path of ["/", "/shop/origin-check.png"]) {
+    const res = await fetch(new URL(path, baseUrl));
+    const ok = res.status !== 200;
+    results.push({
+      name: `GET ${path} without the origin secret is refused`,
+      ok,
+      detail: `status=${res.status}${ok ? "" : " — the run.app bypass is OPEN"}`,
+    });
+  }
+  return results;
 }
 
 async function main() {
@@ -108,8 +118,7 @@ async function main() {
   results.push(await checkHealth());
   results.push(await checkHomepage());
 
-  const originCheck = await checkOriginProtection();
-  if (originCheck) results.push(originCheck);
+  results.push(...(await checkOriginProtection()));
 
   const { result: catalogResult, slug } = await checkCatalogApi();
   results.push(catalogResult);
