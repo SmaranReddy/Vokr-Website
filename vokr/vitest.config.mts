@@ -31,6 +31,7 @@ export default defineConfig({
             "src/lib/**/*.test.ts",
             "src/server/**/*.test.ts",
             "src/config/**/*.test.ts",
+            "scripts/**/*.test.ts",
           ],
           // Integration tests need a live Postgres (docker-compose.yml)
           // and run only via `npm run test:integration` — never as part

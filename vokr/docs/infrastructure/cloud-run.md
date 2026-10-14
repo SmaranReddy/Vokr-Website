@@ -110,9 +110,75 @@ gcloud scheduler jobs update http vokr-keep-warm \
   --oidc-token-audience='https://vokr.shop'
 ```
 
-Jobs 2 (`pg_dump` → R2, Phase 18) and 3 (reservation expiry + row pruning,
-Phase 8) are not created — the application code they would call does not
-exist yet. Three free jobs per billing account; one is in use.
+Job 2 (`pg_dump` → R2, Phase 18) is not created; the code it would call
+does not exist yet. Job 3 is below. Three free jobs per billing account;
+one is in use, and job 3 makes two.
+
+## Maintenance job (Phase 8 job 3) — defined, not yet created
+
+| | |
+|---|---|
+| **Job** | `vokr-maintenance`, `asia-south1` |
+| **Schedule** | `*/5 * * * *`, `Asia/Kolkata` |
+| **Target** | `POST https://vokr.shop/api/jobs/maintenance` |
+| **Auth** | OIDC token for `vokr-scheduler@vokr-website.iam.gserviceaccount.com`, audience `https://vokr.shop/api/jobs/maintenance` (the target URL, exactly) |
+| **Deadline / retries** | `attemptDeadline` 90 s (under Cloudflare's 100 s proxy timeout); 1 retry after 30–60 s |
+| **Definition** | `scripts/lib/maintenance-scheduler.ts` (tested), applied by `scripts/maintenance-scheduler.ts` |
+
+The job goes through Cloudflare, not to `run.app`. The origin check refuses
+direct requests, and the Worker forwards `Authorization` unchanged (tested
+in `infra/cloudflare/edge-worker.test.mjs`). The service stays
+`--allow-unauthenticated`, so Cloud Run does not check the token. The
+application does, in `src/server/jobs/oidc.ts`:
+
+- RS256 signed by Google;
+- issuer `accounts.google.com`;
+- `aud` equal to `MAINTENANCE_OIDC_AUDIENCE`;
+- `email` equal to `MAINTENANCE_OIDC_SERVICE_ACCOUNT`, with `email_verified`;
+- `exp`/`iat` within 60 s.
+
+The endpoint answers:
+- **503** when either variable is unset;
+- **401** (`unauthorized`) for any bad or missing token;
+- **500** when a step failed, so Scheduler retries;
+- **200** with a report of counts only.
+
+Every step is idempotent, and overlapping runs are integration-tested.
+
+**IAM: nothing new.**
+- `vokr-scheduler` needs no project role to be the identity in the token. Cloud Scheduler's service agent (`roles/cloudscheduler.serviceAgent`, already bound) mints the token.
+- The operator creating or updating the job needs `iam.serviceAccounts.actAs` on `vokr-scheduler`, the same as for `vokr-keep-warm`.
+- The deploy account gets no Scheduler rights; the job is operator-managed like keep-warm.
+
+**Order, each step needing the owner's authorisation:**
+
+1. Set the two repository variables (`cicd.md`).
+2. Merge. That deploys the revision with them. Confirm the smoke test line `POST /api/jobs/maintenance without a scheduler token is refused (status=401 …)`.
+3. Dry run, which only reads:
+
+   ```bash
+   cd vokr && npx tsx scripts/maintenance-scheduler.ts plan
+   ```
+
+   It refuses if any serving revision lacks the variables, or if another job already targets the URL. It prints the exact `gcloud` command.
+4. Create the job and re-read it:
+
+   ```bash
+   npx tsx scripts/maintenance-scheduler.ts apply
+   ```
+
+   Re-running it is a no-op. A drifted job is updated; a paused one is reported and left paused.
+5. Prove a real Google token is accepted:
+
+   ```bash
+   gcloud scheduler jobs run vokr-maintenance --project=vokr-website --location=asia-south1
+   gcloud scheduler jobs describe vokr-maintenance --project=vokr-website --location=asia-south1 --format='value(status,lastAttemptTime)'
+   gcloud logging read 'resource.type="cloud_run_revision" AND textPayload:"[jobs/maintenance]"' --project=vokr-website --limit=5 --freshness=10m
+   ```
+
+   Expect `finished ok=true`, with reconciliation `not_configured` until Razorpay keys exist. `refused: <reason>` names the failing claim. The token cannot be minted locally without granting token-creator rights, so this run is the first end-to-end proof.
+
+**To stop it:** `gcloud scheduler jobs pause vokr-maintenance …`. Stock holds then stop expiring. That is harmless only while `ORDERING_ENABLED = false`.
 
 ## Billing guardrail (R4)
 

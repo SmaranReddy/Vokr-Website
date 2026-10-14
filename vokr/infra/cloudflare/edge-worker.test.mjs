@@ -83,6 +83,30 @@ test("forwards a POST body unchanged", () =>
     },
   ));
 
+// Cloud Scheduler job 3 calls https://vokr.shop/api/jobs/maintenance with
+// a Google-signed OIDC token; the application verifies it, so the Worker
+// must pass `Authorization` through byte for byte.
+test("forwards the Cloud Scheduler OIDC bearer to /api/jobs/maintenance unchanged", () =>
+  withFetch(
+    () => new Response(null, { status: 401 }),
+    async (calls) => {
+      const bearer = "Bearer eyJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJ4In0.c2ln";
+      const res = await worker.fetch(
+        new Request("https://vokr.shop/api/jobs/maintenance", {
+          method: "POST",
+          headers: { authorization: bearer, "user-agent": "Google-Cloud-Scheduler" },
+        }),
+        ENV,
+      );
+      assert.equal(res.status, 401);
+      assert.equal(calls[0].url, "https://origin.example.run.app/api/jobs/maintenance");
+      assert.equal(calls[0].init.method, "POST");
+      const h = new Headers(calls[0].init.headers);
+      assert.equal(h.get("authorization"), bearer);
+      assert.equal(h.get(ORIGIN_AUTH_HEADER), ENV.ORIGIN_AUTH_SECRET);
+    },
+  ));
+
 test("rewrites an absolute redirect that names the origin", () =>
   withFetch(
     () =>
