@@ -37,7 +37,7 @@ block and the master checklist below are the source of truth for progress.
 - [x] **Phase 4** — Website / Page Migration (**CLOSED, 12 Sep 2026** — 26/26 legacy pages migrated (21 marketing/support/legal pages + one dynamic PDP template serving the 5 shop slugs); real forms, robots/sitemap, WCAG AA contrast pass done. **§2A.7 fidelity + axe + responsive screenshots verified for all 26/26 pages**, including the 5 PDP routes against a disposable local-Postgres validation database (§0.2) — this sandbox still cannot reach the real Supabase project. **D5 resolved 12 Sep 2026**: manager approved option B — the header cart/Bag button, PDP "Add to Cart" button, Order Status form and reviews "Write a Review" remain visible-but-inert through Phase 4 as an explicit, time-boxed §2A.6 exception, expiring when Phases 5/7/9 ship the real capability. Reviews Filters/Sort — never part of that exception — are now real (`reviews-list.tsx`). **Open but not closure-blocking, per the plan's own design**: tasks 7/8/9 (🔒, §2A.6 manager approval; Acceptance-Criteria-waivable) and task 14 (Google OAuth, needs external dashboard access this environment doesn't have). See Phase 4 Status.)
 - [x] **Phase 5** — Server-Side Cart (**CLOSED, 12 Sep 2026** — `carts`/`cart_items` migrated with the §3.5 constraints; server-resolved price/GST on every read, no endpoint accepts a client price; guest→user merge idempotent under real concurrency; cart UI live in the header and PDP; formal closure audit confirmed every exit criterion against committed code, 205/205 unit + 52/52 integration from a fresh checkout. See Phase 5 Status)
 - [x] **Phase 6** — Address + Checkout Foundation (**engineering complete, 12 Sep 2026** — `addresses`/`checkout_sessions`/`serviceable_pincodes` migrated; address validation, PIN serviceability (fails closed), the state machine, and the `computePricing()` snapshot (line-level rounding, CGST+SGST vs IGST split) all implemented and tested; checkout UI live, cart drawer's Checkout button wired. **Not production-ready: blocked on D3** (seller state) **and new decision D11** (shipping/COD fee amounts) — both read from environment config that fails loudly, by design, rather than inventing a value. See Phase 6 Status.)
-- [ ] **Phase 7** — Razorpay Payments
+- [ ] **Phase 7** — Razorpay Payments (**server core built, 14 Oct 2026, behind `ORDERING_ENABLED = false`** — payments/webhook_events, idempotent order creation, verified webhooks, reconciliation; **no test-mode credentials yet**, so no real Razorpay round trip; payment-step UI and COD not built — see Phase 7 Status)
 - [ ] **Phase 8** — Inventory + Concurrency Hardening
 - [ ] **Phase 9** — Orders
 - [ ] **Phase 10** — Fulfilment + COD + Shiprocket Operations
@@ -2924,7 +2924,52 @@ cannot arrive at different numbers.
 ### PHASE 7 — Razorpay Payments
 
 #### Status
-**NOT STARTED**
+**SERVER CORE BUILT, 14 Oct 2026 — not complete, not reachable.** Branch
+`feat/phase-6-checkout-razorpay`, stacked on the reconciled Phase 6. Every
+customer-facing route sits behind `ORDERING_ENABLED = false`, and
+`RAZORPAY_LIVE_MODE_ALLOWED = false` refuses any key that is not
+`rzp_test_…`.
+
+**Built.** Migration `20261014095422_payments` adds `payments` (one per
+checkout session, `UNIQUE(checkout_session_id)`, `UNIQUE(provider_order_id)`,
+CHECKs: amount > 0, INR only, captured/refunded needs a provider payment
+ID) and `webhook_events` (`UNIQUE(provider, provider_event_id)`), both with RLS.
+`src/server/payments/`:
+- `razorpay.ts` is an injectable typed client (create order, find by receipt, list order payments).
+- `service.ts` handles `createPaymentOrder`: it claims the local row first, then calls Razorpay outside any transaction (R9). The amount comes only from `pricing_snapshot.totalPaise`. The session must be `reserved`, and moves to `payment_pending`.
+- `signature.ts` verifies HMAC-SHA256 over the raw body, constant-time, with a length/format check before `timingSafeEqual`.
+- `webhook.ts` refuses everything without a secret, verifies the signature, requires `x-razorpay-event-id`, and stores a **redacted** payload (no contact/email/VPA/card fields). Duplicates return 200 untouched. Once stored, it always answers 2xx.
+- `apply.ts` applies one observation under `SELECT … FOR UPDATE`, checks amount and currency, and moves the session `payment_pending → paid` on capture.
+- `state-machine.ts`: `failed` is per-attempt and not terminal, and stale or backward events are no-ops.
+- `reconcile.ts` re-reads sessions `payment_pending` for 30+ minutes from Razorpay.
+
+Routes: `POST /api/payments/razorpay/order` (strict body, so an `amount` field is a 400), `GET /api/payments/status` (read-only), and `POST /api/webhooks/razorpay`. The webhook is **not** behind the ordering gate, so a payment's outcome is always recorded, but with no secret configured it refuses every delivery.
+
+**Deviation from task 3, recorded:** `receipt` is the checkout **session ID**, not its
+`idempotency_key`. Razorpay caps `receipt` at 40 characters and the key accepts
+up to 200. The session is the one-order unit either way.
+
+**Order before reservation:** the checkout state machine already puts `reserved`
+(Phase 8) before `payment_pending`, so order creation requires `reserved`. Tests
+write sessions straight into that state. Nothing skips reservation.
+
+**Evidence.** 434/434 unit tests and 86/86 integration tests (Compose Postgres),
+lint, typecheck and the production build are clean, and no server secret name
+appears in `.next/static`. The integration suite covers: one order under 8
+concurrent requests, crash-between-call-and-write recovery, 5× duplicate
+delivery leading to exactly one state change, captured-before-authorized
+convergence, a failed attempt then a captured retry, an amount mismatch
+refused, a forged signature changing nothing, a forged browser callback
+granting nothing, no PII stored, and reconciliation resolving a missing
+webhook.
+
+**Open (blocking completion):**
+1. **No Razorpay test-mode credentials.** `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` exist in Secret Manager with **zero versions** (checked 14 Oct 2026). The real test-mode end-to-end runs (success, failure, abandon) and the live webhook registration both wait on them.
+   `deploy.yml`'s `--set-secrets` mounts only `DATABASE_URL`, `ORIGIN_AUTH_SECRET` (and `BREVO_API_KEY` when present), so Cloud Run receives no Razorpay secret today. Wire them in deliberately once test keys exist.
+2. Payment-step UI (`payment-step.tsx`, Razorpay Checkout handoff, honest pending state) is not built.
+3. COD (task 11) needs Phase 9 order creation, and D11 for the fee.
+4. Reconciliation has no scheduler yet; the Phase 8 maintenance job will drive it.
+5. Live mode needs D3 / R16.
 
 #### Objective
 Take real money: Razorpay order creation with idempotency, browser

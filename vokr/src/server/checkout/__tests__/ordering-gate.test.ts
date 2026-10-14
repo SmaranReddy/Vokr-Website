@@ -17,6 +17,9 @@ const priceCheckoutSession = vi.fn();
 const assertCheckoutMutationAllowed = vi.fn();
 const assertServiceabilityLookupAllowed = vi.fn();
 const getServiceability = vi.fn();
+const createPaymentOrder = vi.fn();
+const getPaymentStatus = vi.fn();
+const assertPaymentOrderAllowed = vi.fn();
 
 vi.mock("@/server/auth/session", () => ({
   getSession: (...args: unknown[]) => getSession(...args),
@@ -39,9 +42,20 @@ vi.mock("@/server/shipping/serviceability", () => ({
   getServiceability: (...args: unknown[]) => getServiceability(...args),
 }));
 
+vi.mock("@/server/payments/service", () => ({
+  createPaymentOrder: (...args: unknown[]) => createPaymentOrder(...args),
+  getPaymentStatus: (...args: unknown[]) => getPaymentStatus(...args),
+}));
+
+vi.mock("@/server/payments/rate-limit", () => ({
+  assertPaymentOrderAllowed: (...args: unknown[]) => assertPaymentOrderAllowed(...args),
+}));
+
 vi.mock("@/lib/log", () => ({ logServerError: vi.fn() }));
 
 const sessionRoute = await import("@/app/api/checkout/session/route");
+const paymentOrderRoute = await import("@/app/api/payments/razorpay/order/route");
+const paymentStatusRoute = await import("@/app/api/payments/status/route");
 const addressRoute =
   await import("@/app/api/checkout/session/[id]/address/route");
 const pricingRoute =
@@ -85,6 +99,9 @@ function expectNothingBehindTheGateRan() {
     assertCheckoutMutationAllowed,
     assertServiceabilityLookupAllowed,
     getServiceability,
+    createPaymentOrder,
+    getPaymentStatus,
+    assertPaymentOrderAllowed,
   ]) {
     expect(fn).not.toHaveBeenCalled();
   }
@@ -108,7 +125,7 @@ beforeEach(() => {
   getServiceability.mockResolvedValue({ serviceable: true, codEligible: true });
 });
 
-describe("checkout API — ordering disabled", () => {
+describe("checkout + payments API — ordering disabled", () => {
   it("ships with ordering disabled", () => {
     expect(ORDERING_ENABLED).toBe(false);
   });
@@ -147,6 +164,22 @@ describe("checkout API — ordering disabled", () => {
   it("GET /api/shipping/serviceability is refused", async () => {
     const response = await serviceabilityRoute.GET(
       request("/api/shipping/serviceability?pincode=560001", "GET"),
+    );
+    await expectOrderingUnavailable(response);
+    expectNothingBehindTheGateRan();
+  });
+
+  it("POST /api/payments/razorpay/order is refused", async () => {
+    const response = await paymentOrderRoute.POST(
+      request("/api/payments/razorpay/order", "POST", { checkoutSessionId: SESSION_ID }),
+    );
+    await expectOrderingUnavailable(response);
+    expectNothingBehindTheGateRan();
+  });
+
+  it("GET /api/payments/status is refused", async () => {
+    const response = await paymentStatusRoute.GET(
+      request(`/api/payments/status?checkoutSessionId=${SESSION_ID}`, "GET"),
     );
     await expectOrderingUnavailable(response);
     expectNothingBehindTheGateRan();

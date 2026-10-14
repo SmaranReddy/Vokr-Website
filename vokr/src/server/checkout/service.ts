@@ -99,7 +99,7 @@ const SESSION_SELECT = {
 } as const;
 
 /** Throws {@link NotFoundError} for a missing session *or another identity's session* — the two cases must be indistinguishable to the caller (plan §5 Phase 6, Security Requirements). */
-async function findOwnedSession(
+export async function findOwnedSession(
   identity: Identity,
   sessionId: string,
 ): Promise<SessionRow> {

@@ -2,7 +2,7 @@
 // (authentication + guest sessions) + Phase 5 (server-side cart). See
 // Vokr-Implementation-Plan.md §3.5 for the full entity plan and the
 // reasoning behind every constraint below. Orders and payments land in
-// later phases.
+// later phases. Phase 7 adds payments + webhook_events.
 
 generator client {
   provider = "prisma-client"
@@ -344,6 +344,8 @@ model CheckoutSession {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  payment Payment?
+
   @@map("checkout_sessions")
 }
 
@@ -361,4 +363,78 @@ model ServiceablePincode {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("serviceable_pincodes")
+}
+
+/// Phase 7 (Razorpay Payments). `created → authorized → captured |
+/// failed | refunded` — see `src/server/payments/state-machine.ts` for
+/// which moves are legal. `failed` describes the latest *attempt*, not the
+/// Razorpay order: one order can take several attempts, so a later
+/// attempt may still move a `failed` payment to `captured`.
+enum PaymentStatus {
+  created
+  authorized
+  captured
+  failed
+  refunded
+
+  @@map("payment_status")
+}
+
+enum PaymentProvider {
+  razorpay
+
+  @@map("payment_provider")
+}
+
+/// One row per checkout session, written *before* the Razorpay order is
+/// created (plan §5 Phase 7, task 4) so a Razorpay order can never exist
+/// without a local record. `UNIQUE(checkout_session_id)` is the claim that
+/// makes order creation idempotent; `provider_order_id` is null only
+/// between that claim and Razorpay's response.
+model Payment {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  checkoutSessionId String          @unique @map("checkout_session_id") @db.Uuid
+  checkoutSession   CheckoutSession @relation(fields: [checkoutSessionId], references: [id])
+
+  provider          PaymentProvider @default(razorpay)
+  providerOrderId   String?         @unique @map("provider_order_id")
+  /// The Razorpay payment (attempt) that last moved `status`.
+  providerPaymentId String?         @map("provider_payment_id")
+
+  status PaymentStatus @default(created)
+
+  /// Copied from `checkout_sessions.pricing_snapshot.totalPaise` at claim
+  /// time — the only source of the amount sent to Razorpay.
+  amountPaise Int    @map("amount_paise")
+  currency    String @default("INR")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+/// Every signature-verified webhook delivery, stored before processing.
+/// `UNIQUE(provider, provider_event_id)` is the replay/duplicate guard
+/// (plan §5 Phase 7, task 1) — a redelivery fails the insert and is
+/// acknowledged without reprocessing.
+model WebhookEvent {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  provider        PaymentProvider
+  providerEventId String          @map("provider_event_id")
+  eventType       String          @map("event_type")
+  payload         Json
+
+  receivedAt      DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt     DateTime? @map("processed_at") @db.Timestamptz(6)
+  /// Set when the event was stored but could not be applied (unknown
+  /// order, amount mismatch, …) — acknowledged anyway, investigated here.
+  processingError String?   @map("processing_error")
+
+  @@unique([provider, providerEventId])
+  @@index([receivedAt])
+  @@map("webhook_events")
 }
