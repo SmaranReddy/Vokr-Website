@@ -3,7 +3,7 @@ import { isValidCheckoutTransition } from "@/server/checkout/state-machine";
 import { prisma } from "@/server/db/client";
 import { releaseHolds, runLockingTransaction } from "@/server/inventory";
 import type { RazorpayClient } from "@/server/payments/razorpay";
-import { reconcileOrder } from "@/server/payments/reconcile";
+import { applyOrderAttempts } from "@/server/payments/reconcile";
 
 /**
  * Extra time a hold is kept past its expiry once a Razorpay order exists
@@ -26,6 +26,7 @@ const MONEY_MAY_HAVE_MOVED: ReadonlySet<PaymentStatus> = new Set([
 export type ExpiryOutcome =
   | "expired"
   | "kept_payment_in_progress"
+  | "kept_attempt_unfinished"
   | "kept_in_payment_grace"
   | "kept_unverified"
   | "nothing_to_do";
@@ -53,7 +54,11 @@ interface LockedPayment {
  *    the truth first (outside any transaction) and the answer applied
  *    through the Phase 7 path — a capture there commits the hold and marks
  *    the session paid. If Razorpay is not configured or cannot be read,
- *    the hold stays.
+ *    the hold stays. It also stays while Razorpay lists any attempt that
+ *    is not `failed` — one still `created` (a UPI collect or bank page
+ *    the customer has not finished), one in a status this code does not
+ *    recognise, or a capture the apply refused: none of those prove that
+ *    no money is moving, and a later run looks again.
  * 3. The release itself re-checks everything under the locks, in the
  *    shared order (payment → session → inventory): a webhook that landed
  *    between step 2 and the lock is seen, and an `authorized`, `captured`
@@ -76,6 +81,7 @@ export async function expireReservations(razorpay: RazorpayClient | null): Promi
     outcomes: {
       expired: 0,
       kept_payment_in_progress: 0,
+      kept_attempt_unfinished: 0,
       kept_in_payment_grace: 0,
       kept_unverified: 0,
       nothing_to_do: 0,
@@ -115,12 +121,16 @@ async function expireSession(sessionId: string, razorpay: RazorpayClient | null)
   });
 
   let verifiedOrderId: string | null = null;
+  let attemptUnfinished = false;
   if (payment?.providerOrderId) {
     if (!(await pastPaymentGrace(sessionId))) return "kept_in_payment_grace";
     if (!razorpay) return "kept_unverified";
     // Network read outside every transaction (R9). A capture is applied —
     // and the hold committed — right here, through the Phase 7 path.
-    await reconcileOrder(razorpay, payment.providerOrderId);
+    const attempts = await razorpay.listOrderPayments(payment.providerOrderId);
+    await applyOrderAttempts(payment.providerOrderId, attempts);
+    // Only a definite failure is proof that an attempt moved no money.
+    attemptUnfinished = attempts.some((attempt) => attempt.status !== "failed");
     verifiedOrderId = payment.providerOrderId;
   }
 
@@ -143,6 +153,7 @@ async function expireSession(sessionId: string, razorpay: RazorpayClient | null)
     if (lockedPayment?.provider_order_id && lockedPayment.provider_order_id !== verifiedOrderId) {
       return "kept_in_payment_grace";
     }
+    if (attemptUnfinished) return "kept_attempt_unfinished";
 
     const [check] = await tx.$queryRaw<{ expired: boolean }[]>`
       SELECT EXISTS (

@@ -558,6 +558,88 @@ describe("reservation expiry (tasks 4, 6, 7)", () => {
     expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 1 });
     expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
   });
+
+  it("an attempt Razorpay still reports `created` keeps the hold past the grace period, so its late capture finds its stock", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, variantId, orderId } = await payingSession(razorpay);
+    // A UPI collect the customer started before the hold lapsed, not yet approved.
+    razorpay.attempt(orderId, "pay_attempt_1", "created");
+    await backdateHolds(sessionId, PAYMENT_GRACE_MINUTES + 30);
+
+    for (let run = 0; run < 2; run += 1) {
+      const report = await expireReservations(razorpay);
+      expect(report.outcomes.kept_attempt_unfinished).toBe(1);
+      expect(report.outcomes.expired).toBe(0);
+    }
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 1 });
+    expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+
+    // The customer approves; the capture lands long after the hold's expiry.
+    const result = await deliver("payment.captured", orderId);
+
+    expect(result.status).toBe(200);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 4, quantityReserved: 0 });
+    expect(await reservationsOf(sessionId)).toEqual([
+      { variantId, quantity: 1, state: ReservationState.committed },
+    ]);
+    await expireReservations(razorpay);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 4, quantityReserved: 0 });
+  });
+
+  it("an unfinished attempt alongside failed ones still keeps the hold", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, variantId, orderId } = await payingSession(razorpay);
+    razorpay.attempt(orderId, "pay_attempt_1", "failed");
+    razorpay.attempt(orderId, "pay_attempt_2", "created");
+    await backdateHolds(sessionId, PAYMENT_GRACE_MINUTES + 1);
+
+    const report = await expireReservations(razorpay);
+
+    expect(report.outcomes.kept_attempt_unfinished).toBe(1);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 1 });
+    expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+  });
+
+  it("an attempt status this code does not recognise is not treated as proof that no money moved", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, variantId, orderId } = await payingSession(razorpay);
+    razorpay.attempt(orderId, "pay_attempt_1", "pending_new_razorpay_state");
+    await backdateHolds(sessionId, PAYMENT_GRACE_MINUTES + 1);
+
+    const report = await expireReservations(razorpay);
+
+    expect(report.outcomes.kept_attempt_unfinished).toBe(1);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 1 });
+    expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+  });
+
+  it("a capture the apply refuses (wrong amount) still keeps the hold: money moved", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, variantId, orderId } = await payingSession(razorpay);
+    razorpay.attempt(orderId, "pay_attempt_1", "captured", AMOUNT - 1);
+    await backdateHolds(sessionId, PAYMENT_GRACE_MINUTES + 1);
+
+    const report = await expireReservations(razorpay);
+
+    expect(report.outcomes.kept_attempt_unfinished).toBe(1);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 1 });
+    expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+  });
+
+  it("past the grace period, attempts that all failed let the hold go", async () => {
+    const razorpay = new FakeRazorpay();
+    const { sessionId, variantId, orderId } = await payingSession(razorpay);
+    razorpay.attempt(orderId, "pay_attempt_1", "failed");
+    razorpay.attempt(orderId, "pay_attempt_2", "failed");
+    await backdateHolds(sessionId, PAYMENT_GRACE_MINUTES + 1);
+
+    const report = await expireReservations(razorpay);
+
+    expect(report.outcomes.expired).toBe(1);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 0 });
+    expect(await stateOf(sessionId)).toBe(CheckoutState.expired);
+  });
 });
 
 describe("reconciliation never marks the wrong thing paid, never releases a successful payment", () => {
@@ -675,6 +757,30 @@ describe("reconciliation never marks the wrong thing paid, never releases a succ
     await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toThrow(/lapsed/);
 
     expect(await stateOf(sessionId)).toBe(CheckoutState.expired);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 0 });
+    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toThrow(/cannot take payment/);
+  });
+
+  it("once the hold has expired, the existing Razorpay order is never handed to the browser again", async () => {
+    const razorpay = new FakeRazorpay();
+    const { identity, sessionId, variantId, orderId } = await payingSession(razorpay);
+
+    // Control: while the hold is live, a retry gets the same order back.
+    expect((await createPaymentOrder(identity, sessionId, razorpay)).razorpayOrderId).toBe(orderId);
+
+    // Expired, but still inside the payment grace: the session is still
+    // payment_pending and the stock still held — yet no new payment may start.
+    await backdateHolds(sessionId, 1);
+    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toThrow(/lapsed/);
+    expect(razorpay.orders.size).toBe(1);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+    expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 1 });
+
+    // So no late capture can start after this point: with no attempt on
+    // the order, the job releases the stock once the grace has passed.
+    await backdateHolds(sessionId, PAYMENT_GRACE_MINUTES + 1);
+    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toThrow(/lapsed/);
+    expect((await expireReservations(razorpay)).outcomes.expired).toBe(1);
     expect(await stockOf(variantId)).toEqual({ quantityOnHand: 5, quantityReserved: 0 });
     await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toThrow(/cannot take payment/);
   });

@@ -125,6 +125,7 @@ describe("handleMaintenanceRequest", () => {
         outcomes: {
           expired: 0,
           kept_payment_in_progress: 0,
+          kept_attempt_unfinished: 0,
           kept_in_payment_grace: 0,
           kept_unverified: 0,
           nothing_to_do: 0,

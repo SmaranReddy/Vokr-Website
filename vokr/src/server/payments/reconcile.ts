@@ -66,14 +66,25 @@ export async function reconcilePendingPayments(
  * Reads one Razorpay order's attempts and applies the most advanced one
  * through {@link applyPaymentObservation} — the network read first, outside
  * any transaction, then a short transaction for the apply. `null` when
- * Razorpay reports no attempt with an outcome yet. Also used by the
- * maintenance job before it releases a hold that has a Razorpay order.
+ * Razorpay reports no attempt with an outcome yet.
  */
 export async function reconcileOrder(
   razorpay: RazorpayClient,
   providerOrderId: string,
 ): Promise<ApplyOutcome | null> {
-  const attempt = mostAdvancedAttempt(await razorpay.listOrderPayments(providerOrderId));
+  return applyOrderAttempts(providerOrderId, await razorpay.listOrderPayments(providerOrderId));
+}
+
+/**
+ * {@link reconcileOrder} for attempts the caller has already read — the
+ * maintenance job reads them once, applies them here, and also inspects
+ * them itself before it releases a hold that has a Razorpay order.
+ */
+export async function applyOrderAttempts(
+  providerOrderId: string,
+  attempts: readonly RazorpayPayment[],
+): Promise<ApplyOutcome | null> {
+  const attempt = mostAdvancedAttempt(attempts);
   if (!attempt) return null;
   return prisma.$transaction((tx) =>
     applyPaymentObservation(tx, {

@@ -135,15 +135,22 @@ export async function createPaymentOrder(
     where: { checkoutSessionId },
     select: PAYMENT_SELECT,
   });
+  // From `reserved` on, `expires_at` is the stock hold's expiry (Phase 8).
+  // Past it, the browser is never given an order to pay — not even the
+  // existing one: the maintenance job may release the stock at any moment
+  // after, and a payment started now could be captured for stock no longer
+  // held. A payment already in flight is unaffected; it is the hold that
+  // the job keeps while Razorpay reports the attempt unfinished.
+  const holdLapsed = session.expiresAt.getTime() <= now.getTime();
   if (existing?.providerOrderId) {
+    if (holdLapsed) {
+      throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
+    }
     return toOrderView(existing.id, existing.providerOrderId, existing);
   }
 
-  // A new Razorpay order is only created against a live snapshot; an
-  // existing one (above) is returned regardless — its amount is fixed.
-  // From `reserved` on, `expires_at` is the stock hold's expiry (Phase 8),
-  // so this also refuses a new order against a lapsed hold.
-  if (session.expiresAt.getTime() <= now.getTime()) {
+  // A new Razorpay order is only created against a live snapshot and hold.
+  if (holdLapsed) {
     throw new ConflictError("Checkout pricing has expired. Please review your order again.");
   }
 
