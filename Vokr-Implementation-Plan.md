@@ -3171,7 +3171,7 @@ route sits behind `ORDERING_ENABLED = false`.
   - `POST /api/jobs/maintenance` returns 503 because it is not configured. That is expected until Open 1 is done, and it is safe only while `ORDERING_ENABLED = false`.
 
 **Open:**
-1. Cloud Scheduler job 3 is not created. Deploying also needs `MAINTENANCE_OIDC_AUDIENCE` and `MAINTENANCE_OIDC_SERVICE_ACCOUNT` set on the service.
+1. **DEFINED on branch `feat/maintenance-scheduler` (PR #12), pending owner authorisation (14 Oct 2026).** `deploy.yml` now requires, validates and sets both variables, asserts them on the serving revision, and the smoke test demands a 401 from an unauthenticated `POST /api/jobs/maintenance`. Job `vokr-maintenance` is defined in `scripts/maintenance-scheduler.ts`, dry-run by default. Remaining, in order: set the two repository variables; merge and approve the deploy; run `apply`; trigger one run and check the logs (`docs/infrastructure/cloud-run.md`, "Maintenance job"). Until then production answers 503. *Original text:* Cloud Scheduler job 3 is not created. Deploying also needs `MAINTENANCE_OIDC_AUDIENCE` and `MAINTENANCE_OIDC_SERVICE_ACCOUNT` set on the service.
    The job must target `https://vokr.shop/api/jobs/maintenance`, because `run.app` requests are refused by the origin check. The Cloudflare Worker forwards `Authorization` unchanged.
 2. Sold-out UI (task 8): the PDP disables sizes only for non-active variants. Catalog availability already subtracts `quantity_reserved`. There is no checkout UI yet for the reservation-denied message.
 3. Cart and guest-session pruning is deferred. `checkout_sessions` references both through `ON DELETE SET NULL`, which would violate its one-identity CHECK, so a retention rule for checkout sessions comes first.
