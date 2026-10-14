@@ -1,7 +1,8 @@
-import { CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
+import { CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { commitHolds } from "@/server/inventory";
 
+import { closeIssueAsRefunded, recordPaymentIssue } from "./payment-issues";
 import { nextPaymentStatus } from "./state-machine";
 
 /** A fact about one Razorpay payment attempt — from a verified webhook or from the reconciliation job's API read. */
@@ -52,11 +53,16 @@ export function toPaymentStatus(razorpayStatus: string): PaymentStatus | null {
  * recorded, never treated as payment for the order.
  *
  * On a first capture the checkout session moves `payment_pending → paid`
- * and its stock holds are committed (Phase 8), in this one transaction.
- * A capture that arrives after the session left `payment_pending` (it
- * expired, say) still records the money, and is reported as such so it
- * can be reconciled or refunded — it is never dropped, never marks the
- * session paid, and never touches stock that was already released.
+ * and its stock holds are committed (Phase 8), in this one transaction —
+ * but only when the session still holds stock, read under the session's
+ * lock before anything changes.
+ *
+ * Money that arrives (`authorized` or `captured`) for a session that holds
+ * no stock — it expired, or its holds are gone — is still recorded, never
+ * marks the session paid and never touches stock. In the same transaction
+ * it opens one durable `payment_issues` row, which the maintenance job
+ * refunds once Razorpay reports the payment captured (`late-payment.ts`).
+ * A full refund observed here closes that issue.
  *
  * Lock order: this `payments` row, then the session (by the update), then
  * inventory rows — the same order the maintenance job's release uses.
@@ -107,26 +113,57 @@ export async function applyPaymentObservation(
   );
 
   let warning: string | undefined;
-  if (next === PaymentStatus.captured) {
-    const moved = await tx.checkoutSession.updateMany({
-      where: { id: payment.checkoutSessionId, state: CheckoutState.payment_pending },
-      data: { state: CheckoutState.paid },
+  if (next === PaymentStatus.captured || next === PaymentStatus.authorized) {
+    const sessionId = payment.checkoutSessionId;
+    // Session lock second (payment → session → inventory), and the holds
+    // read under it: the expiry job takes the same locks before releasing.
+    const [session] = await tx.$queryRaw<{ state: CheckoutState }[]>`
+      SELECT state FROM checkout_sessions WHERE id = ${sessionId}::uuid FOR UPDATE
+    `;
+    const heldLines = await tx.inventoryReservation.count({
+      where: { checkoutSessionId: sessionId, state: ReservationState.held },
     });
-    if (moved.count === 1) {
-      console.info(
-        `[checkout] session=${payment.checkoutSessionId} transition payment_pending -> paid`,
-      );
-      // Same transaction as `→ paid`: the held units leave stock exactly
-      // when the session becomes paid, never separately.
-      const committed = await commitHolds(tx, payment.checkoutSessionId);
-      if (committed === 0) {
-        warning = `captured but checkout session ${payment.checkoutSessionId} had no held stock — needs reconciliation`;
-        console.error(`[payments] payment=${paymentId} ${warning}`);
+
+    let issueReason: string | null = null;
+    if (session?.state === CheckoutState.payment_pending && heldLines > 0) {
+      if (next === PaymentStatus.captured) {
+        await tx.checkoutSession.update({
+          where: { id: sessionId },
+          data: { state: CheckoutState.paid },
+          select: { id: true },
+        });
+        console.info(`[checkout] session=${sessionId} transition payment_pending -> paid`);
+        // Same transaction as `→ paid`: the held units leave stock exactly
+        // when the session becomes paid, never separately.
+        await commitHolds(tx, sessionId);
       }
-    } else {
-      warning = `captured but checkout session ${payment.checkoutSessionId} was not payment_pending — needs reconciliation`;
+      // `authorized` with stock still held is the normal path: the capture follows.
+    } else if (session?.state === CheckoutState.payment_pending) {
+      // Nothing left to fulfil from. Never `paid`: the session ends here.
+      await tx.checkoutSession.update({
+        where: { id: sessionId },
+        data: { state: CheckoutState.expired },
+        select: { id: true },
+      });
+      console.error(`[checkout] session=${sessionId} transition payment_pending -> expired (no held stock)`);
+      issueReason = "no_held_stock";
+    } else if (session?.state !== CheckoutState.paid) {
+      issueReason = `session_${session?.state ?? "missing"}`;
+    }
+
+    if (issueReason) {
+      await recordPaymentIssue(tx, {
+        paymentId,
+        providerPaymentId: observation.providerPaymentId,
+        amountPaise: payment.amountPaise,
+        currency: payment.currency,
+        reason: issueReason,
+      });
+      warning = `${next} but checkout session ${sessionId} holds no stock (${issueReason}) — needs reconciliation; refund issue opened`;
       console.error(`[payments] payment=${paymentId} ${warning}`);
     }
+  } else if (next === PaymentStatus.refunded) {
+    await closeIssueAsRefunded(tx, paymentId);
   }
 
   return { kind: "applied", paymentId, from: payment.status, to: next, warning };

@@ -43,6 +43,22 @@ describe("Razorpay client", () => {
     expect(await client.findOrderByReceipt("r")).toBeNull();
   });
 
+  it("creates a refund with X-Refund-Idempotency and a body that is identical on every retry", async () => {
+    const fetchImpl = fakeFetch(200, { id: "rfnd_1", payment_id: "pay_1", amount: 100, status: "pending" });
+    const client = createRazorpayClient(CONFIG, fetchImpl as unknown as typeof fetch);
+    const input = { paymentId: "pay_1", amountPaise: 100, receipt: "vokr_late_pay_1", idempotencyKey: "vokr_late_pay_1" };
+
+    await client.createRefund(input);
+    await client.createRefund(input);
+
+    const calls = fetchImpl.mock.calls as unknown as [string, RequestInit][];
+    expect(calls[0]?.[0]).toBe("https://api.razorpay.com/v1/payments/pay_1/refund");
+    expect(calls[0]?.[1].method).toBe("POST");
+    expect((calls[0]?.[1].headers as Record<string, string>)["x-refund-idempotency"]).toBe("vokr_late_pay_1");
+    expect(JSON.parse(calls[0]?.[1].body as string)).toEqual({ amount: 100, speed: "normal", receipt: "vokr_late_pay_1" });
+    expect(calls[1]?.[1].body).toBe(calls[0]?.[1].body);
+  });
+
   it("surfaces an API failure as RazorpayApiError with the status", async () => {
     const client = createRazorpayClient(
       CONFIG,
