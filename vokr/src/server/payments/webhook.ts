@@ -176,7 +176,7 @@ export async function handleRazorpayWebhook(input: {
     if (observation) {
       const outcome = await prisma.$transaction((tx) => applyPaymentObservation(tx, observation));
       if (outcome.kind === "rejected") processingError = outcome.reason;
-      else if (outcome.kind === "applied" && outcome.warning) processingError = outcome.warning;
+      else if (outcome.warning) processingError = outcome.warning;
       console.info(
         `[webhooks/razorpay] event=${input.eventId} type=${eventType} outcome=${outcome.kind} amount=${observation.amountPaise}`,
       );

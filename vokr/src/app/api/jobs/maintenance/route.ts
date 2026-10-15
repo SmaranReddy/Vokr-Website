@@ -6,13 +6,13 @@ import { getMaintenanceOidcExpectation, handleMaintenanceRequest } from "@/serve
 import { runMaintenance } from "@/server/jobs/maintenance";
 import { createGoogleKeyResolver } from "@/server/jobs/oidc";
 import { requireRazorpayConfig } from "@/server/payments/config";
-import { createRazorpayClient, type RazorpayClient } from "@/server/payments/razorpay";
+import { createRazorpayClient } from "@/server/payments/razorpay";
 
 // One per instance, so Google's signing keys are cached across runs.
 const resolveKey = createGoogleKeyResolver();
 
 /** `null` when Razorpay is not configured — reconciliation is then reported `not_configured`, not failed. */
-function razorpayOrNull(): RazorpayClient | null {
+function razorpayOrNull(): ReturnType<typeof createRazorpayClient> | null {
   try {
     return createRazorpayClient(requireRazorpayConfig());
   } catch {
@@ -32,7 +32,10 @@ export async function POST(request: NextRequest) {
       authorization: request.headers.get("authorization"),
       expected: getMaintenanceOidcExpectation(),
       resolveKey,
-      run: () => runMaintenance(razorpayOrNull()),
+      run: () => {
+        const razorpay = razorpayOrNull();
+        return runMaintenance(razorpay, razorpay);
+      },
     });
     return NextResponse.json(result.body, {
       status: result.status,
