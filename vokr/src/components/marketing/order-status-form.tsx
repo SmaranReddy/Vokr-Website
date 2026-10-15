@@ -1,5 +1,8 @@
 "use client";
 
+import { OrderLookup } from "@/components/marketing/order-lookup";
+import { ORDERING_ENABLED } from "@/config/commerce";
+
 /**
  * `support-order-status.html`'s tracking form. Left inert rather than
  * bound to a fake endpoint: there is no `Order` model yet — order
@@ -9,6 +12,9 @@
  * false;"` or a form that lies about what it does.
  */
 export function OrderStatusForm() {
+  // Real once ordering opens (plan §5 Phase 9, task 6); until then there
+  // are no orders to track, so the approved inert form and its note stay.
+  if (ORDERING_ENABLED) return <OrderLookup />;
   return (
     <>
       <form
