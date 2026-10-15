@@ -41,7 +41,7 @@ block and the master checklist below are the source of truth for progress.
 - **Queue (dependency order):**
   1. Pre-enablement payment hardening: **deployed** (`vokr-00025-gwg`). Provider-sandbox validation still waits on Razorpay test keys.
   2. PR #14: **deployed** (`vokr-00025-gwg`).
-  3. Phase 7 Open 2 / Phase 8 Open 4: payment-step UI — **merged (#18, `2f7fee8`)**, with two server fixes (paid bag closed on `→ paid`; one bag never paid twice across sessions). Push deploy run 38750312674 at the `production` gate (owner approval). Browser E2E, Playwright axe on `/checkout` and Razorpay test mode not run.
+  3. Phase 7 Open 2 / Phase 8 Open 4: payment-step UI — **merged (#18, `2f7fee8`)**, with two server fixes (paid bag closed on `→ paid`; one bag never paid twice across sessions). **Deployed 15 Oct 2026 14:24Z (verified):** run 38750312674, gate approved by the owner; migration gate 7/7, none pending; serving **`vokr-00026-x4x`** 100% (rollback target `vokr-00025-gwg`); smoke test passed; first Scheduler run on the new revision `ok=true`; `POST /api/cart/items` 403. Browser E2E, Playwright axe on `/checkout` and Razorpay test mode not run. **Found (pre-existing, not from #18):** `/checkout` renders the not-found view but answers HTTP **200** (soft 404; `noindex` is set, no form is reachable) — fix with Phase 9 work.
   4. Phase 9 Orders (order records, history, status, guest lookup, invoices; invoices blocked on D2/D3).
   5. Phases 10–18 per §5, with owner dependencies recorded in §0.3.
 - **Owner-blocked:** Razorpay test keys and webhook secret; Brevo key; D2 (GST/HSN), D3 (entity/KYC), D11 (shipping/COD fees); D12 formally open (policy = automatic full refund; capture window not configured); Cloudflare/Hostinger cutover (D9).
