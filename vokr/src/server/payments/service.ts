@@ -1,6 +1,6 @@
 import { CheckoutPaymentMethod, CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
-import { ConflictError, ReservationExpiredError, ValidationError } from "@/lib/errors";
+import { CheckoutStaleError, ConflictError, ReservationExpiredError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { findOwnedSession } from "@/server/checkout/service";
 import { assertValidCheckoutTransition } from "@/server/checkout/state-machine";
@@ -129,6 +129,15 @@ export async function createPaymentOrder(
   const snapshot = session.pricingSnapshot as PricingSnapshot | null;
   if (!snapshot || !session.expiresAt) {
     throw new ConflictError("Checkout session has no pricing snapshot.");
+  }
+  // The same bag already paid through another session (another tab): no
+  // order, new or existing, is handed out for it. A payment already open in
+  // that tab is caught when it lands (`applyPaymentObservation`).
+  const bagPaid = await prisma.checkoutSession.count({
+    where: { cartId: session.cartId, state: CheckoutState.paid, id: { not: checkoutSessionId } },
+  });
+  if (bagPaid > 0) {
+    throw new CheckoutStaleError("This bag has already been paid for in another window.");
   }
 
   const existing = await prisma.payment.findUnique({

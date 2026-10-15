@@ -1,6 +1,6 @@
-import { CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
+import { CartStatus, CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
-import { commitHolds } from "@/server/inventory";
+import { commitHolds, releaseHolds } from "@/server/inventory";
 
 import { closeIssueAsRefunded, recordPaymentIssue } from "./payment-issues";
 import { nextPaymentStatus } from "./state-machine";
@@ -36,6 +36,28 @@ export type ApplyOutcome =
       /** Set when money moved that this server cannot match to its order: a person must look. */
       warning?: string;
     };
+
+/** Namespace for the per-bag advisory lock (the second key is the cart id's hash). */
+const BAG_PAYMENT_LOCK_NAMESPACE = 730_001;
+
+/**
+ * Whether another checkout session of this bag is already `paid`, read
+ * after taking the bag's payment lock — so two sessions racing to pay the
+ * same bag serialise here, and the second sees the first.
+ */
+export async function isBagPaidByAnotherSession(
+  tx: Prisma.TransactionClient,
+  cartId: string,
+  sessionId: string,
+): Promise<boolean> {
+  await tx.$queryRaw`
+    SELECT 1 FROM (SELECT pg_advisory_xact_lock(${BAG_PAYMENT_LOCK_NAMESPACE}::int, hashtext(${cartId}::text))) AS bag_lock
+  `;
+  const paid = await tx.checkoutSession.count({
+    where: { cartId, state: CheckoutState.paid, id: { not: sessionId } },
+  });
+  return paid > 0;
+}
 
 /** Log tag for a Razorpay payment on an order this server has no record of — never refunded automatically. */
 export const UNMATCHED_PAYMENT_TAG = "UNMATCHED_PAYMENT";
@@ -195,15 +217,26 @@ export async function applyPaymentObservation(
     const sessionId = payment.checkoutSessionId;
     // Session lock second (payment → session → inventory), and the holds
     // read under it: the expiry job takes the same locks before releasing.
-    const [session] = await tx.$queryRaw<{ state: CheckoutState }[]>`
-      SELECT state FROM checkout_sessions WHERE id = ${sessionId}::uuid FOR UPDATE
+    const [session] = await tx.$queryRaw<{ state: CheckoutState; cart_id: string }[]>`
+      SELECT state, cart_id FROM checkout_sessions WHERE id = ${sessionId}::uuid FOR UPDATE
     `;
     const heldLines = await tx.inventoryReservation.count({
       where: { checkoutSessionId: sessionId, state: ReservationState.held },
     });
 
+    // One bag can have several checkout sessions (each browser tab keeps
+    // its own idempotency key). Money for one of them is serialised per
+    // bag with a transaction-scoped advisory lock — not a `carts` row
+    // lock, because sign-in's cart merge locks the cart and then touches
+    // checkout sessions, the opposite order. Under it, a bag another
+    // session already paid for is never paid a second time.
+    const bagAlreadyPaid =
+      session?.state === CheckoutState.payment_pending && heldLines > 0
+        ? await isBagPaidByAnotherSession(tx, session.cart_id, sessionId)
+        : false;
+
     let issueReason: string | null = null;
-    if (session?.state === CheckoutState.payment_pending && heldLines > 0) {
+    if (session?.state === CheckoutState.payment_pending && heldLines > 0 && !bagAlreadyPaid) {
       if (next === PaymentStatus.captured) {
         await tx.checkoutSession.update({
           where: { id: sessionId },
@@ -214,8 +247,29 @@ export async function applyPaymentObservation(
         // Same transaction as `→ paid`: the held units leave stock exactly
         // when the session becomes paid, never separately.
         await commitHolds(tx, sessionId);
+        // And the bag that was bought is closed with it: a reload under a
+        // new key finds nothing to check out, and the next add-to-bag
+        // opens a new cart. (A session another tab already holds is
+        // stopped by the per-bag check above and in `createPaymentOrder`.)
+        const closed = await tx.cart.updateMany({
+          where: { id: session.cart_id, status: CartStatus.open },
+          data: { status: CartStatus.closed },
+        });
+        if (closed.count === 1) console.info(`[checkout] session=${sessionId} cart closed on payment`);
       }
       // `authorized` with stock still held is the normal path: the capture follows.
+    } else if (session?.state === CheckoutState.payment_pending && bagAlreadyPaid) {
+      // The same bag was paid through another session. This money is
+      // extra: the session ends, its stock goes back, and the issue is
+      // refunded in full like any late payment (D12).
+      await tx.checkoutSession.update({
+        where: { id: sessionId },
+        data: { state: CheckoutState.expired },
+        select: { id: true },
+      });
+      await releaseHolds(tx, sessionId, ReservationState.released);
+      console.error(`[checkout] session=${sessionId} transition payment_pending -> expired (bag already paid)`);
+      issueReason = "bag_already_paid";
     } else if (session?.state === CheckoutState.payment_pending) {
       // Nothing left to fulfil from. Never `paid`: the session ends here.
       await tx.checkoutSession.update({
