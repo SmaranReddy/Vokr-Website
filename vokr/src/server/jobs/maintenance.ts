@@ -17,8 +17,10 @@ export interface MaintenanceReport {
     rejected: number;
     /** Closed orders re-read for a payment whose webhook never came. */
     closedOrdersChecked: number;
-    /** Observations that need a refund or a person (late or extra money). */
+    /** Observations that need a refund or a person (late, extra or mismatched money). */
     warnings: number;
+    /** Orders that could not be read or applied; the rest of the batch still ran. */
+    errors: number;
   }>;
   expiry: Step<ExpiryReport>;
   latePayments: Step<PaymentIssueReport>;
@@ -60,7 +62,8 @@ export async function runMaintenance(
         return {
           checked: pending.checked,
           closedOrdersChecked: closed.checked,
-          warnings: outcomes.filter((outcome) => outcome.kind !== "rejected" && outcome.warning).length,
+          warnings: outcomes.filter((outcome) => outcome.warning).length,
+          errors: pending.errors + closed.errors,
           applied: outcomes.filter((outcome) => outcome.kind === "applied").length,
           ignored: outcomes.filter((outcome) => outcome.kind === "ignored").length,
           rejected: outcomes.filter((outcome) => outcome.kind === "rejected").length,
@@ -82,6 +85,7 @@ export async function runMaintenance(
 
   const ok =
     reconciliation.status !== "error" &&
+    (reconciliation.status !== "ok" || reconciliation.result.errors === 0) &&
     expiry.status === "ok" &&
     expiry.result.errors === 0 &&
     latePayments.status !== "error" &&

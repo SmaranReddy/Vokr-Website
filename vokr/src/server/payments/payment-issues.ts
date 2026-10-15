@@ -11,15 +11,35 @@ import type { Prisma } from "@/generated/prisma/client";
 
 export const LIVE_ISSUE_STATES = [PaymentIssueState.open, PaymentIssueState.refund_initiated];
 
-/** Opens the issue for a payment; a second call for the same payment changes nothing. */
+/**
+ * Opens the issue for a payment; a second call for the same payment changes
+ * nothing. With `manualReview` (the reason a person is needed) it opens
+ * straight in `manual_review`: the job never refunds it alone, only watches
+ * for a refund that covers it.
+ */
 export async function recordPaymentIssue(
   tx: Prisma.TransactionClient,
-  input: { paymentId: string; providerPaymentId: string; amountPaise: number; currency: string; reason: string },
+  input: {
+    paymentId: string;
+    providerPaymentId: string;
+    amountPaise: number;
+    currency: string;
+    reason: string;
+    manualReview?: string;
+  },
 ): Promise<void> {
-  const created = await tx.paymentIssue.createMany({ data: [input], skipDuplicates: true });
+  const { manualReview, ...issue } = input;
+  const created = await tx.paymentIssue.createMany({
+    data: [
+      manualReview
+        ? { ...issue, state: PaymentIssueState.manual_review, lastError: manualReview.slice(0, 500) }
+        : issue,
+    ],
+    skipDuplicates: true,
+  });
   if (created.count === 1) {
     console.error(
-      `[payments] LATE_PAYMENT opened payment=${input.paymentId} razorpay_payment=${input.providerPaymentId} amount=${input.amountPaise} reason=${input.reason}`,
+      `[payments] LATE_PAYMENT opened${manualReview ? " in manual_review" : ""} payment=${input.paymentId} razorpay_payment=${input.providerPaymentId} amount=${input.amountPaise} reason=${input.reason}`,
     );
   }
 }

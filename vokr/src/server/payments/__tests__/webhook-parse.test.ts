@@ -39,13 +39,29 @@ describe("observationFromEvent", () => {
     });
   });
 
-  it("refund.processed only moves the payment on a full refund", () => {
-    expect(
-      observationFromEvent(event("refund.processed", { ...PAYMENT, status: "refunded" }))?.status,
-    ).toBe("refunded");
-    expect(
-      observationFromEvent(event("refund.processed", { ...PAYMENT, status: "captured" })),
-    ).toBeNull();
+  describe("refund.processed is decided by the refund entity, never the payment summary", () => {
+    const REFUNDED = { ...PAYMENT, status: "refunded" };
+    const refund = (overrides: Record<string, unknown> = {}) => ({
+      refund: { entity: { id: "rfnd_1", payment_id: "pay_1", amount: 999500, status: "processed", ...overrides } },
+    });
+
+    it("one processed refund of the whole amount moves the payment to refunded", () => {
+      expect(observationFromEvent(event("refund.processed", REFUNDED, refund()))?.status).toBe("refunded");
+      // The payment summary is irrelevant when the refund entity is complete.
+      expect(observationFromEvent(event("refund.processed", PAYMENT, refund()))?.status).toBe("refunded");
+    });
+
+    it.each([
+      ["no refund entity, only a `refunded` summary", undefined],
+      ["a partial refund", { amount: 100 }],
+      ["a refund not yet processed", { status: "pending" }],
+      ["a refund with no status", { status: undefined }],
+      ["a refund of another payment", { payment_id: "pay_2" }],
+      ["a refund with a non-numeric amount", { amount: "999500" }],
+    ])("%s asserts nothing", (_label, overrides) => {
+      const extra = overrides === undefined ? {} : refund(overrides);
+      expect(observationFromEvent(event("refund.processed", REFUNDED, extra))).toBeNull();
+    });
   });
 
   it("unknown event types assert nothing", () => {

@@ -2,7 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
-import { CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
+import { CheckoutState, PaymentIssueState, PaymentStatus } from "@/generated/prisma/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
@@ -13,9 +13,10 @@ import {
   pricedSession,
   stockedVariant,
 } from "@/server/inventory/__tests__/checkout-fixtures";
+import { pruneExpiredRows } from "@/server/jobs/prune";
 
 import { RazorpayApiError, type RazorpayClient, type RazorpayOrder, type RazorpayPayment } from "../razorpay";
-import { reconcilePendingPayments, RECONCILE_AFTER_MS } from "../reconcile";
+import { applyOrderAttempts, reconcilePendingPayments, RECONCILE_AFTER_MS } from "../reconcile";
 import { createPaymentOrder, getPaymentStatus } from "../service";
 import { handleRazorpayWebhook } from "../webhook";
 
@@ -89,16 +90,35 @@ async function reservedSession(
 function paymentEvent(
   type: string,
   orderId: string,
-  overrides: { paymentId?: string; amount?: number; status?: string } = {},
+  overrides: {
+    paymentId?: string;
+    amount?: number;
+    status?: string;
+    /** Adds a refund entity for `refund.*` events. */
+    refund?: { amount?: number; status?: string };
+  } = {},
 ) {
+  const paymentId = overrides.paymentId ?? "pay_attempt_1";
   return JSON.stringify({
     entity: "event",
     event: type,
     created_at: Math.floor(Date.now() / 1000),
     payload: {
+      ...(overrides.refund
+        ? {
+            refund: {
+              entity: {
+                id: `rfnd_${paymentId}`,
+                payment_id: paymentId,
+                amount: overrides.refund.amount ?? overrides.amount ?? AMOUNT,
+                status: overrides.refund.status ?? "processed",
+              },
+            },
+          }
+        : {}),
       payment: {
         entity: {
-          id: overrides.paymentId ?? "pay_attempt_1",
+          id: paymentId,
           order_id: orderId,
           amount: overrides.amount ?? AMOUNT,
           currency: "INR",
@@ -328,6 +348,59 @@ describe("Razorpay webhook (plan §5 Phase 7, tasks 6–9)", () => {
     expect(stored.processingError).toMatch(/amount mismatch/);
   });
 
+  it("money captured for the wrong amount gets one durable issue in manual review, for what Razorpay holds", async () => {
+    const { sessionId, orderId } = await pendingOrder();
+    const mismatch = paymentEvent("payment.captured", orderId, { paymentId: "pay_mismatch", amount: 100 });
+
+    await deliver(mismatch);
+    await deliver(mismatch);
+
+    const issues = await prisma.paymentIssue.findMany({
+      where: { payment: { checkoutSessionId: sessionId } },
+      select: { state: true, reason: true, providerPaymentId: true, amountPaise: true, lastError: true },
+    });
+    expect(issues).toEqual([
+      {
+        state: PaymentIssueState.manual_review,
+        reason: "amount_mismatch",
+        providerPaymentId: "pay_mismatch",
+        amountPaise: 100,
+        lastError: expect.stringMatching(/amount mismatch/),
+      },
+    ]);
+    expect((await paymentFor(sessionId)).status).toBe(PaymentStatus.created);
+    expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+  });
+
+  it("a failed attempt for the wrong amount opens no issue: no money moved", async () => {
+    const { sessionId, orderId } = await pendingOrder();
+    await deliver(paymentEvent("payment.failed", orderId, { amount: 100 }));
+    expect(await prisma.paymentIssue.count({ where: { payment: { checkoutSessionId: sessionId } } })).toBe(0);
+  });
+
+  it("a capture on an order this server never created is kept durably and refunded by no one", async () => {
+    const eventId = `evt_${randomUUID()}`;
+    const result = await deliver(paymentEvent("payment.captured", "order_NotOurs000001"), eventId);
+
+    expect(result.status).toBe(200);
+    const stored = await prisma.webhookEvent.findFirstOrThrow({
+      where: { providerEventId: eventId },
+      select: { processingError: true },
+    });
+    expect(stored.processingError).toMatch(/no local payment for order order_NotOurs000001/);
+
+    // Past the 90-day retention it is still kept; a clean event is not.
+    const cleanId = `evt_${randomUUID()}`;
+    await deliver(JSON.stringify({ event: "payment.dispute.created", payload: {} }), cleanId);
+    await prisma.$executeRaw`
+      UPDATE webhook_events SET received_at = now() - interval '91 days'
+       WHERE provider_event_id IN (${eventId}, ${cleanId})
+    `;
+    await pruneExpiredRows();
+    expect(await prisma.webhookEvent.count({ where: { providerEventId: eventId } })).toBe(1);
+    expect(await prisma.webhookEvent.count({ where: { providerEventId: cleanId } })).toBe(0);
+  });
+
   it("an invalid signature is refused, stores nothing and changes nothing", async () => {
     const { sessionId, orderId } = await pendingOrder();
     const eventId = `evt_${randomUUID()}`;
@@ -368,11 +441,22 @@ describe("Razorpay webhook (plan §5 Phase 7, tasks 6–9)", () => {
     expect(serialised).not.toContain("okbank");
   });
 
-  it("refund.processed (full) moves a captured payment to refunded", async () => {
+  it("refund.processed with a processed refund entity for the whole amount moves a captured payment to refunded", async () => {
     const { sessionId, orderId } = await pendingOrder();
     await deliver(paymentEvent("payment.captured", orderId));
-    await deliver(paymentEvent("refund.processed", orderId, { status: "refunded" }));
+    await deliver(paymentEvent("refund.processed", orderId, { status: "refunded", refund: {} }));
     expect((await paymentFor(sessionId)).status).toBe(PaymentStatus.refunded);
+  });
+
+  it.each([
+    ["a payment summary that says refunded, with no refund entity", {}],
+    ["a partial refund", { refund: { amount: 100 } }],
+    ["a refund that is still pending", { refund: { status: "pending" } }],
+  ])("refund.processed with %s leaves the payment captured", async (_label, extra) => {
+    const { sessionId, orderId } = await pendingOrder();
+    await deliver(paymentEvent("payment.captured", orderId));
+    await deliver(paymentEvent("refund.processed", orderId, { status: "refunded", ...extra }));
+    expect((await paymentFor(sessionId)).status).toBe(PaymentStatus.captured);
   });
 });
 
@@ -441,5 +525,43 @@ describe("reconcilePendingPayments (plan §5 Phase 7, task 10)", () => {
     await reconcilePendingPayments(razorpay, new Date());
 
     expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
+  });
+
+  it("one order Razorpay cannot read is counted and skipped; every other order is still reconciled", async () => {
+    const razorpay = new FakeRazorpay();
+    // Created first, so it heads the batch.
+    const poisoned = await reservedSession();
+    const { razorpayOrderId: poisonedOrder } = await createPaymentOrder(poisoned.identity, poisoned.sessionId, razorpay);
+    const healthy = await reservedSession();
+    const { razorpayOrderId: healthyOrder } = await createPaymentOrder(healthy.identity, healthy.sessionId, razorpay);
+    razorpay.payments.set(healthyOrder, [
+      { id: "pay_ok", order_id: healthyOrder, amount: AMOUNT, currency: "INR", status: "captured" },
+    ]);
+    const list = razorpay.listOrderPayments.bind(razorpay);
+    razorpay.listOrderPayments = async (orderId: string) => {
+      if (orderId === poisonedOrder) throw new RazorpayApiError(502, "Bad gateway");
+      return list(orderId);
+    };
+
+    const result = await reconcilePendingPayments(razorpay, new Date(Date.now() + RECONCILE_AFTER_MS + 1000));
+
+    expect(result.errors).toBe(1);
+    expect(await stateOf(healthy.sessionId)).toBe(CheckoutState.paid);
+    expect(await stateOf(poisoned.sessionId)).toBe(CheckoutState.payment_pending);
+  });
+
+  it("a `refunded` payment summary is never applied: it moves nothing and closes nothing", async () => {
+    const razorpay = new FakeRazorpay();
+    const { identity, sessionId } = await reservedSession();
+    const { razorpayOrderId } = await createPaymentOrder(identity, sessionId, razorpay);
+    await deliver(paymentEvent("payment.captured", razorpayOrderId, { paymentId: "pay_ok" }));
+    expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+
+    const outcome = await applyOrderAttempts(razorpayOrderId, [
+      { id: "pay_ok", order_id: razorpayOrderId, amount: AMOUNT, currency: "INR", status: "refunded" },
+    ]);
+
+    expect(outcome).toBeNull();
+    expect((await paymentFor(sessionId)).status).toBe(PaymentStatus.captured);
   });
 });

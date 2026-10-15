@@ -160,16 +160,35 @@ class FakeRefunds implements RazorpayRefundClient {
 async function deliver(
   type: string,
   orderId: string,
-  input: { paymentId?: string; amount?: number; status?: string } = {},
+  input: {
+    paymentId?: string;
+    amount?: number;
+    status?: string;
+    /** A refund entity, as Razorpay sends with `refund.*` events. */
+    refund?: { id?: string; amount?: number; status?: string };
+  } = {},
 ) {
+  const paymentId = input.paymentId ?? PAY_ID;
   const rawBody = JSON.stringify({
     entity: "event",
     event: type,
     created_at: Math.floor(Date.now() / 1000),
     payload: {
+      ...(input.refund
+        ? {
+            refund: {
+              entity: {
+                id: input.refund.id ?? `rfnd_${paymentId}`,
+                payment_id: paymentId,
+                amount: input.refund.amount ?? input.amount ?? AMOUNT,
+                status: input.refund.status ?? "processed",
+              },
+            },
+          }
+        : {}),
       payment: {
         entity: {
-          id: input.paymentId ?? PAY_ID,
+          id: paymentId,
           order_id: orderId,
           amount: input.amount ?? AMOUNT,
           currency: "INR",
@@ -382,12 +401,26 @@ describe("resolving it: the full refund", () => {
     refunds.payment(PAY_ID, "captured");
     await resolvePaymentIssues(refunds);
 
-    await deliver("refund.processed", orderId, { status: "refunded" });
+    await deliver("refund.processed", orderId, { status: "refunded", refund: {} });
 
     expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refunded);
     expect((await paymentOf(sessionId)).status).toBe(PaymentStatus.refunded);
     await resolvePaymentIssues(refunds);
     expect(refunds.createCalls).toBe(1);
+  });
+
+  it("a refund.processed webhook whose refund entity is partial or pending closes nothing", async () => {
+    const { sessionId, orderId } = await lateCapture();
+    const refunds = new FakeRefunds();
+    refunds.payment(PAY_ID, "captured");
+    await resolvePaymentIssues(refunds);
+
+    await deliver("refund.processed", orderId, { status: "refunded" });
+    await deliver("refund.processed", orderId, { status: "refunded", refund: { amount: 100 } });
+    await deliver("refund.processed", orderId, { status: "refunded", refund: { status: "pending" } });
+
+    expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refund_initiated);
+    expect((await paymentOf(sessionId)).status).toBe(PaymentStatus.captured);
   });
 
   it("adopts a refund Razorpay accepted when the response was lost, instead of creating a second", async () => {
@@ -432,10 +465,13 @@ describe("resolving it: the full refund", () => {
     expect(await issuesOf(sessionId)).toEqual([expect.objectContaining({ state: PaymentIssueState.open, attempts: 0 })]);
   });
 
-  it("an already fully refunded payment is closed without another refund", async () => {
+  it("a payment already fully refunded by a processed refund is closed without another refund", async () => {
     const { sessionId } = await lateCapture();
     const refunds = new FakeRefunds();
     refunds.payment(PAY_ID, "refunded", { amount_refunded: AMOUNT, refund_status: "full" });
+    refunds.refunds.set(PAY_ID, [
+      { id: "rfnd_earlier", payment_id: PAY_ID, amount: AMOUNT, currency: "INR", status: "processed", receipt: null },
+    ]);
 
     const report = await resolvePaymentIssues(refunds);
 
@@ -464,7 +500,7 @@ describe("resolving it: what the job will not decide alone", () => {
     expect(refunds.createCalls).toBe(1);
   });
 
-  it("closes an authorization Razorpay auto-refunded without ever capturing it", async () => {
+  it("an authorization Razorpay reports refunded with no refund entity goes to a person, then closes once one is processed", async () => {
     const razorpay = new FakeRazorpay();
     const { sessionId, orderId } = await payingSession(razorpay);
     await releaseByExpiry(sessionId, razorpay);
@@ -472,8 +508,21 @@ describe("resolving it: what the job will not decide alone", () => {
     const refunds = new FakeRefunds();
     refunds.payment(PAY_ID, "refunded", { amount_refunded: AMOUNT, refund_status: "full" });
 
-    await resolvePaymentIssues(refunds);
+    // The summary alone is not proof the money went back.
+    const first = await resolvePaymentIssues(refunds);
+    expect(first.outcomes.manual_review).toBe(1);
+    expect((await issuesOf(sessionId))[0]).toMatchObject({
+      state: PaymentIssueState.manual_review,
+      lastError: expect.stringMatching(/lists no refund/),
+      resolvedAt: null,
+    });
+    expect(refunds.createCalls).toBe(0);
 
+    // A processed refund entity covering it is: the watched issue closes.
+    refunds.refunds.set(PAY_ID, [
+      { id: "rfnd_auto", payment_id: PAY_ID, amount: AMOUNT, currency: "INR", status: "processed", receipt: null },
+    ]);
+    await resolvePaymentIssues(refunds);
     expect((await issuesOf(sessionId))[0]?.state).toBe(PaymentIssueState.refunded);
     expect((await paymentOf(sessionId)).status).toBe(PaymentStatus.authorized);
     expect(refunds.createCalls).toBe(0);
@@ -629,7 +678,7 @@ describe("a second payment on the same Razorpay order", () => {
     refunds.payment(SECOND, "captured");
     refunds.newRefundStatus = "processed";
     await resolvePaymentIssues(refunds);
-    await deliver("refund.processed", orderId, { paymentId: SECOND, status: "refunded" });
+    await deliver("refund.processed", orderId, { paymentId: SECOND, status: "refunded", refund: {} });
 
     expect(await paymentRowOf(sessionId)).toEqual({ status: PaymentStatus.captured, providerPaymentId: PAY_ID });
     expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
@@ -733,6 +782,37 @@ describe("a late payment whose webhook never arrives", () => {
       expect.objectContaining({ providerPaymentId: "pay_LateCapture0002", reason: "additional_payment" }),
     ]);
     expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+  });
+
+  it("one closed order Razorpay cannot read never stalls the queue: the rest are checked, and it goes to the back", async () => {
+    const razorpay = new FakeRazorpay();
+    // The poisoned order is older, so it heads the never-checked queue.
+    const poisoned = await payingSession(razorpay);
+    await releaseByExpiry(poisoned.sessionId, razorpay);
+    const healthy = await payingSession(razorpay);
+    await releaseByExpiry(healthy.sessionId, razorpay);
+    razorpay.payments.set(healthy.orderId, [
+      { id: PAY_ID, order_id: healthy.orderId, amount: AMOUNT, currency: "INR", status: "captured" } as RazorpayPayment,
+    ]);
+    const list = razorpay.listOrderPayments.bind(razorpay);
+    razorpay.listOrderPayments = async (id: string) => {
+      if (id === poisoned.orderId) throw new RazorpayApiError(502, "Bad gateway");
+      return list(id);
+    };
+
+    const report = await runMaintenance(razorpay, null);
+
+    // Loud — the run fails so Scheduler retries and it is seen — but not stuck.
+    expect(report.ok).toBe(false);
+    expect(report.reconciliation).toMatchObject({ status: "ok", result: { errors: 1 } });
+    expect(await issuesOf(healthy.sessionId)).toEqual([
+      expect.objectContaining({ providerPaymentId: PAY_ID, reason: "session_expired" }),
+    ]);
+    const stamped = await prisma.payment.findUniqueOrThrow({
+      where: { checkoutSessionId: poisoned.sessionId },
+      select: { lateCheckedAt: true },
+    });
+    expect(stamped.lateCheckedAt).not.toBeNull();
   });
 });
 

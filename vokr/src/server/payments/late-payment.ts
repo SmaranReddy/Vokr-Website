@@ -151,17 +151,26 @@ async function resolveIssue(razorpay: RazorpayRefundClient, issue: LiveIssue): P
     return transient(error);
   }
 
-  // The refunds themselves decide, not the payment's summary fields: a
-  // refund still `pending` already counts in `amount_refunded`. Whoever
-  // made them — this job, Razorpay's auto-refund, a person in the
-  // dashboard — processed refunds covering the amount close the issue.
+  // The refunds themselves decide, never the payment's summary fields: a
+  // refund still `pending` already counts in `amount_refunded`, and the
+  // status reads `refunded` for it too. Whoever made them — this job,
+  // Razorpay's auto-refund, a person in the dashboard — only processed
+  // refund entities covering the amount close the issue.
   const processed = sum(refunds.filter((refund) => refund.status === "processed"));
-  if (processed >= issue.amountPaise || (remote.status === "refunded" && refunds.length === 0)) {
+  if (processed >= issue.amountPaise) {
     await markRefunded(issue);
     return "refunded";
   }
   // A person owns a manual-review issue; the job only watches for that refund.
   if (watchingOnly) return "manual_review";
+
+  // Razorpay says `refunded` but shows no refund entity (e.g. an
+  // authorization released without capture, if Razorpay lists nothing for
+  // it). That is not proof the money went back: a person confirms it. The
+  // issue stays watched and closes on its own if a processed refund appears.
+  if (remote.status === "refunded" && refunds.length === 0) {
+    return toManualReview(issue, "Razorpay reports the payment refunded but lists no refund for it");
+  }
 
   if (remote.amount !== issue.amountPaise || remote.currency !== issue.currency) {
     return toManualReview(

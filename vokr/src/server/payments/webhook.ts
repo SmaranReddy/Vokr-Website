@@ -26,7 +26,7 @@ interface RazorpayEnvelope {
   payload?: {
     payment?: { entity?: RazorpayPaymentEntity };
     order?: { entity?: { id?: unknown; status?: unknown } };
-    refund?: { entity?: { id?: unknown; payment_id?: unknown; amount?: unknown } };
+    refund?: { entity?: { id?: unknown; payment_id?: unknown; amount?: unknown; status?: unknown } };
   };
 }
 
@@ -74,6 +74,7 @@ function redact(envelope: RazorpayEnvelope): Prisma.InputJsonValue {
           id: str(refund.id),
           payment_id: str(refund.payment_id),
           amount: typeof refund.amount === "number" ? refund.amount : null,
+          status: str(refund.status),
         }
       : null,
   };
@@ -97,9 +98,19 @@ export function observationFromEvent(envelope: RazorpayEnvelope): PaymentObserva
   if (eventType === "order.paid") {
     status = PaymentStatus.captured;
   } else if (eventType === "refund.processed") {
-    // Only a full refund moves the payment; a partial refund leaves it
-    // `captured` (partial-refund accounting is Phase 12's manual path).
-    status = str(entity?.status) === "refunded" ? PaymentStatus.refunded : null;
+    // The refund entity decides, never the payment's summary `status`
+    // (which reads `refunded` while a full refund is still pending). Only
+    // one processed refund, of this payment, covering its whole amount
+    // moves it; anything less leaves it `captured` — partial refunds are
+    // Phase 12's manual path, and refund-entity sums are checked by the
+    // late-payment job against Razorpay's API.
+    const refund = envelope.payload?.refund?.entity;
+    const full =
+      str(refund?.status) === "processed" &&
+      str(refund?.payment_id) === providerPaymentId &&
+      typeof refund?.amount === "number" &&
+      refund.amount >= amountPaise;
+    status = full ? PaymentStatus.refunded : null;
   } else {
     status = toPaymentStatus(eventType.slice("payment.".length));
   }

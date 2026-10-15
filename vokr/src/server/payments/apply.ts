@@ -30,7 +30,15 @@ export type ApplyOutcome =
       /** Set when the order did not move but the money needs a human or a refund. */
       warning?: string;
     }
-  | { kind: "rejected"; reason: string };
+  | {
+      kind: "rejected";
+      reason: string;
+      /** Set when money moved that this server cannot match to its order: a person must look. */
+      warning?: string;
+    };
+
+/** Log tag for a Razorpay payment on an order this server has no record of — never refunded automatically. */
+export const UNMATCHED_PAYMENT_TAG = "UNMATCHED_PAYMENT";
 
 /** Maps Razorpay's payment `status` string; `created` (no attempt outcome yet) and anything unknown map to `null`. */
 export function toPaymentStatus(razorpayStatus: string): PaymentStatus | null {
@@ -82,7 +90,23 @@ export async function applyPaymentObservation(
   `;
   const paymentId = locked[0]?.id;
   if (!paymentId) {
-    return { kind: "rejected", reason: `no local payment for order ${observation.providerOrderId}` };
+    // Not an order this server created (another integration on the same
+    // Razorpay account, or a dashboard payment link): it may not be Vokr's
+    // money to refund. The verified webhook row keeps the redacted facts
+    // durably (`prune.ts` never deletes a row that failed to apply), and
+    // money-moving statuses are logged under a stable tag for alerting.
+    const reason = `no local payment for order ${observation.providerOrderId}`;
+    const moved = observation.status === PaymentStatus.authorized || observation.status === PaymentStatus.captured;
+    if (moved) {
+      console.error(
+        `[payments] ${UNMATCHED_PAYMENT_TAG} razorpay_order=${observation.providerOrderId} razorpay_payment=${observation.providerPaymentId} status=${observation.status} amount=${observation.amountPaise} ${observation.currency}`,
+      );
+    }
+    return {
+      kind: "rejected",
+      reason,
+      warning: moved ? `${UNMATCHED_PAYMENT_TAG}: ${observation.status} on an unknown order — needs a person` : undefined,
+    };
   }
 
   const payment = await tx.payment.findUniqueOrThrow({
@@ -97,12 +121,30 @@ export async function applyPaymentObservation(
   });
 
   if (observation.amountPaise !== payment.amountPaise || observation.currency !== payment.currency) {
-    console.error(
-      `[payments] payment=${paymentId} AMOUNT MISMATCH expected=${payment.amountPaise} ${payment.currency} got=${observation.amountPaise} ${observation.currency}`,
-    );
+    const reason = `amount mismatch: expected ${payment.amountPaise} ${payment.currency}, got ${observation.amountPaise} ${observation.currency}`;
+    console.error(`[payments] payment=${paymentId} AMOUNT MISMATCH ${reason}`);
+    // Money that moved for the wrong amount never pays the order. It gets a
+    // durable issue straight in `manual_review` — the resolver would refuse
+    // to refund a mismatch on its own anyway — which the maintenance job
+    // watches and closes once a processed refund covers it. The amount is
+    // what Razorpay holds, so that is what must go back.
+    const moved = observation.status === PaymentStatus.authorized || observation.status === PaymentStatus.captured;
+    if (moved && observation.amountPaise > 0 && observation.currency === "INR") {
+      await recordPaymentIssue(tx, {
+        paymentId,
+        providerPaymentId: observation.providerPaymentId,
+        amountPaise: observation.amountPaise,
+        currency: observation.currency,
+        reason: "amount_mismatch",
+        manualReview: reason,
+      });
+    } else if (moved) {
+      console.error(`[payments] payment=${paymentId} AMOUNT_MISMATCH_UNRECORDED cannot record an issue for ${reason}`);
+    }
     return {
       kind: "rejected",
-      reason: `amount mismatch: expected ${payment.amountPaise} ${payment.currency}, got ${observation.amountPaise} ${observation.currency}`,
+      reason,
+      warning: moved ? `${observation.status} for the wrong amount — issue in manual review` : undefined,
     };
   }
 
