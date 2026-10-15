@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useCart } from "@/components/cart/cart-provider";
 import { NavMenu } from "@/components/layout/nav-menu";
 import { HeaderSearch } from "@/components/layout/header-search";
+import { ORDERING_ENABLED } from "@/config/commerce";
+
+const ACCOUNT_HREF = ORDERING_ENABLED ? "/account" : "/sign-in";
 
 /**
  * Reproduces the legacy `.site-header` (sticky bar, two announcement
@@ -17,7 +20,9 @@ import { HeaderSearch } from "@/components/layout/header-search";
  * - The account icon links to the real `/sign-in` built in Phase 3,
  *   replacing the legacy's cosmetic slide-over sign-in panel, which the
  *   plan records this phase as *replacing* rather than migrating
- *   (§0.2 Phase 3 evidence log, item 12).
+ *   (§0.2 Phase 3 evidence log, item 12). Once ordering opens it points at
+ *   `/account`, which sends a signed-in customer to their orders and anyone
+ *   else to sign-in (owner decision, 15 Oct 2026; same icon, same place).
  * - The announcement bars' "Available now" / "Shop now" read as
  *   purchasable while ordering is disabled; both now say "Explore"
  *   (§2A.6 row L1).
@@ -65,7 +70,7 @@ export function SiteHeader() {
           </Link>
 
           <div className="flex items-center gap-4">
-            <Link href="/sign-in" aria-label="Account" className="p-1 text-foreground">
+            <Link href={ACCOUNT_HREF} aria-label="Account" className="p-1 text-foreground">
               <svg
                 width="18"
                 height="18"
