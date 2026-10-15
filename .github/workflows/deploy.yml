@@ -53,13 +53,16 @@ jobs:
           NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          MAINTENANCE_OIDC_AUDIENCE: ${{ vars.MAINTENANCE_OIDC_AUDIENCE }}
+          MAINTENANCE_OIDC_SERVICE_ACCOUNT: ${{ vars.MAINTENANCE_OIDC_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           MISSING=""
           for name in GCP_PROJECT_ID GCP_REGION AR_REPOSITORY WIF_PROVIDER \
                       DEPLOY_SERVICE_ACCOUNT CLOUD_RUN_SERVICE \
                       CLOUD_RUN_SERVICE_ACCOUNT NEXT_PUBLIC_SITE_URL \
-                      NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
+                      NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
+                      MAINTENANCE_OIDC_AUDIENCE MAINTENANCE_OIDC_SERVICE_ACCOUNT; do
             if [ -z "${!name:-}" ]; then MISSING="$MISSING $name"; fi
           done
           if [ -n "$MISSING" ]; then
@@ -130,6 +133,19 @@ jobs:
 
       - name: Unit tests
         run: npm run test
+
+      - name: Maintenance OIDC configuration matches the endpoint
+        # Phase 8 Open 1. Cloud Scheduler job 3 presents a token whose
+        # audience is exactly https://<site>/api/jobs/maintenance, issued to
+        # the scheduler service account; the app refuses anything else. A
+        # one-character difference here would 401 every run forever, so it
+        # is checked before an image is even built, with the same rules as
+        # the operator script that creates the job.
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          MAINTENANCE_OIDC_AUDIENCE: ${{ vars.MAINTENANCE_OIDC_AUDIENCE }}
+          MAINTENANCE_OIDC_SERVICE_ACCOUNT: ${{ vars.MAINTENANCE_OIDC_SERVICE_ACCOUNT }}
+        run: npx tsx scripts/maintenance-scheduler.ts check-config
 
   build:
     name: Build and push image
@@ -328,6 +344,8 @@ jobs:
         id: deployed
         env:
           BREVO_API_KEY_READY: ${{ vars.BREVO_API_KEY_READY }}
+          MAINTENANCE_OIDC_AUDIENCE: ${{ vars.MAINTENANCE_OIDC_AUDIENCE }}
+          MAINTENANCE_OIDC_SERVICE_ACCOUNT: ${{ vars.MAINTENANCE_OIDC_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           # A tag can be moved, or swept by the registry cleanup policy; a
@@ -347,11 +365,19 @@ jobs:
           if [ "${BREVO_API_KEY_READY:-}" = "true" ]; then
             SECRETS="$SECRETS,BREVO_API_KEY=BREVO_API_KEY:latest"
           fi
+          # Plain env is declarative for the same reason: --set-env-vars
+          # replaces every literal variable (secret refs are untouched), so
+          # anything set by hand is dropped by the next deploy and the
+          # pipeline is the only place it can live. Neither value is a
+          # secret — a public URL and an account email; the token's Google
+          # signature is what authenticates. Validated in the verify job.
+          ENV_VARS="MAINTENANCE_OIDC_AUDIENCE=$MAINTENANCE_OIDC_AUDIENCE,MAINTENANCE_OIDC_SERVICE_ACCOUNT=$MAINTENANCE_OIDC_SERVICE_ACCOUNT"
           gcloud run deploy "${{ vars.CLOUD_RUN_SERVICE }}" \
             --image="${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}" \
             --region="${{ vars.GCP_REGION }}" \
             --service-account="${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}" \
             --set-secrets="$SECRETS" \
+            --set-env-vars="$ENV_VARS" \
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \
@@ -375,6 +401,9 @@ jobs:
           echo "Deployed to $URL"
 
       - name: Assert the live configuration matches the plan
+        env:
+          MAINTENANCE_OIDC_AUDIENCE: ${{ vars.MAINTENANCE_OIDC_AUDIENCE }}
+          MAINTENANCE_OIDC_SERVICE_ACCOUNT: ${{ vars.MAINTENANCE_OIDC_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           # Phase 20 task 2: max-instances verified by an infrastructure
@@ -441,7 +470,15 @@ jobs:
               ;;
           esac
 
-          echo "OK: max-instances=3, dedicated runtime SA, ORIGIN_AUTH_SECRET mounted, 100% on $LATEST serving the digest built from ${{ github.sha }}."
+          # Phase 8 Open 1: the serving revision verifies scheduler tokens
+          # for exactly the configured audience and account. Unset, the
+          # maintenance endpoint is a 503 and no stock hold ever expires.
+          npx tsx scripts/maintenance-scheduler.ts assert-revision \
+            --revision="$LATEST" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ vars.GCP_REGION }}"
+
+          echo "OK: max-instances=3, dedicated runtime SA, ORIGIN_AUTH_SECRET mounted, maintenance OIDC env set, 100% on $LATEST serving the digest built from ${{ github.sha }}."
 
       - name: Smoke test
         env:

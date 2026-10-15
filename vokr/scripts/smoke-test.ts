@@ -35,10 +35,31 @@ if (!baseUrl) {
  */
 const originAuthSecret = process.env.ORIGIN_AUTH_SECRET;
 
-function smokeFetch(path: string): Promise<Response> {
+function smokeFetch(path: string, init: { method?: string } = {}): Promise<Response> {
   return fetch(new URL(path, baseUrl), {
+    ...init,
     headers: originAuthSecret ? { "x-vokr-origin-auth": originAuthSecret } : {},
   });
+}
+
+/**
+ * Phase 8 Open 1: `POST /api/jobs/maintenance` with no scheduler token
+ * must be a 401 `unauthorized`. A 503 means the MAINTENANCE_OIDC_* env did
+ * not reach the revision, so no stock hold would ever expire; a 200 means
+ * anyone can run the job. Either fails the deploy and rolls it back. No
+ * forged bearer is sent: that path fetches Google's keys, which would make
+ * the deploy gate depend on a third-party network call for no extra proof
+ * (forgeries are covered by src/server/jobs/__tests__/oidc.test.ts).
+ */
+async function checkMaintenanceAuth(): Promise<CheckResult> {
+  const res = await smokeFetch("/api/jobs/maintenance", { method: "POST" });
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  const ok = res.status === 401 && body?.error === "unauthorized";
+  return {
+    name: "POST /api/jobs/maintenance without a scheduler token is refused",
+    ok,
+    detail: `status=${res.status} error=${body?.error ?? "none"}${res.status === 503 ? " — MAINTENANCE_OIDC_* not configured" : ""}`,
+  };
 }
 
 async function checkHealth(): Promise<CheckResult> {
@@ -123,6 +144,8 @@ async function main() {
   const { result: catalogResult, slug } = await checkCatalogApi();
   results.push(catalogResult);
   results.push(await checkProductPage(slug));
+
+  results.push(await checkMaintenanceAuth());
 
   let failed = false;
   for (const r of results) {
