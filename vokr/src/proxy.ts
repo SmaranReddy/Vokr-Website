@@ -7,9 +7,13 @@ import {
   type OriginCheck,
   VERIFIED_ORIGIN_HEADER,
 } from "@/server/net/origin-auth";
+import { checkCrossSite, siteOriginFrom } from "@/server/net/csrf";
 
 // Read once at module load (boot), never per request.
 const originAuthSecret = requireServerEnv().ORIGIN_AUTH_SECRET;
+// The site's own origin for the cross-site check — from configuration,
+// never from `request.url` (behind Cloud Run that is the bind address).
+const siteOrigin = siteOriginFrom(clientEnv.NEXT_PUBLIC_SITE_URL || "http://localhost:3000") ?? "http://localhost:3000";
 
 /**
  * `NextResponse.next({ request })` is how a header set here reaches
@@ -80,6 +84,15 @@ export async function proxy(request: NextRequest) {
   const verdict = checkOrigin(request, originAuthSecret);
   if (verdict === "refused") {
     return new NextResponse("Not found", { status: 404 });
+  }
+
+  // Phase 16, task 3: a state-changing API request from another site is
+  // refused before any route handler (or session refresh) runs.
+  if (checkCrossSite(request, siteOrigin) === "refused") {
+    return NextResponse.json(
+      { error: { code: "CROSS_SITE_REQUEST", message: "Cross-site requests are not allowed." } },
+      { status: 403 },
+    );
   }
 
   let response = nextWithOriginVerdict(request, verdict);
