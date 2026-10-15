@@ -149,6 +149,18 @@ describe("continuing to payment", () => {
   });
 });
 
+describe("after paying", () => {
+  it("a reload shows the confirmation once, then the next visit starts a new checkout", async () => {
+    window.sessionStorage.setItem(KEY, "paid-key");
+    routes.session = [{ status: 200, body: { checkoutSession: priced({ state: "paid" }) } }];
+    render(<CheckoutFlow />);
+
+    expect(await screen.findByText(/payment confirmed/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^pay|continue to payment/i })).toBeNull();
+    expect(window.sessionStorage.getItem(KEY)).toBeNull();
+  });
+});
+
 describe("a session that can no longer be used", () => {
   it("is replaced by a new one under a new idempotency key", async () => {
     window.sessionStorage.setItem(KEY, "old-key");

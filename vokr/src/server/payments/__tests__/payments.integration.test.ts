@@ -13,6 +13,7 @@ import {
   newCheckoutFixtures,
   pricedSession,
   stockedVariant,
+  stockOf,
 } from "@/server/inventory/__tests__/checkout-fixtures";
 import { pruneExpiredRows } from "@/server/jobs/prune";
 
@@ -286,6 +287,86 @@ describe("Razorpay webhook (plan §5 Phase 7, tasks 6–9)", () => {
     expect((await prisma.cart.findUniqueOrThrow({ where: { id: cartId }, select: { status: true } })).status).toBe("closed");
     // A second checkout from the same browser (a reload under a new key) has nothing to buy.
     await expect(createCheckoutSession(identity, `retry-${randomUUID()}`)).rejects.toThrow(ValidationError);
+  });
+
+  describe("one bag, two checkout sessions (two tabs)", () => {
+    async function twoSessionsOneBag() {
+      const razorpay = new FakeRazorpay();
+      const variantId = await stockedVariant(fixtures, 5, AMOUNT);
+      const a = await pricedSession(fixtures, { lines: [{ variantId, quantity: 1 }], totalPaise: AMOUNT });
+      const b = await pricedSession(fixtures, {
+        lines: [{ variantId, quantity: 1 }],
+        totalPaise: AMOUNT,
+        identity: a.identity,
+      });
+      expect(b.cartId).toBe(a.cartId);
+      await reserveCheckoutSession(a.identity, a.sessionId);
+      await reserveCheckoutSession(a.identity, b.sessionId);
+      return { razorpay, variantId, identity: a.identity, a: a.sessionId, b: b.sessionId };
+    }
+
+    it("both already paying: the second capture is never a second paid order — it is refunded", async () => {
+      const { razorpay, variantId, identity, a, b } = await twoSessionsOneBag();
+      const orderA = (await createPaymentOrder(identity, a, razorpay)).razorpayOrderId;
+      const orderB = (await createPaymentOrder(identity, b, razorpay)).razorpayOrderId;
+
+      await deliver(paymentEvent("payment.captured", orderA, { paymentId: "pay_tab_a" }));
+      await deliver(paymentEvent("payment.captured", orderB, { paymentId: "pay_tab_b" }));
+
+      expect(await stateOf(a)).toBe(CheckoutState.paid);
+      expect(await stateOf(b)).not.toBe(CheckoutState.paid);
+      const issues = await prisma.paymentIssue.findMany({
+        where: { payment: { checkoutSessionId: b } },
+        select: { providerPaymentId: true, reason: true, state: true },
+      });
+      expect(issues).toEqual([{ providerPaymentId: "pay_tab_b", reason: "bag_already_paid", state: PaymentIssueState.open }]);
+      // Only the bag that was paid leaves stock; B's hold goes back.
+      expect(await stockOf(variantId)).toEqual({ quantityOnHand: 4, quantityReserved: 0 });
+    });
+
+    it("two captures for the same bag landing at once: exactly one session is paid (5 races)", async () => {
+      // A race is not deterministic; five fresh bags make a missing lock show up reliably.
+      for (let round = 0; round < 5; round += 1) {
+        const { razorpay, variantId, identity, a, b } = await twoSessionsOneBag();
+        const orderA = (await createPaymentOrder(identity, a, razorpay)).razorpayOrderId;
+        const orderB = (await createPaymentOrder(identity, b, razorpay)).razorpayOrderId;
+
+        await Promise.all([
+          deliver(paymentEvent("payment.captured", orderA, { paymentId: `pay_race_a${round}` })),
+          deliver(paymentEvent("payment.captured", orderB, { paymentId: `pay_race_b${round}` })),
+        ]);
+
+        const states = [await stateOf(a), await stateOf(b)];
+        expect(states.filter((state) => state === CheckoutState.paid)).toHaveLength(1);
+        expect(
+          await prisma.paymentIssue.count({
+            where: { reason: "bag_already_paid", payment: { checkoutSessionId: { in: [a, b] } } },
+          }),
+        ).toBe(1);
+        expect(await stockOf(variantId)).toEqual({ quantityOnHand: 4, quantityReserved: 0 });
+      }
+    });
+
+    it("a bag closed for another reason (sign-in merge), with no paid session, still pays normally", async () => {
+      const { razorpay, identity, a } = await twoSessionsOneBag();
+      const orderA = (await createPaymentOrder(identity, a, razorpay)).razorpayOrderId;
+      const { cartId } = await prisma.checkoutSession.findUniqueOrThrow({ where: { id: a }, select: { cartId: true } });
+      await prisma.cart.update({ where: { id: cartId }, data: { status: "closed" }, select: { id: true } });
+
+      await deliver(paymentEvent("payment.captured", orderA, { paymentId: "pay_merged" }));
+
+      expect(await stateOf(a)).toBe(CheckoutState.paid);
+    });
+
+    it("the second tab cannot even start a payment once the bag is paid", async () => {
+      const { razorpay, identity, a, b } = await twoSessionsOneBag();
+      const orderA = (await createPaymentOrder(identity, a, razorpay)).razorpayOrderId;
+      await deliver(paymentEvent("payment.captured", orderA, { paymentId: "pay_tab_a" }));
+      const ordersBefore = razorpay.createCalls;
+
+      await expect(createPaymentOrder(identity, b, razorpay)).rejects.toMatchObject({ code: "CHECKOUT_STALE" });
+      expect(razorpay.createCalls).toBe(ordersBefore);
+    });
   });
 
   it("a capture that cannot pay the session leaves the bag open for another try", async () => {
