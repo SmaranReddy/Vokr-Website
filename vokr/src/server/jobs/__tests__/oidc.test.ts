@@ -132,6 +132,7 @@ describe("handleMaintenanceRequest", () => {
         },
       },
     },
+    latePayments: { status: "not_configured" },
     pruning: { status: "ok", result: { rateLimitCounters: 0, webhookEvents: 0, reservations: 0 } },
   };
 
