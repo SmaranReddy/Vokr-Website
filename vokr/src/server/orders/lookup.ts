@@ -2,11 +2,12 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { z } from "zod";
 
-import type { OrderStatus } from "@/generated/prisma/enums";
 import { NotFoundError, RateLimitError, ValidationError } from "@/lib/errors";
 import { decryptField, encryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
 import { consumeRateLimit } from "@/server/rate-limit";
+
+import { ORDER_VIEW_SELECT, toOrderView, type OrderView } from "./view";
 
 /**
  * Guest order lookup (plan §5 Phase 9, task 6) — order number + email, no
@@ -46,18 +47,7 @@ export const lookupBodySchema = z
   })
   .strict();
 
-export interface GuestOrderView {
-  orderNumber: string;
-  status: OrderStatus;
-  placedAt: string;
-  timeline: { status: OrderStatus; at: string }[];
-  items: { productName: string; sizeLabel: string; colorway: string; quantity: number; lineSubtotalPaise: number }[];
-  subtotalPaise: number;
-  shippingPaise: number;
-  codFeePaise: number;
-  totalPaise: number;
-  shipTo: { city: string; state: string; pincode: string };
-}
+export type GuestOrderView = OrderView;
 
 /** `VK-10234`, `vk10234`, ` VK-10234 ` → `VK-10234`; anything else → `null`. */
 export function normalizeOrderNumber(input: string): string | null {
@@ -82,24 +72,7 @@ export async function findGuestOrder(orderNumberInput: string, emailInput: strin
   const order = orderNumber
     ? await prisma.order.findUnique({
         where: { orderNumber },
-        select: {
-          orderNumber: true,
-          status: true,
-          placedAt: true,
-          contactEmailEnc: true,
-          subtotalPaise: true,
-          shippingPaise: true,
-          codFeePaise: true,
-          totalPaise: true,
-          shipCity: true,
-          shipState: true,
-          shipPincode: true,
-          items: {
-            select: { productName: true, sizeLabel: true, colorway: true, quantity: true, lineSubtotalPaise: true },
-            orderBy: { id: "asc" },
-          },
-          history: { select: { toStatus: true, createdAt: true }, orderBy: { createdAt: "asc" } },
-        },
+        select: { ...ORDER_VIEW_SELECT, contactEmailEnc: true },
       })
     : null;
 
@@ -107,18 +80,7 @@ export async function findGuestOrder(orderNumberInput: string, emailInput: strin
   const matches = timingSafeEqual(emailDigest(stored), emailDigest(emailInput));
   if (!order || !matches) return null;
 
-  return {
-    orderNumber: order.orderNumber,
-    status: order.status,
-    placedAt: order.placedAt.toISOString(),
-    timeline: order.history.map((row) => ({ status: row.toStatus, at: row.createdAt.toISOString() })),
-    items: order.items,
-    subtotalPaise: order.subtotalPaise,
-    shippingPaise: order.shippingPaise,
-    codFeePaise: order.codFeePaise,
-    totalPaise: order.totalPaise,
-    shipTo: { city: order.shipCity, state: order.shipState, pincode: order.shipPincode },
-  };
+  return toOrderView(order);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
