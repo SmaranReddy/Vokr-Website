@@ -36,10 +36,14 @@ block and the master checklist below are the source of truth for progress.
 - **Scheduler (verified):** `vokr-maintenance` ENABLED, `*/5 * * * *` (Asia/Kolkata), target and OIDC audience `https://vokr.shop/api/jobs/maintenance`, SA `vokr-scheduler@vokr-website.iam.gserviceaccount.com`. Every run returns 200 with `ok=true`; the reconciliation and late-payment steps report `not_configured` (no Razorpay keys).
 - **Gates:** `ORDERING_ENABLED=false`, `RAZORPAY_LIVE_MODE_ALLOWED=false`. Razorpay and Brevo secrets have **zero versions** (reported 14 Oct; re-check before any provider work).
 - **Known benign:** every deploy logs `Setting IAM policy failed` for the `allUsers` invoker binding (seen since at least PR #10); the existing binding persists and public routes answer 200.
-- **Open PRs:** #14 `feat/stock-aware-shopping` (Phase 8 task 8; no migration).
+- **Open PRs (none merged by the agent; each merge needs owner authorization):**
+  - **#14** `feat/stock-aware-shopping` (Phase 8 task 8; no migration). 15 Oct: `master` merged in (`ec4288b`); fix `533c3f8` makes a lapsed hold at order creation `RESERVATION_EXPIRED`, not `CHECKOUT_STALE`. Local: verify 514/514 unit, integration 164/164. CI green on `533c3f8` (run 38720084241).
+  - **#16** `fix/payment-reconcile-hardening` (queue item 1; no migration). Reconciliation isolated per order (`RECONCILE_FAILED`, failing closed orders go to the back of the queue, run `ok=false`); a `refunded` payment summary is never proof of a refund (reconciliation ignores it, the resolver sends summary-only to `manual_review`, `refund.processed` is decided by the refund entity); wrong-amount captures open a `manual_review` issue; captures on unknown orders are logged `UNMATCHED_PAYMENT`, never auto-refunded, and their webhook rows are exempt from pruning. Evidence: unit mocks + local integration only (no Razorpay sandbox): verify 512/512 unit, integration 169/169; 17 new/changed tests fail on pre-fix `e053fe6`; payload shape checked against Razorpay's published `refund.processed` sample. Advisor-reviewed. Known limitations are listed in `docs/infrastructure/late-payments.md`.
+  - **#15** this docs PR (root files only; no deploy).
+  - Suggested order: merge #14 → merge `master` into #16, re-run CI → merge #16 → owner approves only the latest push-deploy run at the gate.
 - **Queue (dependency order):**
-  1. Pre-enablement payment hardening (owner-mandated before ordering is enabled): per-order isolation in reconciliation, so one failing order cannot stall the queue; refund issues closed only from refund entities (the `late-payment.ts` summary close and the `refund.processed` webhook mapping); a durable record for amount-mismatch and unknown-order captures.
-  2. PR #14 brought up to date with `master`, re-verified, and merged on owner authorization.
+  1. Pre-enablement payment hardening: **implemented in PR #16**, awaiting merge.
+  2. PR #14: **updated and re-verified**, awaiting merge.
   3. Phase 7 Open 2 / Phase 8 Open 4: payment-step UI (Razorpay Checkout handoff, honest pending state, hold-derived timeout, reservation-error messages).
   4. Phase 9 Orders (order records, history, status, guest lookup, invoices; invoices blocked on D2/D3).
   5. Phases 10–18 per §5, with owner dependencies recorded in §0.3.
