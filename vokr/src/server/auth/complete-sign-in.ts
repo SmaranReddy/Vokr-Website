@@ -4,6 +4,9 @@ import { prisma } from "@/server/db/client";
 // Side-effect only: registers the Phase 5 cart-merge handler against the
 // upgrade hook below, before it can possibly run. See that module's
 // comment for why this is the import site.
+// Order matters: checkout handover (session locks) before the cart merge
+// (cart locks) — the same order a payment capture takes them in.
+import "@/server/checkout/register-sign-in-handover";
 import "@/server/cart/register-merge-handler";
 
 import { getOrCreateAppUser } from "./app-user";
