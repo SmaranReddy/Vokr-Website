@@ -213,6 +213,39 @@ describe("a verified capture makes exactly one order", () => {
   });
 });
 
+describe("a session that could not become an order is never given a payment", () => {
+  async function reservedSession() {
+    const variantId = await stockedVariant(fixtures, 5, AMOUNT);
+    const { identity, sessionId } = await pricedSession(fixtures, { lines: [{ variantId, quantity: 1 }], totalPaise: AMOUNT });
+    await reserveCheckoutSession(identity, sessionId);
+    return { identity, sessionId };
+  }
+
+  it("no contact email", async () => {
+    const razorpay = new FakeRazorpay();
+    const { identity, sessionId } = await reservedSession();
+    await prisma.checkoutSession.update({ where: { id: sessionId }, data: { contactEmailEnc: null }, select: { id: true } });
+
+    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toMatchObject({ code: "CHECKOUT_STALE" });
+    expect(razorpay.orders.size).toBe(0);
+  });
+
+  it("a priced line without its HSN code", async () => {
+    const razorpay = new FakeRazorpay();
+    const { identity, sessionId } = await reservedSession();
+    const row = await prisma.checkoutSession.findUniqueOrThrow({ where: { id: sessionId }, select: { pricingSnapshot: true } });
+    const snapshot = row.pricingSnapshot as { lines: Record<string, unknown>[] };
+    await prisma.checkoutSession.update({
+      where: { id: sessionId },
+      data: { pricingSnapshot: { ...snapshot, lines: snapshot.lines.map((line) => ({ ...line, hsnCode: null })) } },
+      select: { id: true },
+    });
+
+    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toMatchObject({ code: "CHECKOUT_STALE" });
+    expect(razorpay.orders.size).toBe(0);
+  });
+});
+
 describe("money that is not a valid order never becomes one", () => {
   it("a capture for the wrong amount", async () => {
     const { sessionId, orderId } = await payingSession();

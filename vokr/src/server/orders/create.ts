@@ -8,6 +8,72 @@ import { assertValidOrderTransition } from "./state-machine";
 /** Who changed an order: the verified payment path, or (Phase 12) a person. */
 export const PAYMENT_ACTOR = "system:payment";
 
+const ORDER_SOURCE_SELECT = {
+  userId: true,
+  paymentMethod: true,
+  pricingSnapshot: true,
+  contactEmailEnc: true,
+  user: { select: { email: true } },
+  address: {
+    select: {
+      nameEnc: true,
+      phoneEnc: true,
+      line1Enc: true,
+      line2Enc: true,
+      city: true,
+      state: true,
+      pincode: true,
+      country: true,
+    },
+  },
+} as const;
+
+type OrderSourceRow = Prisma.CheckoutSessionGetPayload<{ select: typeof ORDER_SOURCE_SELECT }>;
+
+/** A session that could not become a valid order — refused before any money can move. */
+export class NotOrderableError extends Error {}
+
+/**
+ * Everything an order is built from, checked once: a snapshot whose lines
+ * are complete (HSN included) and whose total is the amount to be
+ * charged, an address, and a contact email. `createPaymentOrder` runs this
+ * before a Razorpay order is ever created or handed out, so the in-capture
+ * order creation below cannot fail on missing data and roll back a real
+ * capture; the capture runs it again as a second line of defence.
+ */
+export function checkOrderSource(sessionId: string, row: OrderSourceRow, amountPaise: number) {
+  const snapshot = row.pricingSnapshot as PricingSnapshot | null;
+  const fail = (why: string): never => {
+    throw new NotOrderableError(`session ${sessionId} cannot become an order: ${why}`);
+  };
+  if (!snapshot || !Array.isArray(snapshot.lines) || snapshot.lines.length === 0) fail("no priced lines");
+  const lines = (snapshot as PricingSnapshot).lines;
+  if (lines.some((line) => !line.hsnCode || !line.sku || !line.productName || line.quantity <= 0)) {
+    fail("a priced line is incomplete");
+  }
+  if ((snapshot as PricingSnapshot).totalPaise !== amountPaise) {
+    fail(`snapshot total ${(snapshot as PricingSnapshot).totalPaise} != amount ${amountPaise}`);
+  }
+  if (!row.address) fail("no address");
+  const contactEmailEnc = row.contactEmailEnc ?? (row.user?.email ? encryptField(row.user.email) : null);
+  if (!contactEmailEnc) fail("no contact email");
+  return {
+    snapshot: snapshot as PricingSnapshot,
+    address: row.address as NonNullable<OrderSourceRow["address"]>,
+    contactEmailEnc: contactEmailEnc as string,
+  };
+}
+
+/** Loads and checks the order source; see {@link checkOrderSource}. */
+export async function assertOrderable(
+  client: Prisma.TransactionClient,
+  sessionId: string,
+  amountPaise: number,
+): Promise<void> {
+  const row = await client.checkoutSession.findUniqueOrThrow({ where: { id: sessionId }, select: ORDER_SOURCE_SELECT });
+  checkOrderSource(sessionId, row, amountPaise);
+}
+
 /**
  * Makes the order for a checkout session that has just become `paid`
  * (plan §5 Phase 9, task 3), inside the same transaction as that
@@ -26,44 +92,9 @@ export async function createOrderForPaidSession(
 ): Promise<{ orderId: string; orderNumber: string }> {
   const session = await tx.checkoutSession.findUniqueOrThrow({
     where: { id: input.checkoutSessionId },
-    select: {
-      userId: true,
-      paymentMethod: true,
-      pricingSnapshot: true,
-      contactEmailEnc: true,
-      user: { select: { email: true } },
-      address: {
-        select: {
-          nameEnc: true,
-          phoneEnc: true,
-          line1Enc: true,
-          line2Enc: true,
-          city: true,
-          state: true,
-          pincode: true,
-          country: true,
-        },
-      },
-    },
+    select: ORDER_SOURCE_SELECT,
   });
-
-  const snapshot = session.pricingSnapshot as PricingSnapshot | null;
-  if (!snapshot || !session.address) {
-    throw new Error(`session ${input.checkoutSessionId} is paid but has no snapshot or address`);
-  }
-  // The payment row's amount was copied from this snapshot when the order
-  // was claimed; if they differ something upstream is broken, and an order
-  // that disagrees with the charge must not exist.
-  if (snapshot.totalPaise !== input.amountPaise) {
-    throw new Error(
-      `session ${input.checkoutSessionId} snapshot total ${snapshot.totalPaise} != payment ${input.amountPaise}`,
-    );
-  }
-  const contactEmailEnc =
-    session.contactEmailEnc ?? (session.user?.email ? encryptField(session.user.email) : null);
-  if (!contactEmailEnc) {
-    throw new Error(`session ${input.checkoutSessionId} is paid but has no contact email`);
-  }
+  const { snapshot, address, contactEmailEnc } = checkOrderSource(input.checkoutSessionId, session, input.amountPaise);
 
   const order = await tx.order.create({
     data: {
@@ -72,14 +103,14 @@ export async function createOrderForPaidSession(
       userId: session.userId,
       paymentMethod: session.paymentMethod ?? CheckoutPaymentMethod.prepaid,
       contactEmailEnc,
-      shipNameEnc: session.address.nameEnc,
-      shipPhoneEnc: session.address.phoneEnc,
-      shipLine1Enc: session.address.line1Enc,
-      shipLine2Enc: session.address.line2Enc,
-      shipCity: session.address.city,
-      shipState: session.address.state,
-      shipPincode: session.address.pincode,
-      shipCountry: session.address.country,
+      shipNameEnc: address.nameEnc,
+      shipPhoneEnc: address.phoneEnc,
+      shipLine1Enc: address.line1Enc,
+      shipLine2Enc: address.line2Enc,
+      shipCity: address.city,
+      shipState: address.state,
+      shipPincode: address.pincode,
+      shipCountry: address.country,
       gstSplit: snapshot.gstSplit,
       sellerState: snapshot.sellerState,
       subtotalPaise: snapshot.subtotalPaise,
