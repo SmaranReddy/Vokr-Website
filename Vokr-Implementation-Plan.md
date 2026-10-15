@@ -37,10 +37,10 @@ block and the master checklist below are the source of truth for progress.
 - **Gates:** `ORDERING_ENABLED=false`, `RAZORPAY_LIVE_MODE_ALLOWED=false`. Razorpay and Brevo secrets have **zero versions** (reported 14 Oct; re-check before any provider work).
 - **Known benign:** every deploy logs `Setting IAM policy failed` for the `allUsers` invoker binding (seen since at least PR #10); the existing binding persists and public routes answer 200.
 - **Merged 15 Oct 2026 (owner-authorized, agent-executed):** #15 docs (`eea7cda`, no deploy); #14 sold-out sizes + typed stock errors (`f66d031`; its push run 38722796070 cancelled as superseded); #16 payment reconciliation hardening (`7bfa481`, CI green on the merged-with-master head: local verify 520/520 unit, integration 174/174). Details of #14/#16 are in their PR descriptions and `docs/infrastructure/late-payments.md`.
-- **Pending owner action:** push deploy run **38723414673** on `7bfa481` is **waiting at the `production` gate** (Preflight, Verify, Build green). No migration: `vokr/prisma` unchanged since production's `e053fe6`, 7 migrations in the tree. The agent does not approve it.
+- **Deployed 15 Oct 2026 11:09Z (verified):** push run **38723414673** on `7bfa481`, `production` gate approved by the owner (SmaranReddy). Migration gate: 7 applied, 7 in commit, none pending. Serving **`vokr-00025-gwg`** 100%; rollback target `vokr-00024-68x`. Pipeline smoke test passed (home, catalog 5 products, PDP, origin-secret refusal, maintenance 401). The first Scheduler run on the new revision (11:10Z) finished `ok=true`. On `vokr.shop`: `/` 200, `/api/health` 200, `POST /api/cart/items` 403 (ordering still disabled).
 - **Queue (dependency order):**
-  1. Pre-enablement payment hardening: **merged (#16)**; deployed once the gate is approved.
-  2. PR #14: **merged**; deployed with #16's run.
+  1. Pre-enablement payment hardening: **deployed** (`vokr-00025-gwg`). Provider-sandbox validation still waits on Razorpay test keys.
+  2. PR #14: **deployed** (`vokr-00025-gwg`).
   3. Phase 7 Open 2 / Phase 8 Open 4: payment-step UI (Razorpay Checkout handoff, honest pending state, hold-derived timeout, reservation-error messages).
   4. Phase 9 Orders (order records, history, status, guest lookup, invoices; invoices blocked on D2/D3).
   5. Phases 10–18 per §5, with owner dependencies recorded in §0.3.
