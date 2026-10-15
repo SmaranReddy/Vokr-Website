@@ -11,6 +11,9 @@ export type ErrorCode =
   | "ORDERING_UNAVAILABLE"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "OUT_OF_STOCK"
+  | "RESERVATION_EXPIRED"
+  | "CHECKOUT_STALE"
   | "RATE_LIMITED"
   | "INTERNAL_ERROR";
 
@@ -19,12 +22,16 @@ export interface ErrorResponseBody {
     code: ErrorCode;
     message: string;
     requestId: string;
+    /** Machine-readable specifics a client can act on, e.g. which lines are short. Never internal state. */
+    details?: Record<string, unknown>;
   };
 }
 
 export abstract class AppError extends Error {
   abstract readonly code: ErrorCode;
   abstract readonly status: number;
+  /** Sent to the client as `error.details`; must hold nothing internal. */
+  readonly details?: Record<string, unknown>;
 
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -62,8 +69,40 @@ export class NotFoundError extends AppError {
 
 /** 409 — the request conflicts with current state (e.g. stock, idempotency). */
 export class ConflictError extends AppError {
-  readonly code = "CONFLICT" as const;
+  readonly code: "CONFLICT" | "OUT_OF_STOCK" | "RESERVATION_EXPIRED" | "CHECKOUT_STALE" = "CONFLICT";
   readonly status = 409;
+}
+
+/** One cart line that cannot be had in the quantity asked for. */
+export interface UnavailableLine {
+  variantId: string;
+  requested: number;
+  available: number;
+}
+
+/**
+ * 409 `OUT_OF_STOCK` — not enough stock for what was asked. When the lines
+ * are known they travel as `details.unavailable`, so the client can mark
+ * exactly those lines rather than guess from the message.
+ */
+export class OutOfStockError extends ConflictError {
+  override readonly code = "OUT_OF_STOCK" as const;
+  declare readonly details?: { unavailable: UnavailableLine[] };
+
+  constructor(message: string, unavailable?: readonly UnavailableLine[]) {
+    super(message);
+    if (unavailable) this.details = { unavailable: [...unavailable] };
+  }
+}
+
+/** 409 `RESERVATION_EXPIRED` — the stock hold lapsed; checkout has to start again. */
+export class ReservationExpiredError extends ConflictError {
+  override readonly code = "RESERVATION_EXPIRED" as const;
+}
+
+/** 409 `CHECKOUT_STALE` — the bag or its price changed since it was priced; review it again. */
+export class CheckoutStaleError extends ConflictError {
+  override readonly code = "CHECKOUT_STALE" as const;
 }
 
 /** 429 — the caller has exceeded a rate limit. */
@@ -107,6 +146,7 @@ export function toErrorResponse(error: unknown): {
           code: error.code,
           message: error.message,
           requestId,
+          ...(error.details ? { details: error.details } : {}),
         },
       },
       requestId,

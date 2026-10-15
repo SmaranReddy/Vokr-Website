@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  CheckoutStaleError,
   ConflictError,
   InternalError,
   NotFoundError,
   OrderingUnavailableError,
+  OutOfStockError,
   RateLimitError,
+  ReservationExpiredError,
   UnauthorizedError,
   ValidationError,
   toErrorResponse,
@@ -17,6 +20,9 @@ describe("toErrorResponse", () => {
     [OrderingUnavailableError, 403, "ORDERING_UNAVAILABLE"],
     [NotFoundError, 404, "NOT_FOUND"],
     [ConflictError, 409, "CONFLICT"],
+    [OutOfStockError, 409, "OUT_OF_STOCK"],
+    [ReservationExpiredError, 409, "RESERVATION_EXPIRED"],
+    [CheckoutStaleError, 409, "CHECKOUT_STALE"],
     [RateLimitError, 429, "RATE_LIMITED"],
     [InternalError, 500, "INTERNAL_ERROR"],
   ] as const)(
@@ -44,5 +50,21 @@ describe("toErrorResponse", () => {
     const a = toErrorResponse(new ValidationError("x"));
     const b = toErrorResponse(new ValidationError("x"));
     expect(a.requestId).not.toBe(b.requestId);
+  });
+});
+
+describe("stock and reservation conflicts", () => {
+  it("are still ConflictErrors, so every existing 409 path keeps working", () => {
+    expect(new OutOfStockError("x")).toBeInstanceOf(ConflictError);
+    expect(new ReservationExpiredError("x")).toBeInstanceOf(ConflictError);
+    expect(new CheckoutStaleError("x")).toBeInstanceOf(ConflictError);
+  });
+
+  it("sends the short lines as details, and nothing else", () => {
+    const { body } = toErrorResponse(
+      new OutOfStockError("short", [{ variantId: "v1", requested: 3, available: 1 }]),
+    );
+    expect(body.error.details).toEqual({ unavailable: [{ variantId: "v1", requested: 3, available: 1 }] });
+    expect(toErrorResponse(new ConflictError("plain")).body.error).not.toHaveProperty("details");
   });
 });

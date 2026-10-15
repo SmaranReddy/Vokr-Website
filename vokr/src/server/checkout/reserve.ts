@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { CheckoutState } from "@/generated/prisma/enums";
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { CheckoutStaleError, ConflictError, NotFoundError, ReservationExpiredError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { invalidateCatalogCache } from "@/server/catalog";
 import { holdStock, runLockingTransaction, type HoldLine } from "@/server/inventory";
@@ -68,7 +68,7 @@ export async function reserveCheckoutSession(
       session.state === CheckoutState.paid
     ) {
       if (session.state === CheckoutState.reserved && !session.live) {
-        throw new ConflictError("Your reservation has lapsed. Please start checkout again.");
+        throw new ReservationExpiredError("Your reservation has lapsed. Please start checkout again.");
       }
       return false;
     }
@@ -76,7 +76,7 @@ export async function reserveCheckoutSession(
       throw new ConflictError(`Checkout session cannot be reserved from state "${session.state}".`);
     }
     if (!session.live) {
-      throw new ConflictError("Checkout pricing has expired. Please review your order again.");
+      throw new CheckoutStaleError("Checkout pricing has expired. Please review your order again.");
     }
 
     const lines = snapshotLines(session.pricing_snapshot);
@@ -89,7 +89,7 @@ export async function reserveCheckoutSession(
       select: { status: true, items: { select: { variantId: true, quantity: true } } },
     });
     if (!cart || cart.status !== "open" || !sameLines(lines, cart.items)) {
-      throw new ConflictError("Your bag changed since it was priced. Please review your order again.");
+      throw new CheckoutStaleError("Your bag changed since it was priced. Please review your order again.");
     }
 
     const { expiresAt } = await holdStock(tx, {
