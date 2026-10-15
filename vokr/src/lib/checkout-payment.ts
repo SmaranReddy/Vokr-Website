@@ -12,6 +12,8 @@ import type { CheckoutState, PaymentStatus } from "@/generated/prisma/enums";
 export interface PaymentStatusSnapshot {
   checkoutState: CheckoutState;
   paymentStatus: PaymentStatus | null;
+  /** Set once the session is paid and its order exists. */
+  orderNumber?: string | null;
 }
 
 export type PaymentOutcome =

@@ -1,6 +1,7 @@
-import { CartStatus, CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
+import { CartStatus, CheckoutState, OrderStatus, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { commitHolds, releaseHolds } from "@/server/inventory";
+import { createOrderForPaidSession, PAYMENT_ACTOR, transitionOrder } from "@/server/orders/create";
 
 import { closeIssueAsRefunded, recordPaymentIssue } from "./payment-issues";
 import { nextPaymentStatus } from "./state-machine";
@@ -256,6 +257,14 @@ export async function applyPaymentObservation(
           data: { status: CartStatus.closed },
         });
         if (closed.count === 1) console.info(`[checkout] session=${sessionId} cart closed on payment`);
+        // And the order (plan §5 Phase 9, task 3): same transaction, so a
+        // paid session never exists without its order, and a replay finds
+        // the session already `paid` and creates nothing.
+        await createOrderForPaidSession(tx, {
+          checkoutSessionId: sessionId,
+          paymentId,
+          amountPaise: payment.amountPaise,
+        });
       }
       // `authorized` with stock still held is the normal path: the capture follows.
     } else if (session?.state === CheckoutState.payment_pending && bagAlreadyPaid) {
@@ -296,6 +305,18 @@ export async function applyPaymentObservation(
     }
   } else if (next === PaymentStatus.refunded) {
     await closeIssueAsRefunded(tx, observation.providerPaymentId);
+    // A full, authoritative refund of the order's own payment (refund
+    // entities only — see `webhook.ts`, `late-payment.ts`): the order is
+    // refunded too, whatever step it had reached.
+    const order = await tx.order.findUnique({ where: { paymentId }, select: { id: true } });
+    if (order) {
+      await transitionOrder(tx, {
+        orderId: order.id,
+        to: OrderStatus.refunded,
+        actor: PAYMENT_ACTOR,
+        note: `full refund of ${observation.providerPaymentId}`,
+      });
+    }
   }
 
   return { kind: "applied", paymentId, from: payment.status, to: next, warning };

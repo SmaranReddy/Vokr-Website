@@ -40,6 +40,8 @@ export const addressBodySchema = z
       message: "state must be one of the recognised GST states.",
     }),
     pincode: z.string().regex(PINCODE_REGEX, "pincode must be 6 digits, first digit 1-8."),
+    /** Required for guests (order updates, order lookup); a signed-in customer's account email is used instead. */
+    email: z.string().trim().toLowerCase().max(254).pipe(z.email()).optional(),
   })
   .strict();
 

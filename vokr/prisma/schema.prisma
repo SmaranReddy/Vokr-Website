@@ -82,6 +82,7 @@ model ProductVariant {
   inventory    Inventory?
   cartItems    CartItem[]
   reservations InventoryReservation[]
+  orderItems   OrderItem[]
 
   @@unique([productId, colorway, sizeLabel])
   @@index([productId, status])
@@ -131,6 +132,7 @@ model AppUser {
   carts            Cart[]
   addresses        Address[]
   checkoutSessions CheckoutSession[]
+  orders           Order[]
 
   @@map("app_users")
 }
@@ -343,11 +345,18 @@ model CheckoutSession {
   pricingSnapshot Json?     @map("pricing_snapshot")
   expiresAt       DateTime? @map("expires_at") @db.Timestamptz(6)
 
+  /// Where order updates go, and the second factor of guest order lookup
+  /// (plan §5 Phase 9, task 6). Encrypted at rest like every other PII
+  /// column (`src/server/checkout/crypto.ts`). A guest gives it at the
+  /// address step; a signed-in customer's is their account email.
+  contactEmailEnc String? @map("contact_email_enc")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   payment      Payment?
   reservations InventoryReservation[]
+  order        Order?
 
   @@map("checkout_sessions")
 }
@@ -420,6 +429,7 @@ model Payment {
   lateCheckedAt DateTime? @map("late_checked_at") @db.Timestamptz(6)
 
   issues PaymentIssue[]
+  order  Order?
 
   @@index([status, createdAt])
   @@map("payments")
@@ -545,4 +555,135 @@ model InventoryReservation {
   /// Also serves lookups by `checkout_session_id` (its leading column).
   @@unique([checkoutSessionId, variantId])
   @@map("inventory_reservations")
+}
+
+/// `confirmed → preparing → shipped → delivered`, plus `cancelled`,
+/// `returned`, `refunded` and `rto` (plan §5 Phase 9, task 5). Transitions
+/// live in `src/server/orders/state-machine.ts`; every one writes
+/// `order_status_history`.
+enum OrderStatus {
+  confirmed
+  preparing
+  shipped
+  delivered
+  cancelled
+  returned
+  refunded
+  rto
+
+  @@map("order_status")
+}
+
+/// A paid (later: COD-confirmed) checkout, made durable (plan §5 Phase 9).
+/// Everything here is copied from the session's pricing snapshot and
+/// address at creation — never recomputed and never referenced live — so
+/// an order renders identically after a rename, reprice, address edit or
+/// delete, and its total always equals the amount charged.
+model Order {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// `VK-10001`, `VK-10002`, … from `order_number_seq` (task 2). Ordinal
+  /// only: it says nothing but how many orders came before.
+  orderNumber String @unique @default(dbgenerated("('VK-'::text || (nextval('order_number_seq'::regclass))::text)")) @map("order_number")
+
+  checkoutSessionId String          @unique @map("checkout_session_id") @db.Uuid
+  checkoutSession   CheckoutSession @relation(fields: [checkoutSessionId], references: [id])
+
+  /// The captured payment that created it. Nullable for COD (Phase 10),
+  /// which a CHECK enforces.
+  paymentId String?  @unique @map("payment_id") @db.Uuid
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  /// Signed-in owner, if any. Guests own an order only through lookup
+  /// (number + email): a guest session is short-lived and pruned.
+  userId String?  @map("user_id") @db.Uuid
+  user   AppUser? @relation(fields: [userId], references: [id])
+
+  status        OrderStatus           @default(confirmed)
+  paymentMethod CheckoutPaymentMethod @map("payment_method")
+
+  /// Encrypted, copied from the session and address at creation.
+  contactEmailEnc String  @map("contact_email_enc")
+  shipNameEnc     String  @map("ship_name_enc")
+  shipPhoneEnc    String  @map("ship_phone_enc")
+  shipLine1Enc    String  @map("ship_line1_enc")
+  shipLine2Enc    String? @map("ship_line2_enc")
+  shipCity        String  @map("ship_city")
+  shipState       String  @map("ship_state")
+  shipPincode     String  @map("ship_pincode")
+  shipCountry     String  @default("IN") @map("ship_country")
+
+  /// `intra_state` (CGST+SGST) or `inter_state` (IGST), and the seller
+  /// state it was decided against — as priced.
+  gstSplit    String @map("gst_split")
+  sellerState String @map("seller_state")
+
+  subtotalPaise Int    @map("subtotal_paise")
+  taxPaise      Int    @map("tax_paise")
+  shippingPaise Int    @map("shipping_paise")
+  codFeePaise   Int    @map("cod_fee_paise")
+  totalPaise    Int    @map("total_paise")
+  currency      String @default("INR")
+
+  placedAt  DateTime @default(now()) @map("placed_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items   OrderItem[]
+  history OrderStatusHistory[]
+
+  @@index([userId, placedAt])
+  @@index([status, placedAt])
+  @@map("orders")
+}
+
+/// One snapshot line (task 4): what was bought, at what price and tax, as
+/// it was described then. `variant_id` is kept for reporting only and is
+/// nulled if the variant is ever deleted; the order still renders.
+model OrderItem {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  variantId String?         @map("variant_id") @db.Uuid
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  sku         String
+  productName String @map("product_name")
+  sizeLabel   String @map("size_label")
+  colorway    String
+  hsnCode     String @map("hsn_code")
+  gstRateBps  Int    @map("gst_rate_bps")
+
+  quantity          Int
+  unitPricePaise    Int @map("unit_price_paise")
+  lineSubtotalPaise Int @map("line_subtotal_paise")
+  lineTaxPaise      Int @map("line_tax_paise")
+  cgstPaise         Int @map("cgst_paise")
+  sgstPaise         Int @map("sgst_paise")
+  igstPaise         Int @map("igst_paise")
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+/// Every status change, with who made it (task 5). The first row
+/// (`from_status` NULL → `confirmed`) is written with the order.
+model OrderStatusHistory {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  fromStatus OrderStatus? @map("from_status")
+  toStatus   OrderStatus  @map("to_status")
+  /// `system:payment` (verified webhook or reconciliation), later
+  /// `admin:<user id>` (Phase 12).
+  actor      String
+  note       String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
 }

@@ -48,6 +48,7 @@ function priced(overrides: Partial<CheckoutSessionView> = {}): CheckoutSessionVi
       totalPaise: 999_500,
     } as unknown as CheckoutSessionView["pricingSnapshot"],
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    contactEmail: "buyer@example.com",
     ...overrides,
   };
 }

@@ -22,6 +22,8 @@ export interface PaymentStatusView {
   checkoutSessionId: string;
   checkoutState: CheckoutState;
   paymentStatus: PaymentStatus | null;
+  /** Set once the session is paid and its order exists (plan §5 Phase 9). */
+  orderNumber: string | null;
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {
@@ -256,9 +258,14 @@ export async function getPaymentStatus(
     where: { checkoutSessionId },
     select: { status: true },
   });
+  const order =
+    session.state === CheckoutState.paid
+      ? await prisma.order.findUnique({ where: { checkoutSessionId }, select: { orderNumber: true } })
+      : null;
   return {
     checkoutSessionId,
     checkoutState: session.state,
     paymentStatus: payment?.status ?? null,
+    orderNumber: order?.orderNumber ?? null,
   };
 }

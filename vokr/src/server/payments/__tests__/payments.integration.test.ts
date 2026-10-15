@@ -586,6 +586,7 @@ describe("forged browser callback (plan §5 Phase 7, Security)", () => {
       checkoutSessionId: sessionId,
       checkoutState: CheckoutState.payment_pending,
       paymentStatus: PaymentStatus.created,
+      orderNumber: null,
     });
     expect(await stateOf(sessionId)).toBe(CheckoutState.payment_pending);
   });

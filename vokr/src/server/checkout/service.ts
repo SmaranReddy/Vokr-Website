@@ -29,6 +29,8 @@ export interface CheckoutSessionView {
   paymentMethod: CheckoutPaymentMethod | null;
   pricingSnapshot: PricingSnapshot | null;
   expiresAt: string | null;
+  /** Where order updates go; a guest's own, or a signed-in customer's account email. */
+  contactEmail: string | null;
 }
 
 /** The `where` shape that names one identity's rows — never both columns at once (same convention as `server/cart/service.ts`). */
@@ -65,6 +67,7 @@ interface SessionRow {
   paymentMethod: CheckoutPaymentMethod | null;
   pricingSnapshot: Prisma.JsonValue | null;
   expiresAt: Date | null;
+  contactEmailEnc: string | null;
   address: {
     nameEnc: string;
     phoneEnc: string;
@@ -85,6 +88,7 @@ const SESSION_SELECT = {
   paymentMethod: true,
   pricingSnapshot: true,
   expiresAt: true,
+  contactEmailEnc: true,
   address: {
     select: {
       nameEnc: true,
@@ -134,6 +138,7 @@ function toView(session: SessionRow): CheckoutSessionView {
     paymentMethod: session.paymentMethod,
     pricingSnapshot: session.pricingSnapshot as PricingSnapshot | null,
     expiresAt: session.expiresAt ? session.expiresAt.toISOString() : null,
+    contactEmail: session.contactEmailEnc ? decryptField(session.contactEmailEnc) : null,
   };
 }
 
@@ -224,6 +229,22 @@ export async function setCheckoutAddress(
     );
   }
 
+  // A guest's email is the second factor of order lookup and where order
+  // updates go, so it is required; a signed-in customer may give another,
+  // and otherwise their account's is used.
+  let contactEmail: string;
+  if (body.email) {
+    contactEmail = body.email;
+  } else if (identity.type === "user") {
+    const user = await prisma.appUser.findUniqueOrThrow({
+      where: { id: identity.userId },
+      select: { email: true },
+    });
+    contactEmail = user.email;
+  } else {
+    throw new ValidationError("Add an email address for your order updates.");
+  }
+
   const encrypted = {
     nameEnc: encryptField(body.name),
     phoneEnc: encryptField(body.phone),
@@ -267,7 +288,11 @@ export async function setCheckoutAddress(
 
     await tx.checkoutSession.update({
       where: { id: sessionId },
-      data: { addressId, state: CheckoutState.address_captured },
+      data: {
+        addressId,
+        state: CheckoutState.address_captured,
+        contactEmailEnc: encryptField(contactEmail),
+      },
       select: { id: true },
     });
   });
