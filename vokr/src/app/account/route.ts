@@ -1,7 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 import { ORDERING_ENABLED } from "@/config/commerce";
 import { applyCookies, createRouteSupabaseClient } from "@/server/auth/supabase";
+import { redirectTo } from "@/server/net/redirect";
 
 /**
  * `GET /account` — where the header's account icon points once ordering
@@ -11,14 +12,12 @@ import { applyCookies, createRouteSupabaseClient } from "@/server/auth/supabase"
  * Supabase session only — it never creates a guest session.
  */
 export async function GET(request: NextRequest) {
-  const signIn = new URL("/sign-in", request.url);
-  if (!ORDERING_ENABLED) return NextResponse.redirect(signIn, 307);
+  if (!ORDERING_ENABLED) return redirectTo("/sign-in");
   try {
     const { supabase, cookiesToSet } = createRouteSupabaseClient(request);
     const { data, error } = await supabase.auth.getUser();
-    const target = !error && data.user ? new URL("/orders", request.url) : signIn;
-    return applyCookies(NextResponse.redirect(target, 307), cookiesToSet);
+    return applyCookies(redirectTo(!error && data.user ? "/orders" : "/sign-in"), cookiesToSet);
   } catch {
-    return NextResponse.redirect(signIn, 307);
+    return redirectTo("/sign-in");
   }
 }

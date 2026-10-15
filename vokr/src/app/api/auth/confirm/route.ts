@@ -1,6 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 import { logServerError } from "@/lib/log";
+import { redirectTo } from "@/server/net/redirect";
 import { completeSignIn } from "@/server/auth/complete-sign-in";
 import { parseConfirmParams } from "@/server/auth/confirm";
 import {
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
       new Error(reason, cause === undefined ? undefined : { cause }),
     );
     return applyCookies(
-      NextResponse.redirect(new URL("/sign-in?error=confirm", url.origin)),
+      redirectTo("/sign-in?error=confirm"),
       cookiesToSet,
     );
   };
@@ -90,7 +91,7 @@ export async function GET(request: NextRequest) {
     });
 
     return applyCookies(
-      NextResponse.redirect(new URL(parsed.next, url.origin)),
+      redirectTo(parsed.next),
       cookiesToSet,
     );
   } catch (error) {

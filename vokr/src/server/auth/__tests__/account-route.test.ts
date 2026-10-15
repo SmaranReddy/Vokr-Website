@@ -36,21 +36,21 @@ describe("GET /account", () => {
     flags.orderingEnabled = false;
     const response = await get();
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://vokr.shop/sign-in");
+    expect(response.headers.get("location")).toBe("/sign-in");
     expect(getUser).not.toHaveBeenCalled();
   });
 
   it("once ordering is open, a signed-in customer goes to their orders", async () => {
     flags.orderingEnabled = true;
     getUser.mockResolvedValue({ data: { user: { id: "u1" } }, error: null });
-    expect((await get()).headers.get("location")).toBe("https://vokr.shop/orders");
+    expect((await get()).headers.get("location")).toBe("/orders");
   });
 
   it("once ordering is open, anyone else goes to sign-in — including when auth fails", async () => {
     flags.orderingEnabled = true;
     getUser.mockResolvedValue({ data: { user: null }, error: null });
-    expect((await get()).headers.get("location")).toBe("https://vokr.shop/sign-in");
+    expect((await get()).headers.get("location")).toBe("/sign-in");
     getUser.mockRejectedValue(new Error("auth down"));
-    expect((await get()).headers.get("location")).toBe("https://vokr.shop/sign-in");
+    expect((await get()).headers.get("location")).toBe("/sign-in");
   });
 });

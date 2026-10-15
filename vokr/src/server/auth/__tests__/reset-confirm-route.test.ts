@@ -98,7 +98,7 @@ describe("GET /api/auth/reset/confirm", () => {
       token_hash: VALID_HASH,
     });
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/reset-password`);
+    expect(response.headers.get("location")).toBe("/reset-password");
     expect(response.headers.get("set-cookie")).toContain(SESSION_COOKIE.name);
     expect(logServerError).not.toHaveBeenCalled();
   });
@@ -118,7 +118,7 @@ describe("GET /api/auth/reset/confirm", () => {
       `?token_hash=${VALID_HASH}&type=recovery&next=${encodeURIComponent("https://evil.example/")}`,
     );
 
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/reset-password`);
+    expect(response.headers.get("location")).toBe("/reset-password");
   });
 
   it.each([
@@ -136,7 +136,7 @@ describe("GET /api/auth/reset/confirm", () => {
       expect(verifyOtp).not.toHaveBeenCalled();
       expect(response.status).toBe(307);
       expect(response.headers.get("location")).toBe(
-        `${ORIGIN}/reset-password?error=link`,
+        "/reset-password?error=link",
       );
       expect(response.headers.get("set-cookie")).toBeNull();
       expect(logServerError).toHaveBeenCalledOnce();
@@ -152,7 +152,7 @@ describe("GET /api/auth/reset/confirm", () => {
     const response = await get(`?token_hash=${VALID_HASH}&type=recovery`);
 
     expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/reset-password?error=link`,
+      "/reset-password?error=link",
     );
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(logServerError).toHaveBeenCalledOnce();
@@ -167,7 +167,7 @@ describe("GET /api/auth/reset/confirm", () => {
     const response = await get(`?token_hash=${VALID_HASH}&type=recovery`);
 
     expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/reset-password?error=link`,
+      "/reset-password?error=link",
     );
   });
 
@@ -177,7 +177,7 @@ describe("GET /api/auth/reset/confirm", () => {
     const response = await get(`?token_hash=${VALID_HASH}&type=recovery`);
 
     expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/reset-password?error=link`,
+      "/reset-password?error=link",
     );
     expect(logServerError).toHaveBeenCalledOnce();
   });
