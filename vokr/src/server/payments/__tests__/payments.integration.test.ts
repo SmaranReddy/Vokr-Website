@@ -232,10 +232,13 @@ describe("createPaymentOrder (plan §5 Phase 7, tasks 2–4)", () => {
     );
   });
 
-  it("refuses to create an order against an expired snapshot", async () => {
+  it("refuses to create an order once the hold has lapsed (RESERVATION_EXPIRED)", async () => {
     const razorpay = new FakeRazorpay();
     const { identity, sessionId } = await reservedSession({ expiresAt: new Date(Date.now() - 1000) });
-    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toThrow(ConflictError);
+    await expect(createPaymentOrder(identity, sessionId, razorpay)).rejects.toMatchObject({
+      status: 409,
+      code: "RESERVATION_EXPIRED",
+    });
     expect(razorpay.createCalls).toBe(0);
   });
 

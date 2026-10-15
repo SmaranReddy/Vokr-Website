@@ -1,4 +1,4 @@
-import { ConflictError, ValidationError } from "@/lib/errors";
+import { CheckoutStaleError, OutOfStockError, ValidationError } from "@/lib/errors";
 import { gstStateCode } from "@/lib/gst-states";
 import { listProducts, type CatalogProduct, type CatalogVariant } from "@/server/catalog";
 import { prisma } from "@/server/db/client";
@@ -166,14 +166,14 @@ export async function computePricing({
   const lines: PricingLine[] = items.map((item) => {
     const found = findVariantInCatalog(catalog, item.variantId);
     if (!found) {
-      throw new ConflictError(
+      throw new CheckoutStaleError(
         "One or more items in your cart are no longer available. Please review your cart.",
       );
     }
     if (found.variant.quantityAvailable < item.quantity) {
-      throw new ConflictError(
-        "Not enough stock available for one or more items in your cart.",
-      );
+      throw new OutOfStockError("Not enough stock available for one or more items in your cart.", [
+        { variantId: item.variantId, requested: item.quantity, available: found.variant.quantityAvailable },
+      ]);
     }
     return buildLine(item.quantity, found.product, found.variant, intraState);
   });

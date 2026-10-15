@@ -65,7 +65,11 @@ export function PdpPurchasePanel({
       <div className="mb-6 grid grid-cols-4 gap-2">
         {variants.map((variant) => {
           const isSelected = variant.id === selectedId;
-          const disabled = !variant.isPurchasable;
+          // A size with nothing left to sell (stock net of live holds) is
+          // shown but cannot be chosen. Struck through for sighted users;
+          // the reason is in the button's accessible name, not a tooltip.
+          const soldOut = variant.isPurchasable && variant.quantityAvailable <= 0;
+          const disabled = !variant.isPurchasable || soldOut;
           return (
             <button
               key={variant.id}
@@ -77,9 +81,10 @@ export function PdpPurchasePanel({
                 isSelected
                   ? "border-foreground bg-foreground text-background"
                   : "border-border-strong text-foreground hover:border-foreground"
-              } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
+              } ${disabled ? "cursor-not-allowed opacity-40" : ""} ${soldOut ? "line-through" : ""}`}
             >
               {displaySizeLabel(variant.sizeLabel)}
+              {soldOut && <span className="sr-only">, sold out</span>}
             </button>
           );
         })}
