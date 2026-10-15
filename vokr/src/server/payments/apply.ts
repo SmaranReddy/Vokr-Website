@@ -139,7 +139,7 @@ export async function applyPaymentObservation(
         manualReview: reason,
       });
     } else if (moved) {
-      console.error(`[payments] payment=${paymentId} ${UNMATCHED_PAYMENT_TAG} cannot record an issue for ${reason}`);
+      console.error(`[payments] payment=${paymentId} AMOUNT_MISMATCH_UNRECORDED cannot record an issue for ${reason}`);
     }
     return {
       kind: "rejected",
