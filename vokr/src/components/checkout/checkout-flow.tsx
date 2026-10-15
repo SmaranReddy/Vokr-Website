@@ -47,6 +47,13 @@ function forgetIdempotencyKey(): void {
   window.sessionStorage.removeItem(IDEMPOTENCY_KEY_STORAGE_KEY);
 }
 
+/**
+ * After paying, the key is kept, so a reload shows the confirmation rather
+ * than a fresh checkout of an (already closed) bag; it is forgotten when
+ * that paid session is next loaded.
+ */
+function keepKeyUntilNextVisit(): void {}
+
 /** States in which a session can no longer be edited or paid; checkout starts again. */
 const CLOSED_STATES: readonly CheckoutSessionView["state"][] = ["expired", "failed", "abandoned"];
 /** States in which the address and payment method are locked by the server. */
@@ -131,6 +138,10 @@ export function CheckoutFlow() {
         forgetIdempotencyKey();
         next = await openSession();
         if (!isCancelled()) setNotice("Your previous checkout lapsed, so we've started a new one.");
+      }
+      if (next.state === "paid") {
+        // Shown once more (a reload after paying); the visit after starts a new checkout.
+        forgetIdempotencyKey();
       }
       if (isCancelled()) return;
       setSession(next);
@@ -590,7 +601,7 @@ export function CheckoutFlow() {
           key={session.id}
           session={session}
           onRestart={restartCheckout}
-          onPaid={forgetIdempotencyKey}
+          onPaid={keepKeyUntilNextVisit}
         />
       )}
     </main>

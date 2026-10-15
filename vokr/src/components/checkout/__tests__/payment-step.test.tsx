@@ -32,6 +32,7 @@ function json(status: number, body: unknown) {
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   opened = [];
   statusReplies = [];
   requests.length = 0;
@@ -216,16 +217,51 @@ describe("after Checkout reports success — untrusted until the server agrees",
     expect(onPaid).not.toHaveBeenCalled();
   });
 
-  it("a failed attempt can be retried while the hold is live", async () => {
+  it("a `failed` reading after Checkout said success is an earlier attempt, not the answer", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    // Attempt 1 failed inside Checkout; attempt 2 succeeded, its capture not yet recorded.
+    statusReplies = [
+      { checkoutState: "payment_pending", paymentStatus: "failed" },
+      { checkoutState: "payment_pending", paymentStatus: "failed" },
+      { checkoutState: "paid", paymentStatus: "captured" },
+    ];
+    const onPaid = await payAndSucceed();
+    await settle();
+    expect(screen.queryByText(/didn't go through/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /try again|^pay/i })).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByText(/payment confirmed/i)).toBeTruthy();
+    expect(onPaid).toHaveBeenCalledOnce();
+  });
+
+  it("never offers to pay again after a success callback, even if only `failed` is ever seen", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
     statusReplies = [{ checkoutState: "payment_pending", paymentStatus: "failed" }];
     await payAndSucceed();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200_000);
+    });
+
+    expect(screen.getByText(/haven't received confirmation/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /try again|^pay/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /check again/i }));
+    await settle();
+    expect(screen.queryByRole("button", { name: /try again|^pay/i })).toBeNull();
+    expect(opened).toHaveLength(1);
+  });
+
+  it("a dismissal Razorpay reports after the success callback is ignored", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    statusReplies = [{ checkoutState: "payment_pending", paymentStatus: "created" }];
+    await payAndSucceed();
+    act(() => opened[0]?.modal.ondismiss());
     await settle();
 
-    expect(screen.getByText(/didn't go through/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
-    await settle();
-    expect(opened).toHaveLength(2);
+    expect(screen.getByText(/confirming your payment/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^pay/i })).toBeNull();
   });
 });
 
@@ -253,5 +289,78 @@ describe("closing Checkout and reloading", () => {
 
     expect(screen.getByText(/payment confirmed/i)).toBeTruthy();
     expect(onPaid).toHaveBeenCalledOnce();
+  });
+  it("a failed attempt with no success callback can be retried while the hold is live", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    statusReplies = [{ checkoutState: "payment_pending", paymentStatus: "failed" }];
+    render(<PaymentStep session={session()} onRestart={vi.fn()} onPaid={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /pay/i }));
+    await settle();
+    act(() => opened[0]?.modal.ondismiss());
+    await settle();
+
+    expect(screen.getByText(/didn't go through/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await settle();
+    expect(opened).toHaveLength(2);
+  });
+
+  it("a reload after opening Checkout but never paying offers Pay again, with a warning", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    statusReplies = [{ checkoutState: "payment_pending", paymentStatus: "created" }];
+    render(<PaymentStep session={session({ state: "payment_pending" })} onRestart={vi.fn()} onPaid={vi.fn()} />);
+    await settle();
+
+    expect(screen.getByRole("button", { name: /pay ₹9,995/i })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/don't pay twice/i);
+  });
+
+  it("a reload with money in flight waits for it instead of offering Pay", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    statusReplies = [{ checkoutState: "payment_pending", paymentStatus: "authorized" }];
+    render(<PaymentStep session={session({ state: "payment_pending" })} onRestart={vi.fn()} onPaid={vi.fn()} />);
+    await settle();
+
+    expect(screen.getByText(/confirming your payment/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^pay/i })).toBeNull();
+  });
+
+  it("a reload after Checkout said success never offers Pay, even with no attempt recorded yet", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    window.sessionStorage.setItem(`vokr:checkout:success-seen:${SESSION_ID}`, "1");
+    statusReplies = [{ checkoutState: "payment_pending", paymentStatus: "created" }];
+    render(<PaymentStep session={session({ state: "payment_pending" })} onRestart={vi.fn()} onPaid={vi.fn()} />);
+    await settle();
+
+    expect(screen.queryByRole("button", { name: /^pay/i })).toBeNull();
+    expect(screen.getByText(/confirming your payment/i)).toBeTruthy();
+    window.sessionStorage.clear();
+  });
+
+  it("the hold running out with Checkout open reads the status rather than sitting there", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    statusReplies = [{ checkoutState: "expired", paymentStatus: "created" }];
+    render(
+      <PaymentStep
+        session={session({ expiresAt: new Date(Date.now() + 90_000).toISOString() })}
+        onRestart={vi.fn()}
+        onPaid={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /pay/i }));
+    await settle();
+    expect(opened).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(91_000);
+    });
+    expect(requests.some((request) => request.url.startsWith("/api/payments/status"))).toBe(true);
+    expect(screen.getByText(/reservation has lapsed/i)).toBeTruthy();
+  });
+
+  it("the ticking countdown sits outside the live region", () => {
+    render(<PaymentStep session={session()} onRestart={vi.fn()} onPaid={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).not.toMatch(/held for/i);
+    expect(screen.getByText(/held for/i)).toBeTruthy();
   });
 });

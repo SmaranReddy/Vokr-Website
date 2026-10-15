@@ -6,6 +6,7 @@ import { CheckoutState, PaymentIssueState, PaymentStatus } from "@/generated/pri
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
+import { createCheckoutSession } from "@/server/checkout/service";
 import { prisma } from "@/server/db/client";
 import {
   cleanupCheckoutFixtures,
@@ -270,6 +271,33 @@ describe("Razorpay webhook (plan §5 Phase 7, tasks 6–9)", () => {
       providerPaymentId: "pay_attempt_1",
     });
     expect(await stateOf(sessionId)).toBe(CheckoutState.paid);
+  });
+
+  it("the bag that was paid for is closed with the payment, so it cannot be checked out again", async () => {
+    const { identity, sessionId, orderId } = await pendingOrder();
+    const { cartId } = await prisma.checkoutSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { cartId: true },
+    });
+    expect((await prisma.cart.findUniqueOrThrow({ where: { id: cartId }, select: { status: true } })).status).toBe("open");
+
+    await deliver(paymentEvent("payment.captured", orderId));
+
+    expect((await prisma.cart.findUniqueOrThrow({ where: { id: cartId }, select: { status: true } })).status).toBe("closed");
+    // A second checkout from the same browser (a reload under a new key) has nothing to buy.
+    await expect(createCheckoutSession(identity, `retry-${randomUUID()}`)).rejects.toThrow(ValidationError);
+  });
+
+  it("a capture that cannot pay the session leaves the bag open for another try", async () => {
+    const { sessionId, orderId } = await pendingOrder();
+    const { cartId } = await prisma.checkoutSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { cartId: true },
+    });
+
+    await deliver(paymentEvent("payment.captured", orderId, { amount: 100 }));
+
+    expect((await prisma.cart.findUniqueOrThrow({ where: { id: cartId }, select: { status: true } })).status).toBe("open");
   });
 
   it("the same webhook delivered five times produces exactly one state change", async () => {

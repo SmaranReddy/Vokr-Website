@@ -1,4 +1,4 @@
-import { CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
+import { CartStatus, CheckoutState, PaymentStatus, ReservationState } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { commitHolds } from "@/server/inventory";
 
@@ -195,8 +195,8 @@ export async function applyPaymentObservation(
     const sessionId = payment.checkoutSessionId;
     // Session lock second (payment → session → inventory), and the holds
     // read under it: the expiry job takes the same locks before releasing.
-    const [session] = await tx.$queryRaw<{ state: CheckoutState }[]>`
-      SELECT state FROM checkout_sessions WHERE id = ${sessionId}::uuid FOR UPDATE
+    const [session] = await tx.$queryRaw<{ state: CheckoutState; cart_id: string }[]>`
+      SELECT state, cart_id FROM checkout_sessions WHERE id = ${sessionId}::uuid FOR UPDATE
     `;
     const heldLines = await tx.inventoryReservation.count({
       where: { checkoutSessionId: sessionId, state: ReservationState.held },
@@ -214,6 +214,16 @@ export async function applyPaymentObservation(
         // Same transaction as `→ paid`: the held units leave stock exactly
         // when the session becomes paid, never separately.
         await commitHolds(tx, sessionId);
+        // And the bag that was bought is closed with it, so the same items
+        // can never be checked out and paid for a second time (a reload,
+        // a second tab). The next add-to-bag opens a new cart. Cart last
+        // in the lock order: no cart path takes a payment, session or
+        // inventory lock.
+        const closed = await tx.cart.updateMany({
+          where: { id: session.cart_id, status: CartStatus.open },
+          data: { status: CartStatus.closed },
+        });
+        if (closed.count === 1) console.info(`[checkout] session=${sessionId} cart closed on payment`);
       }
       // `authorized` with stock still held is the normal path: the capture follows.
     } else if (session?.state === CheckoutState.payment_pending) {
