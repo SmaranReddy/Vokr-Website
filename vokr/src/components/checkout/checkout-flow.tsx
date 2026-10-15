@@ -2,25 +2,33 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useCart } from "@/components/cart/cart-provider";
+import { PaymentStep } from "@/components/checkout/payment-step";
+import { GENERIC_ERROR, problemFromError, type CheckoutProblem } from "@/lib/checkout-payment";
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { GST_STATES } from "@/lib/gst-states";
 import type { CheckoutSessionView } from "@/server/checkout/service";
 import type { PricingLine } from "@/server/pricing";
 
-const GENERIC_ERROR = "Something went wrong. Please try again.";
 const IDEMPOTENCY_KEY_STORAGE_KEY = "vokr:checkout:idempotency-key";
 
 interface ApiError {
   error: { message: string };
 }
 
+/** A failed checkout call, carrying the typed problem (stock, stale, lapsed) the UI acts on. */
+class CheckoutRequestError extends Error {
+  constructor(readonly problem: CheckoutProblem) {
+    super(problem.message);
+  }
+}
+
 async function parseSessionResponse(
   response: Response,
 ): Promise<CheckoutSessionView> {
-  const body = (await response.json()) as
-    { checkoutSession: CheckoutSessionView } | ApiError;
+  const body: unknown = await response.json();
   if (!response.ok) {
-    throw new Error("error" in body ? body.error.message : GENERIC_ERROR);
+    throw new CheckoutRequestError(problemFromError(body));
   }
   return (body as { checkoutSession: CheckoutSessionView }).checkoutSession;
 }
@@ -32,6 +40,26 @@ function getIdempotencyKey(): string {
   const created = crypto.randomUUID();
   window.sessionStorage.setItem(IDEMPOTENCY_KEY_STORAGE_KEY, created);
   return created;
+}
+
+/** A finished or lapsed session keeps its key forever, so starting over needs a new one. */
+function forgetIdempotencyKey(): void {
+  window.sessionStorage.removeItem(IDEMPOTENCY_KEY_STORAGE_KEY);
+}
+
+/** States in which a session can no longer be edited or paid; checkout starts again. */
+const CLOSED_STATES: readonly CheckoutSessionView["state"][] = ["expired", "failed", "abandoned"];
+/** States in which the address and payment method are locked by the server. */
+const LOCKED_STATES: readonly CheckoutSessionView["state"][] = ["reserved", "payment_pending", "paid"];
+
+async function openSession(): Promise<CheckoutSessionView> {
+  return parseSessionResponse(
+    await fetch("/api/checkout/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: getIdempotencyKey() }),
+    }),
+  );
 }
 
 type ServiceabilityState =
@@ -68,8 +96,13 @@ function GstLine({ line }: { line: PricingLine }) {
 }
 
 export function CheckoutFlow() {
+  const { openCart } = useCart();
   const [session, setSession] = useState<CheckoutSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [stockProblem, setStockProblem] = useState<
+    Extract<CheckoutProblem, { kind: "out_of_stock" }> | null
+  >(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const [name, setName] = useState("");
@@ -87,40 +120,56 @@ export function CheckoutFlow() {
     status: "idle",
   });
 
+  /**
+   * Opens this browser's session. One that already closed (lapsed hold,
+   * abandoned) cannot be reused, so a new one is started in its place.
+   */
+  const loadSession = useCallback(async (isCancelled: () => boolean = () => false) => {
+    try {
+      let next = await openSession();
+      if (CLOSED_STATES.includes(next.state)) {
+        forgetIdempotencyKey();
+        next = await openSession();
+        if (!isCancelled()) setNotice("Your previous checkout lapsed, so we've started a new one.");
+      }
+      if (isCancelled()) return;
+      setSession(next);
+      if (next.paymentMethod) setPaymentMethod(next.paymentMethod);
+      if (next.address) {
+        setName(next.address.name);
+        setPhone(next.address.phone);
+        setLine1(next.address.line1);
+        setLine2(next.address.line2 ?? "");
+        setCity(next.address.city);
+        setAddressState(next.address.state);
+        setPincode(next.address.pincode);
+      }
+    } catch (err) {
+      if (!isCancelled()) setError(err instanceof Error ? err.message : GENERIC_ERROR);
+    } finally {
+      if (!isCancelled()) setIsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/checkout/session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idempotencyKey: getIdempotencyKey() }),
-    })
-      .then(parseSessionResponse)
-      .then((next) => {
-        if (!cancelled) {
-          setSession(next);
-          if (next.address) {
-            setName(next.address.name);
-            setPhone(next.address.phone);
-            setLine1(next.address.line1);
-            setLine2(next.address.line2 ?? "");
-            setCity(next.address.city);
-            setAddressState(next.address.state);
-            setPincode(next.address.pincode);
-          }
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : GENERIC_ERROR);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+    // Every setState in loadSession runs after an awaited request, never synchronously here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSession(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadSession]);
+
+  const restartCheckout = useCallback(() => {
+    forgetIdempotencyKey();
+    setSession(null);
+    setError(null);
+    setStockProblem(null);
+    setNotice(null);
+    setIsLoading(true);
+    void loadSession();
+  }, [loadSession]);
 
   const checkServiceability = useCallback(async (pin: string) => {
     setServiceability({ status: "checking" });
@@ -159,6 +208,26 @@ export function CheckoutFlow() {
     }
   }, []);
 
+  /** Re-prices from the server's cart; a short line becomes a visible stock problem, not a generic error. */
+  const priceSession = useCallback(
+    async (sessionId: string, method: "prepaid" | "cod") => {
+      try {
+        const response = await fetch(
+          `/api/checkout/session/${sessionId}/pricing?paymentMethod=${method}`,
+        );
+        setSession(await parseSessionResponse(response));
+        setStockProblem(null);
+      } catch (err) {
+        if (err instanceof CheckoutRequestError && err.problem.kind === "out_of_stock") {
+          setStockProblem(err.problem);
+          return;
+        }
+        throw err;
+      }
+    },
+    [],
+  );
+
   const submitAddress = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
@@ -185,6 +254,8 @@ export function CheckoutFlow() {
         const next = await parseSessionResponse(response);
         setSession(next);
         await checkServiceability(pincode);
+        // Show the review straight away for the method already selected.
+        await priceSession(next.id, paymentMethod);
       } catch (err) {
         setError(err instanceof Error ? err.message : GENERIC_ERROR);
       } finally {
@@ -200,7 +271,9 @@ export function CheckoutFlow() {
       city,
       addressState,
       pincode,
+      paymentMethod,
       checkServiceability,
+      priceSession,
     ],
   );
 
@@ -210,18 +283,47 @@ export function CheckoutFlow() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch(
-          `/api/checkout/session/${session.id}/pricing?paymentMethod=${method}`,
-        );
-        setSession(await parseSessionResponse(response));
+        await priceSession(session.id, method);
       } catch (err) {
         setError(err instanceof Error ? err.message : GENERIC_ERROR);
       } finally {
         setIsLoading(false);
       }
     },
-    [session],
+    [session, priceSession],
   );
+
+  /** Holds the stock (plan §5 Phase 8); the payment step follows on success. */
+  const reserve = useCallback(async () => {
+    if (!session) return;
+    setIsLoading(true);
+    setError(null);
+    setStockProblem(null);
+    try {
+      const response = await fetch(`/api/checkout/session/${session.id}/reserve`, { method: "POST" });
+      setSession(await parseSessionResponse(response));
+    } catch (err) {
+      const problem = err instanceof CheckoutRequestError ? err.problem : null;
+      if (problem?.kind === "out_of_stock") {
+        setStockProblem(problem);
+      } else if (problem?.kind === "stale") {
+        // The bag or its prices moved: show the new review rather than an error.
+        try {
+          await priceSession(session.id, paymentMethod);
+          setNotice("Your bag or its prices changed. Please review the updated total.");
+        } catch (repriceError) {
+          setError(repriceError instanceof Error ? repriceError.message : GENERIC_ERROR);
+        }
+      } else if (problem?.kind === "reservation_expired") {
+        restartCheckout();
+        setNotice("Your reservation lapsed, so we've started a new checkout.");
+      } else {
+        setError(err instanceof Error ? err.message : GENERIC_ERROR);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [session, paymentMethod, priceSession, restartCheckout]);
 
   const onSelectPaymentMethod = useCallback(
     (method: "prepaid" | "cod") => {
@@ -242,6 +344,11 @@ export function CheckoutFlow() {
   const snapshot = session?.pricingSnapshot ?? null;
   const codBlockedByServiceability =
     serviceability.status === "serviceable" && !serviceability.codEligible;
+  const locked = !!session && LOCKED_STATES.includes(session.state);
+  const lineName = (variantId: string) => {
+    const line = snapshot?.lines.find((candidate) => candidate.variantId === variantId);
+    return line ? `${line.productName} · ${line.sizeLabel}` : "An item in your bag";
+  };
 
   return (
     <main className="mx-auto max-w-2xl px-5 py-12">
@@ -252,6 +359,41 @@ export function CheckoutFlow() {
           {error}
         </p>
       )}
+      {notice && (
+        <p role="status" className="mt-3 text-sm text-foreground">
+          {notice}
+        </p>
+      )}
+      {stockProblem && (
+        <div role="alert" className="mt-3 border border-red-600 p-4 text-sm">
+          <p className="font-medium text-red-600">{stockProblem.message}</p>
+          {stockProblem.lines.length > 0 && (
+            <ul className="mt-2 list-disc pl-5 text-foreground">
+              {stockProblem.lines.map((line) => (
+                <li key={line.variantId}>
+                  {lineName(line.variantId)}:{" "}
+                  {line.available === 0
+                    ? "sold out"
+                    : `only ${line.available} left (you asked for ${line.requested})`}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button type="button" onClick={openCart} className="border border-foreground px-4 py-2 font-semibold">
+              Update your bag
+            </button>
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => void computePricing(paymentMethod)}
+              className="border border-border-strong px-4 py-2 disabled:opacity-50"
+            >
+              Review again
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold text-foreground">
@@ -261,9 +403,11 @@ export function CheckoutFlow() {
           onSubmit={submitAddress}
           className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2"
         >
+          <fieldset disabled={locked} className="contents">
           <input
             required
             placeholder="Full name"
+            aria-label="Full name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm sm:col-span-2"
@@ -271,6 +415,7 @@ export function CheckoutFlow() {
           <input
             required
             placeholder="Phone (10-digit mobile)"
+            aria-label="Phone (10-digit mobile)"
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm sm:col-span-2"
@@ -278,12 +423,14 @@ export function CheckoutFlow() {
           <input
             required
             placeholder="Address line 1"
+            aria-label="Address line 1"
             value={line1}
             onChange={(event) => setLine1(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm sm:col-span-2"
           />
           <input
             placeholder="Address line 2 (optional)"
+            aria-label="Address line 2 (optional)"
             value={line2}
             onChange={(event) => setLine2(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm sm:col-span-2"
@@ -291,12 +438,14 @@ export function CheckoutFlow() {
           <input
             required
             placeholder="City"
+            aria-label="City"
             value={city}
             onChange={(event) => setCity(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm"
           />
           <select
             required
+            aria-label="State"
             value={addressState}
             onChange={(event) => setAddressState(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm"
@@ -311,6 +460,7 @@ export function CheckoutFlow() {
           <input
             required
             placeholder="PIN code"
+            aria-label="PIN code"
             value={pincode}
             onChange={(event) => setPincode(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm"
@@ -322,6 +472,7 @@ export function CheckoutFlow() {
           >
             Save address
           </button>
+          </fieldset>
         </form>
 
         {serviceability.status === "checking" && (
@@ -352,6 +503,7 @@ export function CheckoutFlow() {
           <div className="mt-4 flex gap-3">
             <button
               type="button"
+              disabled={locked}
               onClick={() => onSelectPaymentMethod("prepaid")}
               className={`border px-4 py-2 text-sm ${paymentMethod === "prepaid" ? "border-foreground font-semibold" : "border-border-strong"}`}
             >
@@ -359,7 +511,7 @@ export function CheckoutFlow() {
             </button>
             <button
               type="button"
-              disabled={codBlockedByServiceability}
+              disabled={locked || codBlockedByServiceability}
               onClick={() => onSelectPaymentMethod("cod")}
               className={`border px-4 py-2 text-sm disabled:opacity-40 ${paymentMethod === "cod" ? "border-foreground font-semibold" : "border-border-strong"}`}
               title={
@@ -414,16 +566,32 @@ export function CheckoutFlow() {
             </div>
           </div>
 
-          <button
-            type="button"
-            aria-disabled="true"
-            title="Payment launches in Phase 7"
-            disabled
-            className="mt-6 w-full cursor-default bg-foreground px-6 py-3.5 text-sm font-semibold text-background opacity-70"
-          >
-            Continue to payment
-          </button>
+          {!locked && paymentMethod === "cod" && (
+            <p id="cod-unavailable" className="mt-6 text-sm text-muted">
+              Cash on Delivery isn&apos;t available yet. Please choose Prepaid to continue.
+            </p>
+          )}
+          {!locked && (
+            <button
+              type="button"
+              onClick={() => void reserve()}
+              disabled={isLoading || paymentMethod !== "prepaid" || session?.state !== "priced"}
+              aria-describedby={paymentMethod === "cod" ? "cod-unavailable" : undefined}
+              className="mt-6 w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background disabled:opacity-50"
+            >
+              Continue to payment
+            </button>
+          )}
         </section>
+      )}
+
+      {session && locked && (
+        <PaymentStep
+          key={session.id}
+          session={session}
+          onRestart={restartCheckout}
+          onPaid={forgetIdempotencyKey}
+        />
       )}
     </main>
   );
