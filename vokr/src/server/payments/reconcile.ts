@@ -6,20 +6,44 @@ import type { RazorpayClient, RazorpayPayment } from "./razorpay";
 
 export const RECONCILE_AFTER_MS = 30 * 60 * 1000;
 
-/** Most-advanced attempt first, so one capture among several failed attempts wins. */
-const ATTEMPT_PRIORITY: Readonly<Record<PaymentStatus, number>> = {
-  [PaymentStatus.refunded]: 4,
+/**
+ * Most-advanced attempt first, so one capture among several failed attempts
+ * wins. `refunded` is deliberately absent: it is Razorpay's payment
+ * *summary*, which can read `refunded` while the refund is still pending,
+ * and also for an authorization that was released without ever being
+ * captured. Neither is proof that money went back, so a summary never
+ * moves a payment or closes an issue here — only refund entities do
+ * (`late-payment.ts`, or a `refund.processed` webhook's refund entity).
+ */
+const ATTEMPT_PRIORITY: Readonly<Partial<Record<PaymentStatus, number>>> = {
   [PaymentStatus.captured]: 3,
   [PaymentStatus.authorized]: 2,
   [PaymentStatus.failed]: 1,
-  [PaymentStatus.created]: 0,
 };
 
 function mostAdvancedAttempt(payments: readonly RazorpayPayment[]) {
   return payments
     .map((payment) => ({ payment, status: toPaymentStatus(payment.status) }))
-    .filter((entry): entry is { payment: RazorpayPayment; status: PaymentStatus } => !!entry.status)
-    .sort((a, b) => ATTEMPT_PRIORITY[b.status] - ATTEMPT_PRIORITY[a.status])[0];
+    .filter(
+      (entry): entry is { payment: RazorpayPayment; status: PaymentStatus } =>
+        !!entry.status && ATTEMPT_PRIORITY[entry.status] !== undefined,
+    )
+    .sort((a, b) => (ATTEMPT_PRIORITY[b.status] ?? 0) - (ATTEMPT_PRIORITY[a.status] ?? 0))[0];
+}
+
+export interface ReconcileReport {
+  checked: number;
+  outcomes: ApplyOutcome[];
+  /**
+   * Orders that could not be read or applied this run. Each is isolated:
+   * the rest of the batch still runs, and the job reports the run as
+   * failed so it is retried and seen.
+   */
+  errors: number;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -31,13 +55,15 @@ function mostAdvancedAttempt(payments: readonly RazorpayPayment[]) {
  * what a fact means.
  *
  * Network calls happen one session at a time, outside any transaction;
- * only the apply step is transactional. Driven by the Phase 8 maintenance
- * job (`POST /api/jobs/maintenance`, OIDC-authenticated Cloud Scheduler).
+ * only the apply step is transactional. One order that cannot be read or
+ * applied is logged and counted, never allowed to stop the others.
+ * Driven by the Phase 8 maintenance job (`POST /api/jobs/maintenance`,
+ * OIDC-authenticated Cloud Scheduler).
  */
 export async function reconcilePendingPayments(
   razorpay: RazorpayClient,
   now: Date = new Date(),
-): Promise<{ checked: number; outcomes: ApplyOutcome[] }> {
+): Promise<ReconcileReport> {
   const pending = await prisma.payment.findMany({
     where: {
       providerOrderId: { not: null },
@@ -50,16 +76,24 @@ export async function reconcilePendingPayments(
   });
 
   const outcomes: ApplyOutcome[] = [];
+  let errors = 0;
   for (const payment of pending) {
     const orderId = payment.providerOrderId as string;
-    const outcome = await reconcileOrder(razorpay, orderId);
-    if (!outcome) continue;
-    console.info(
-      `[payments/reconcile] payment=${payment.id} razorpay_order=${orderId} outcome=${outcome.kind}`,
-    );
-    outcomes.push(outcome);
+    try {
+      const outcome = await reconcileOrder(razorpay, orderId);
+      if (!outcome) continue;
+      console.info(
+        `[payments/reconcile] payment=${payment.id} razorpay_order=${orderId} outcome=${outcome.kind}`,
+      );
+      outcomes.push(outcome);
+    } catch (error) {
+      errors += 1;
+      console.error(
+        `[payments/reconcile] RECONCILE_FAILED payment=${payment.id} razorpay_order=${orderId}: ${messageOf(error)}`,
+      );
+    }
   }
-  return { checked: pending.length, outcomes };
+  return { checked: pending.length, outcomes, errors };
 }
 
 /**
@@ -117,16 +151,17 @@ export const LATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
  * payment is settled before any extra one is judged against it. Never
  * touches stock: the apply path only commits holds that still exist.
  *
- * A `refunded` attempt is deliberately *not* applied here. That status is
- * the payment's summary, which may already say `refunded` while the refund
- * is still pending; closing an issue on it could hide a refund that later
- * fails. Refunds close only from refund entities (`late-payment.ts`) or a
- * `refund.processed` webhook.
+ * An order that fails is still stamped as checked, so it moves to the back
+ * of the queue and is retried after the interval: it can never sit at the
+ * head of the batch and starve every order behind it.
+ *
+ * A `refunded` attempt is deliberately *not* applied here (see
+ * {@link ATTEMPT_PRIORITY}).
  */
 export async function reconcileClosedOrders(
   razorpay: RazorpayClient,
   now: Date = new Date(),
-): Promise<{ checked: number; outcomes: ApplyOutcome[] }> {
+): Promise<ReconcileReport> {
   const due = await prisma.payment.findMany({
     where: {
       providerOrderId: { not: null },
@@ -140,31 +175,41 @@ export async function reconcileClosedOrders(
   });
 
   const outcomes: ApplyOutcome[] = [];
+  let errors = 0;
   for (const payment of due) {
     const orderId = payment.providerOrderId as string;
-    const attempts = (await razorpay.listOrderPayments(orderId))
-      .map((attempt) => ({ attempt, status: toPaymentStatus(attempt.status) }))
-      .filter((entry): entry is { attempt: RazorpayPayment; status: PaymentStatus } =>
-        entry.status === PaymentStatus.authorized || entry.status === PaymentStatus.captured,
-      )
-      .sort((a, b) => ATTEMPT_PRIORITY[b.status] - ATTEMPT_PRIORITY[a.status]);
-    for (const { attempt, status } of attempts) {
-      const outcome = await prisma.$transaction((tx) =>
-        applyPaymentObservation(tx, {
-          providerOrderId: orderId,
-          providerPaymentId: attempt.id,
-          status,
-          amountPaise: attempt.amount,
-          currency: attempt.currency,
-        }),
+    try {
+      const attempts = (await razorpay.listOrderPayments(orderId))
+        .map((attempt) => ({ attempt, status: toPaymentStatus(attempt.status) }))
+        .filter((entry): entry is { attempt: RazorpayPayment; status: PaymentStatus } =>
+          entry.status === PaymentStatus.authorized || entry.status === PaymentStatus.captured,
+        )
+        .sort((a, b) => (ATTEMPT_PRIORITY[b.status] ?? 0) - (ATTEMPT_PRIORITY[a.status] ?? 0));
+      for (const { attempt, status } of attempts) {
+        const outcome = await prisma.$transaction((tx) =>
+          applyPaymentObservation(tx, {
+            providerOrderId: orderId,
+            providerPaymentId: attempt.id,
+            status,
+            amountPaise: attempt.amount,
+            currency: attempt.currency,
+          }),
+        );
+        outcomes.push(outcome);
+      }
+    } catch (error) {
+      errors += 1;
+      console.error(
+        `[payments/reconcile] RECONCILE_FAILED closed payment=${payment.id} razorpay_order=${orderId}: ${messageOf(error)}`,
       );
-      outcomes.push(outcome);
     }
+    // Stamped on failure too: the order is retried after the interval
+    // rather than blocking the head of every later batch.
     await prisma.payment.update({
       where: { id: payment.id },
       data: { lateCheckedAt: now },
       select: { id: true },
     });
   }
-  return { checked: due.length, outcomes };
+  return { checked: due.length, outcomes, errors };
 }

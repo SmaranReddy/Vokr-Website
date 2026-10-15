@@ -23,18 +23,24 @@ later. The order is then paid once, and the second payment is extra money.
    - If the session was still `payment_pending`, it moves to `expired`.
    - One `payment_issues` row opens, in state `open`. It is keyed by the Razorpay payment id: `UNIQUE(provider_payment_id)` makes duplicates and races converge on one row.
    - A second payment (a different `pay_…`) on an order already `captured` or `refunded` opens its own issue (`additional_payment`). The order keeps its first payment, its `paid` state and its stock, and refunding the second payment never touches the order's row.
-2. **Finding them without a webhook.** In the `reconciliation` step, every order created in the last 4 days whose session is no longer `payment_pending` is re-read from Razorpay at most every 30 minutes (`payments.late_checked_at`). Every `authorized` or `captured` attempt is applied through the same path a webhook uses. A payment's `refunded` summary status is never taken as proof. It can be set while the refund is still pending, so an issue closes only from refund entities or a `refund.processed` webhook.
+   - An `authorized` or `captured` for an amount that does not match the order is refused (the order is never paid by it) and opens an issue straight in `manual_review` (`amount_mismatch`) for the amount Razorpay actually holds. The job never refunds it on its own; it watches it like any other `manual_review` issue.
+   - An `authorized` or `captured` on a Razorpay order this server has no record of is **not** refunded: it may be another integration's money on the same account. It is logged at error level with the tag `UNMATCHED_PAYMENT`, and its redacted webhook row keeps `processing_error` set. Pruning never deletes a webhook row that failed to apply, so it stays until a person deals with it.
+2. **Finding them without a webhook.** In the `reconciliation` step, every order created in the last 4 days whose session is no longer `payment_pending` is re-read from Razorpay at most every 30 minutes (`payments.late_checked_at`). Every `authorized` or `captured` attempt is applied through the same path a webhook uses. One order Razorpay cannot read is logged (`RECONCILE_FAILED`), counted in `reconciliation.result.errors` and stamped as checked, so it goes to the back of the queue instead of blocking every later batch; the run reports `ok=false` so Scheduler retries and it is visible. The same per-order isolation applies to `payment_pending` reconciliation.
+
+   **A payment's `refunded` summary status is never taken as proof**, anywhere: it can be set while the refund is still pending, and for an authorization released without capture. Reconciliation never applies it; an issue closes only from processed refund entities (listed by the API) or a `refund.processed` webhook whose refund entity is `processed`, belongs to that payment and covers its whole amount.
 3. **Resolving, in the maintenance job's `latePayments` step,** every 5 minutes. No network call runs inside a transaction.
    - It reads the payment from Razorpay.
    - `authorized`: it waits. Razorpay either captures it or auto-refunds it.
    - `captured`: it lists the payment's refunds and adopts its own, matched by receipt or by the refund id it recorded. Only if none exists does it create one full refund, with `X-Refund-Idempotency` and a receipt both set to `vokr_late_<razorpay payment id>` and an identical body on every retry.
    - Razorpay also refuses to refund beyond the captured amount.
    - It waits on a full refund someone else started, such as Razorpay's auto-refund or the dashboard.
-   - When processed refunds cover the amount, or a `refund.processed` webhook arrives, the issue is `refunded`. The order's payment row moves to `refunded` only when the refunded payment is the order's own.
+   - When processed refunds cover the amount, or a `refund.processed` webhook carries a processed refund entity for the whole amount, the issue is `refunded`. The order's payment row moves to `refunded` only when the refunded payment is the order's own.
+   - Razorpay reports `refunded` but lists no refund entity: `manual_review` (still watched; it closes on its own if a processed refund appears).
 4. **`manual_review`.** The job stops and logs at error level when it sees:
    - a partial refund it did not make;
    - an unknown payment status;
    - an amount mismatch;
+   - a `refunded` summary with no refund entity;
    - a failed refund;
    - 5 consecutive API errors.
 
@@ -55,10 +61,19 @@ The maintenance report's `latePayments.result.totals` counts every issue by
 state. `open` and `manual_review` above zero mean money is waiting on the
 job or on a person.
 
-**Not created yet; needs authorisation.** A log-based alert on
-`textPayload:"LATE_PAYMENT manual_review"` (and on `"LATE_PAYMENT opened"`,
-if every late payment should page) belongs with Phase 15 observability. It
-is production infrastructure.
+**Not created yet; needs authorisation.** Log-based alerts on
+`textPayload:"LATE_PAYMENT manual_review"`, `"UNMATCHED_PAYMENT"` and
+`"RECONCILE_FAILED"` (and on `"LATE_PAYMENT opened"`, if every late payment
+should page) belong with Phase 15 observability. They are production
+infrastructure.
+
+Unmatched payments, read-only:
+
+```sql
+SELECT received_at, event_type, payload->'payment'->>'order_id' AS razorpay_order,
+       payload->'payment'->>'id' AS razorpay_payment, payload->'payment'->>'amount' AS amount, processing_error
+  FROM webhook_events WHERE processing_error LIKE 'no local payment%' ORDER BY received_at;
+```
 
 Open issues, read-only:
 
@@ -72,6 +87,12 @@ SELECT state, reason, provider_payment_id, amount_paise, refund_id, attempts, la
 1. Look at the payment in the Razorpay dashboard. Its refunds, `amount_refunded` and status are the truth.
 2. Decide there, and refund there if that is the decision.
 3. Nothing needs to be written to the database. The job keeps watching `manual_review` issues: once processed refunds cover the amount, it closes the issue (`refunded`), and so does a `refund.processed` webhook. An issue that should stay unrefunded stays in `manual_review`. A resolution state for that belongs with the Phase 12 admin tools.
+
+**Known limitation.** An amount-mismatched capture that is the order's only
+attempt keeps the session's stock hold: the expiry job releases a hold only
+when every attempt Razorpay lists is `failed`. Stock is never oversold this
+way, but those units stay reserved until a person resolves it (Phase 12
+admin tooling).
 
 ## Decisions left to the owner (plan §0.3)
 

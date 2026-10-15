@@ -6,7 +6,10 @@ import { prisma } from "@/server/db/client";
  * customer data:
  *
  * - `rate_limit_counters` older than 24 hours;
- * - `webhook_events` older than 90 days;
+ * - `webhook_events` older than 90 days, except those that failed to
+ *   apply (`processing_error` set): one of those may be the only record of
+ *   money on an order this server does not know (`UNMATCHED_PAYMENT`), so
+ *   it is kept until a person deals with it;
  * - `inventory_reservations` that were released or expired more than
  *   7 days ago. Committed holds are kept: they are the stock half of a
  *   paid checkout.
@@ -28,7 +31,8 @@ export async function pruneExpiredRows(): Promise<PruneReport> {
     DELETE FROM rate_limit_counters WHERE window_start < now() - interval '24 hours'
   `;
   const webhookEvents = await prisma.$executeRaw`
-    DELETE FROM webhook_events WHERE received_at < now() - interval '90 days'
+    DELETE FROM webhook_events
+     WHERE received_at < now() - interval '90 days' AND processing_error IS NULL
   `;
   const reservations = await prisma.$executeRaw`
     DELETE FROM inventory_reservations
