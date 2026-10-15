@@ -1,6 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 import { logServerError } from "@/lib/log";
+import { redirectTo } from "@/server/net/redirect";
 import { completeSignIn } from "@/server/auth/complete-sign-in";
 import {
   applyCookies,
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
         ),
       );
       return applyCookies(
-        NextResponse.redirect(new URL("/sign-in?error=oauth", url.origin)),
+        redirectTo("/sign-in?error=oauth"),
         cookiesToSet,
       );
     }
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
         ),
       );
       return applyCookies(
-        NextResponse.redirect(new URL("/sign-in?error=oauth", url.origin)),
+        redirectTo("/sign-in?error=oauth"),
         cookiesToSet,
       );
     }
@@ -73,13 +74,13 @@ export async function GET(request: NextRequest) {
     });
 
     return applyCookies(
-      NextResponse.redirect(new URL("/", url.origin)),
+      redirectTo("/"),
       cookiesToSet,
     );
   } catch (error) {
     logServerError("auth/callback", crypto.randomUUID(), error);
     return applyCookies(
-      NextResponse.redirect(new URL("/sign-in?error=oauth", url.origin)),
+      redirectTo("/sign-in?error=oauth"),
       cookiesToSet,
     );
   }

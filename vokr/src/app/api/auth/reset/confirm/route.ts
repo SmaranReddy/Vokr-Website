@@ -1,6 +1,7 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 import { logServerError } from "@/lib/log";
+import { redirectTo } from "@/server/net/redirect";
 import {
   RECOVERY_NEXT_PATH,
   parseRecoveryParams,
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
       new Error(reason, cause === undefined ? undefined : { cause }),
     );
     return applyCookies(
-      NextResponse.redirect(new URL(RECOVERY_FAILURE_PATH, url.origin)),
+      redirectTo(RECOVERY_FAILURE_PATH),
       cookiesToSet,
     );
   };
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
     }
 
     return applyCookies(
-      NextResponse.redirect(new URL(RECOVERY_NEXT_PATH, url.origin)),
+      redirectTo(RECOVERY_NEXT_PATH),
       cookiesToSet,
     );
   } catch (error) {

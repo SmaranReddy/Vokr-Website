@@ -93,7 +93,7 @@ describe("GET /api/auth/confirm", () => {
       }),
     );
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/`);
+    expect(response.headers.get("location")).toBe("/");
     expect(response.headers.get("set-cookie")).toContain(SESSION_COOKIE.name);
   });
 
@@ -104,7 +104,7 @@ describe("GET /api/auth/confirm", () => {
       `?token_hash=${VALID_HASH}&type=signup&next=${encodeURIComponent("/cart")}`,
     );
 
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/cart`);
+    expect(response.headers.get("location")).toBe("/cart");
   });
 
   it.each(["//evil.example", "https://evil.example/", "/\\evil.example"])(
@@ -116,7 +116,7 @@ describe("GET /api/auth/confirm", () => {
         `?token_hash=${VALID_HASH}&type=signup&next=${encodeURIComponent(next)}`,
       );
 
-      expect(response.headers.get("location")).toBe(`${ORIGIN}/`);
+      expect(response.headers.get("location")).toBe("/");
     },
   );
 
@@ -133,7 +133,7 @@ describe("GET /api/auth/confirm", () => {
       expect(verifyOtp).not.toHaveBeenCalled();
       expect(completeSignIn).not.toHaveBeenCalled();
       expect(response.headers.get("location")).toBe(
-        `${ORIGIN}/sign-in?error=confirm`,
+        "/sign-in?error=confirm",
       );
       expect(response.headers.get("set-cookie")).toBeNull();
     },
@@ -149,7 +149,7 @@ describe("GET /api/auth/confirm", () => {
 
     expect(completeSignIn).not.toHaveBeenCalled();
     expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/sign-in?error=confirm`,
+      "/sign-in?error=confirm",
     );
     expect(logServerError).toHaveBeenCalledOnce();
   });
@@ -161,8 +161,17 @@ describe("GET /api/auth/confirm", () => {
     const response = await get(`?token_hash=${VALID_HASH}&type=signup`);
 
     expect(response.headers.get("location")).toBe(
-      `${ORIGIN}/sign-in?error=confirm`,
+      "/sign-in?error=confirm",
     );
     expect(logServerError).toHaveBeenCalledOnce();
+  });
+});
+
+describe("behind Cloud Run (production, 15 Oct 2026)", () => {
+  it("never redirects to the server's own bind address", async () => {
+    const response = await GET(new NextRequest("https://0.0.0.0:3000/api/auth/confirm"));
+    const location = response.headers.get("location") ?? "";
+    expect(location).toBe("/sign-in?error=confirm");
+    expect(location).not.toContain("0.0.0.0");
   });
 });
