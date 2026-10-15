@@ -154,14 +154,17 @@ source as the live build, and read back with `gh variable list`.
 `deploy.yml` fails closed if any is missing — it will not substitute a
 default and ship a misconfigured image.
 
-**Two more are required from Phase 8 Open 1 on (not yet set, 14 Oct
-2026).** The first `deploy.yml` run after they become required fails in
-preflight until they exist; nothing is built or deployed:
+**Two more are required from Phase 8 Open 1 on.** A `deploy.yml` run
+without them fails in preflight; nothing is built or deployed:
 
 ```bash
 gh variable set MAINTENANCE_OIDC_AUDIENCE        --body 'https://vokr.shop/api/jobs/maintenance'
 gh variable set MAINTENANCE_OIDC_SERVICE_ACCOUNT --body 'vokr-scheduler@vokr-website.iam.gserviceaccount.com'
 ```
+
+Both were set on 14 Oct 2026 and read back with
+`gh api repos/SmaranReddy/Vokr-Website/actions/variables/<name>`; each
+value matched the line above exactly.
 
 They reach the service through `--set-env-vars`, which is declarative: never
 set them, or any other plain env var, with `gcloud run services update` — the

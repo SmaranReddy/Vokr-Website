@@ -180,4 +180,4 @@ if (command === "check-config") checkConfig();
 else if (command === "assert-revision") assertRevision();
 else if (command === "plan") schedule(false);
 else if (command === "apply") schedule(true);
-else fail(`unknown command ${command}; expected check-config, plan or apply.`);
+else fail(`unknown command ${command}; expected check-config, assert-revision, plan or apply.`);
