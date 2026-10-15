@@ -119,6 +119,7 @@ export function CheckoutFlow() {
   const [city, setCity] = useState("");
   const [addressState, setAddressState] = useState("");
   const [pincode, setPincode] = useState("");
+  const [email, setEmail] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState<"prepaid" | "cod">(
     "prepaid",
@@ -155,6 +156,7 @@ export function CheckoutFlow() {
         setAddressState(next.address.state);
         setPincode(next.address.pincode);
       }
+      if (next.contactEmail) setEmail(next.contactEmail);
     } catch (err) {
       if (!isCancelled()) setError(err instanceof Error ? err.message : GENERIC_ERROR);
     } finally {
@@ -259,6 +261,7 @@ export function CheckoutFlow() {
               city,
               state: addressState,
               pincode,
+              email: email || undefined,
             }),
           },
         );
@@ -282,6 +285,7 @@ export function CheckoutFlow() {
       city,
       addressState,
       pincode,
+      email,
       paymentMethod,
       checkServiceability,
       priceSession,
@@ -475,6 +479,15 @@ export function CheckoutFlow() {
             value={pincode}
             onChange={(event) => setPincode(event.target.value)}
             className="border border-border-strong px-3 py-2 text-sm"
+          />
+          <input
+            type="email"
+            autoComplete="email"
+            placeholder="Email for order updates"
+            aria-label="Email for order updates"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className="border border-border-strong px-3 py-2 text-sm sm:col-span-2"
           />
           <button
             type="submit"

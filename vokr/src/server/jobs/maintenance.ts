@@ -1,4 +1,5 @@
 import { invalidateCatalogCache } from "@/server/catalog";
+import { findOrderOrphans, type OrderReconciliationReport } from "@/server/orders/reconcile";
 import { resolvePaymentIssues, type PaymentIssueReport } from "@/server/payments/late-payment";
 import type { RazorpayClient, RazorpayRefundClient } from "@/server/payments/razorpay";
 import { reconcileClosedOrders, reconcilePendingPayments } from "@/server/payments/reconcile";
@@ -24,6 +25,8 @@ export interface MaintenanceReport {
   }>;
   expiry: Step<ExpiryReport>;
   latePayments: Step<PaymentIssueReport>;
+  /** Orders against payments (plan §5 Phase 9, task 9). Reported, never failing the run. */
+  orders: Step<OrderReconciliationReport>;
   pruning: Step<PruneReport>;
 }
 
@@ -81,6 +84,8 @@ export async function runMaintenance(
     ? await step("latePayments", () => resolvePaymentIssues(refunds))
     : { status: "not_configured" };
 
+  const orders = await step("orders", findOrderOrphans);
+
   const pruning = await step("pruning", pruneExpiredRows);
 
   const ok =
@@ -90,7 +95,8 @@ export async function runMaintenance(
     expiry.result.errors === 0 &&
     latePayments.status !== "error" &&
     (latePayments.status !== "ok" || latePayments.result.errors === 0) &&
+    orders.status === "ok" &&
     pruning.status === "ok";
-  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, pruning })}`);
-  return { ok, reconciliation, expiry, latePayments, pruning };
+  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, pruning })}`);
+  return { ok, reconciliation, expiry, latePayments, orders, pruning };
 }

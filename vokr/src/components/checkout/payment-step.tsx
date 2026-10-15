@@ -103,11 +103,19 @@ export function PaymentStep({
     return "ready";
   });
   const [message, setMessage] = useState<string | null>(null);
+  const [orderNumber, setOrderNumber] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(session.expiresAt));
   const phaseRef = useRef<Phase>(storedPhase);
   const successSeen = useRef(initialSuccessSeen);
   const readRun = useRef(0);
   const total = session.pricingSnapshot?.totalPaise ?? 0;
+
+  /** Every status read also picks up the order number once the order exists. */
+  const read = useCallback(async () => {
+    const status = await readStatus(session.id);
+    if (status.orderNumber) setOrderNumber(status.orderNumber);
+    return status;
+  }, [session.id]);
 
   const setPhase = useCallback((next: Phase) => {
     phaseRef.current = next;
@@ -129,7 +137,7 @@ export function PaymentStep({
     for (let attempt = 0; attempt <= delays.length; attempt += 1) {
       if (run !== readRun.current) return;
       try {
-        const outcome = outcomeFromStatus(await readStatus(session.id));
+        const outcome = outcomeFromStatus(await read());
         if (run !== readRun.current) return;
         // `failed` may be an earlier attempt; the one Checkout called a success may still land.
         if (outcome !== "pending" && outcome !== "failed") {
@@ -142,7 +150,7 @@ export function PaymentStep({
       if (attempt < delays.length) await sleep(delays[attempt] ?? 0);
     }
     if (run === readRun.current) setPhase("pending");
-  }, [session.id, settle, setPhase]);
+  }, [read, settle, setPhase]);
 
   /**
    * One read, when there was no success callback to go on: a reload, a
@@ -156,7 +164,7 @@ export function PaymentStep({
     const run = ++readRun.current;
     let status: PaymentStatusSnapshot | null = null;
     try {
-      status = await readStatus(session.id);
+      status = await read();
     } catch {
       // Unknown is never treated as "nothing happened".
     }
@@ -180,7 +188,7 @@ export function PaymentStep({
     // No attempt with money in flight: Pay comes back, with a warning.
     setMessage(DONT_PAY_TWICE);
     setPhase("ready");
-  }, [session.id, settle, setPhase, poll]);
+  }, [read, settle, setPhase, poll]);
 
   const onSuccessCallback = useCallback(() => {
     successSeen.current = true;
@@ -195,6 +203,12 @@ export function PaymentStep({
 
   // A reload mid-payment resumes by reading the status, never by assuming.
   useEffect(() => {
+    if (session.state === "paid") {
+      // Only to show the order number; the outcome is already known. Sets state after the awaited read.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      read().catch(() => undefined);
+      return;
+    }
     if (session.state !== "payment_pending") return;
     // Both set state only after an awaited status read.
     if (successSeen.current) void poll();
@@ -313,8 +327,17 @@ export function PaymentStep({
           <div>
             <p className="text-base font-semibold text-foreground">Payment confirmed</p>
             <p className="mt-1 text-muted">
-              We&apos;ve received {formatPaiseAsRupees(total)}. Your checkout reference is{" "}
-              <span className="font-mono text-foreground">{session.id.slice(0, 8).toUpperCase()}</span>.
+              We&apos;ve received {formatPaiseAsRupees(total)}.{" "}
+              {orderNumber ? (
+                <>
+                  Your order number is <span className="font-mono font-semibold text-foreground">{orderNumber}</span>.
+                </>
+              ) : (
+                <>
+                  Your checkout reference is{" "}
+                  <span className="font-mono text-foreground">{session.id.slice(0, 8).toUpperCase()}</span>.
+                </>
+              )}
             </p>
           </div>
         )}

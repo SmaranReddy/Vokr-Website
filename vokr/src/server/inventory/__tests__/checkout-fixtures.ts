@@ -3,14 +3,16 @@ import { randomUUID } from "node:crypto";
 import { CheckoutState } from "@/generated/prisma/enums";
 import type { Identity } from "@/server/auth/session";
 import { createActiveVariantFixture, deleteVariantFixture } from "@/server/cart/__tests__/fixtures";
+import { encryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
 
 /**
  * Real rows for checkout-path integration tests: an active variant with
  * stock, a guest with an open cart holding the given lines, and a checkout
  * session in `priced` whose snapshot names exactly those lines. Pricing
- * itself is Phase 6's tested step; the snapshot here carries only what the
- * reservation and payment steps read (`lines`, `totalPaise`).
+ * itself is Phase 6's tested step; the snapshot here is built from the
+ * variants' real rows in the same shape, with an encrypted address and a
+ * contact email, so a capture can turn it into an order (Phase 9).
  */
 
 export interface CheckoutFixtures {
@@ -69,6 +71,56 @@ export async function pricedSession(
   });
 
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+  const variants = await prisma.productVariant.findMany({
+    where: { id: { in: input.lines.map((line) => line.variantId) } },
+    select: {
+      id: true,
+      sku: true,
+      sizeLabel: true,
+      colorway: true,
+      pricePaise: true,
+      product: { select: { name: true, hsnCode: true, gstRateBps: true } },
+    },
+  });
+  const lines = input.lines.map((line) => {
+    const variant = variants.find((candidate) => candidate.id === line.variantId);
+    const unitPricePaise = variant?.pricePaise ?? 999_500;
+    const gstRateBps = variant?.product.gstRateBps ?? 1800;
+    const lineSubtotalPaise = unitPricePaise * line.quantity;
+    const lineTaxPaise = Math.round((lineSubtotalPaise * gstRateBps) / (10_000 + gstRateBps));
+    const cgstPaise = Math.floor(lineTaxPaise / 2);
+    return {
+      variantId: line.variantId,
+      sku: variant?.sku ?? "TEST-SKU",
+      productName: variant?.product.name ?? "Test product",
+      hsnCode: variant?.product.hsnCode ?? "0000",
+      sizeLabel: variant?.sizeLabel ?? "One Size",
+      colorway: variant?.colorway ?? "Test",
+      quantity: line.quantity,
+      unitPricePaise,
+      lineSubtotalPaise,
+      gstRateBps,
+      lineTaxPaise,
+      cgstPaise,
+      sgstPaise: lineTaxPaise - cgstPaise,
+      igstPaise: 0,
+    };
+  });
+  const linesSubtotal = lines.reduce((sum, line) => sum + line.lineSubtotalPaise, 0);
+  const totalPaise = input.totalPaise ?? 999_500;
+  // Tests choose the total; shipping makes up any difference, as in real pricing.
+  const subtotalPaise = Math.min(linesSubtotal, totalPaise);
+  const address = await prisma.address.create({
+    data: {
+      nameEnc: encryptField("Test Buyer"),
+      phoneEnc: encryptField("+919876543210"),
+      line1Enc: encryptField("1 Test Road"),
+      city: "Pune",
+      state: "Maharashtra",
+      pincode: "411001",
+    },
+    select: { id: true },
+  });
   const session = await prisma.checkoutSession.create({
     data: {
       cartId: cart.id,
@@ -76,10 +128,21 @@ export async function pricedSession(
       idempotencyKey: randomUUID(),
       state: CheckoutState.priced,
       paymentMethod: input.paymentMethod ?? "prepaid",
+      addressId: address.id,
+      contactEmailEnc: encryptField("buyer@example.com"),
       pricingSnapshot: {
-        totalPaise: input.totalPaise ?? 999_500,
-        lines: input.lines,
+        computedAt: new Date().toISOString(),
         expiresAt: expiresAt.toISOString(),
+        gstSplit: "intra_state",
+        shipToState: "Maharashtra",
+        sellerState: "Maharashtra",
+        paymentMethod: input.paymentMethod ?? "prepaid",
+        lines,
+        subtotalPaise,
+        taxPaise: lines.reduce((sum, line) => sum + line.lineTaxPaise, 0),
+        shippingPaise: totalPaise - subtotalPaise,
+        codFeePaise: 0,
+        totalPaise,
       },
       expiresAt,
     },
@@ -107,6 +170,10 @@ export async function cleanupCheckoutFixtures(fixtures: CheckoutFixtures, extraE
   const sessionIds = sessions.map((session) => session.id);
   const addressIds = sessions.map((session) => session.addressId).filter((id): id is string => !!id);
   await prisma.inventoryReservation.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });
+  const orderWhere = { order: { checkoutSessionId: { in: sessionIds } } };
+  await prisma.orderStatusHistory.deleteMany({ where: orderWhere });
+  await prisma.orderItem.deleteMany({ where: orderWhere });
+  await prisma.order.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });
   await prisma.paymentIssue.deleteMany({ where: { payment: { checkoutSessionId: { in: sessionIds } } } });
   await prisma.payment.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });
   await prisma.checkoutSession.deleteMany({ where: { id: { in: sessionIds } } });

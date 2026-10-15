@@ -52,6 +52,7 @@ const validAddress = {
   city: "Mumbai",
   state: "Maharashtra",
   pincode: "400001",
+  email: "asha@example.com",
 };
 
 afterEach(async () => {
@@ -142,6 +143,31 @@ describe("checkout service (plan §5 Phase 6)", () => {
     expect(row.address!.nameEnc).not.toContain("Asha Rao");
     expect(row.address!.phoneEnc).not.toContain("9876543210");
     expect(row.address!.line1Enc).not.toContain("MG Road");
+  });
+
+  it("a guest must give an email for order updates; it is stored encrypted and read back", async () => {
+    const identity = await guestIdentity();
+    const fixture = await createActiveVariantFixture({
+      name: "Test Email",
+      category: "footwear",
+      gstRateBps: 1800,
+      pricePaise: 999_500,
+    });
+    createdProductIds.push(fixture.productId);
+    await addItem(identity, { variantId: fixture.variantId, quantity: 1 });
+    const session = await createCheckoutSession(identity, randomUUID());
+
+    const withoutEmail = { ...validAddress, email: undefined };
+    await expect(setCheckoutAddress(identity, session.id, withoutEmail)).rejects.toThrow(ValidationError);
+
+    const updated = await setCheckoutAddress(identity, session.id, validAddress);
+    expect(updated.contactEmail).toBe("asha@example.com");
+    const row = await prisma.checkoutSession.findUniqueOrThrow({
+      where: { id: session.id },
+      select: { contactEmailEnc: true },
+    });
+    expect(row.contactEmailEnc).toBeTruthy();
+    expect(row.contactEmailEnc).not.toContain("asha");
   });
 
   it("another identity's checkout session is inaccessible (404, not a distinguishable 403)", async () => {

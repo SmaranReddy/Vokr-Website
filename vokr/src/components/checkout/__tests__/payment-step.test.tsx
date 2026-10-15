@@ -80,6 +80,7 @@ function session(overrides: Partial<CheckoutSessionView> = {}): CheckoutSessionV
     paymentMethod: "prepaid",
     pricingSnapshot: { totalPaise: TOTAL } as CheckoutSessionView["pricingSnapshot"],
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    contactEmail: "buyer@example.com",
     ...overrides,
   };
 }

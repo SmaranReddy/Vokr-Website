@@ -877,6 +877,7 @@ describe("the real path, end to end: cart → address → pricing → reserve �
       city: "Mumbai",
       state: "Maharashtra",
       pincode: "400001",
+      email: "asha@example.com",
     });
     const priced = await priceCheckoutSession(identity, created.id, "prepaid");
     const total = priced.pricingSnapshot?.totalPaise as number;

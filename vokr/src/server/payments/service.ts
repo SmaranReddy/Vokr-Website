@@ -2,6 +2,7 @@ import { CheckoutPaymentMethod, CheckoutState, PaymentStatus } from "@/generated
 import { Prisma } from "@/generated/prisma/client";
 import { CheckoutStaleError, ConflictError, ReservationExpiredError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
+import { assertOrderable, NotOrderableError } from "@/server/orders/create";
 import { findOwnedSession } from "@/server/checkout/service";
 import { assertValidCheckoutTransition } from "@/server/checkout/state-machine";
 import { prisma } from "@/server/db/client";
@@ -22,6 +23,8 @@ export interface PaymentStatusView {
   checkoutSessionId: string;
   checkoutState: CheckoutState;
   paymentStatus: PaymentStatus | null;
+  /** Set once the session is paid and its order exists (plan §5 Phase 9). */
+  orderNumber: string | null;
 }
 
 function isUniqueConstraintViolation(error: unknown): boolean {
@@ -144,6 +147,16 @@ export async function createPaymentOrder(
     where: { checkoutSessionId },
     select: PAYMENT_SELECT,
   });
+  // Never hand out a payment for a session that could not become an order
+  // (plan §5 Phase 9): order creation runs inside the capture, so missing
+  // data there would roll back a real capture instead of recording it.
+  try {
+    await assertOrderable(prisma, checkoutSessionId, existing?.amountPaise ?? snapshot.totalPaise);
+  } catch (error) {
+    if (!(error instanceof NotOrderableError)) throw error;
+    console.error(`[payments] ${error.message} — order withheld`);
+    throw new CheckoutStaleError("Some checkout details are missing. Please review your order again.");
+  }
   // From `reserved` on, `expires_at` is the stock hold's expiry (Phase 8).
   // Past it, the browser is never given an order to pay — not even the
   // existing one: the maintenance job may release the stock at any moment
@@ -256,9 +269,14 @@ export async function getPaymentStatus(
     where: { checkoutSessionId },
     select: { status: true },
   });
+  const order =
+    session.state === CheckoutState.paid
+      ? await prisma.order.findUnique({ where: { checkoutSessionId }, select: { orderNumber: true } })
+      : null;
   return {
     checkoutSessionId,
     checkoutState: session.state,
     paymentStatus: payment?.status ?? null,
+    orderNumber: order?.orderNumber ?? null,
   };
 }
