@@ -8,6 +8,7 @@ import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertCheckoutMutationAllowed } from "@/server/checkout/rate-limit";
 import { pricingQuerySchema } from "@/server/checkout/schemas";
 import { priceCheckoutSession } from "@/server/checkout/service";
+import { requestIdOf } from "@/server/net/request-id";
 
 /**
  * A `GET` with a side effect: computing pricing is also the act of
@@ -45,7 +46,7 @@ export async function GET(
     );
     return applyCookies(NextResponse.json({ checkoutSession }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("checkout/session/[id]/pricing", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

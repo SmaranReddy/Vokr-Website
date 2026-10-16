@@ -7,6 +7,7 @@ import { runMaintenance } from "@/server/jobs/maintenance";
 import { createGoogleKeyResolver } from "@/server/jobs/oidc";
 import { requireRazorpayConfig } from "@/server/payments/config";
 import { createRazorpayClient } from "@/server/payments/razorpay";
+import { requestIdOf } from "@/server/net/request-id";
 
 // One per instance, so Google's signing keys are cached across runs.
 const resolveKey = createGoogleKeyResolver();
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("jobs/maintenance", requestId, error);
     return NextResponse.json(body, { status });
   }

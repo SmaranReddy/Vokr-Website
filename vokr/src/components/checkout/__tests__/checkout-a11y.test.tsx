@@ -19,6 +19,9 @@ vi.mock("@/components/cart/cart-provider", () => ({ useCart: () => ({ openCart: 
 const { CheckoutFlow } = await import("../checkout-flow");
 const { PaymentStep } = await import("../payment-step");
 
+/** axe in jsdom is slow; under load it can pass the default 5 s. */
+const AXE_TIMEOUT_MS = 20_000;
+
 const SESSION: CheckoutSessionView = {
   id: "0199e3f0-0000-7000-8000-000000000001",
   state: "priced",
@@ -99,7 +102,7 @@ describe("checkout accessibility (axe, structural rules)", () => {
     const { container } = render(<CheckoutFlow />);
     await screen.findByRole("button", { name: /continue to payment/i });
     expect(await seriousViolations(container)).toEqual([]);
-  });
+  }, AXE_TIMEOUT_MS);
 
   it("the payment step, ready and verifying", async () => {
     const { container } = render(
@@ -115,5 +118,5 @@ describe("checkout accessibility (axe, structural rules)", () => {
     act(() => opened[0]?.handler());
     await screen.findByText(/confirming your payment/i);
     expect(await seriousViolations(container)).toEqual([]);
-  });
+  }, AXE_TIMEOUT_MS);
 });

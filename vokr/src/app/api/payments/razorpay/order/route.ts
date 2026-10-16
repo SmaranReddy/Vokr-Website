@@ -10,6 +10,7 @@ import { requireRazorpayConfig } from "@/server/payments/config";
 import { assertPaymentOrderAllowed } from "@/server/payments/rate-limit";
 import { createRazorpayClient } from "@/server/payments/razorpay";
 import { createPaymentOrder } from "@/server/payments/service";
+import { requestIdOf } from "@/server/net/request-id";
 
 /** Strict: an `amount` (or anything else) in the body is a 400, not ignored — the amount only ever comes from the pricing snapshot. */
 const bodySchema = z.object({ checkoutSessionId: z.uuid() }).strict();
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
       cookiesToSet,
     );
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("payments/razorpay/order", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

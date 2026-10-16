@@ -7,6 +7,7 @@ import { getSession } from "@/server/auth/session";
 import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertReservationAllowed } from "@/server/checkout/rate-limit";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
+import { requestIdOf } from "@/server/net/request-id";
 
 /**
  * Holds stock for a priced session (plan §5 Phase 8). Takes no body: what
@@ -31,7 +32,7 @@ export async function POST(
     const checkoutSession = await reserveCheckoutSession(session.identity, id);
     return applyCookies(NextResponse.json({ checkoutSession }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("checkout/session/[id]/reserve", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

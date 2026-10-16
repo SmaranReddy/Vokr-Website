@@ -15,6 +15,7 @@ import {
 } from "@/server/auth/supabase";
 import { getClientIp } from "@/server/net/client-ip";
 import { assertWithinRateLimit } from "@/server/rate-limit";
+import { requestIdOf } from "@/server/net/request-id";
 
 const bodySchema = z
   .object({
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
       cookiesToSet,
     );
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("auth/signin", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

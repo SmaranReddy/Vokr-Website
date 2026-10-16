@@ -131,12 +131,14 @@ function generateRequestId(): string {
  * every environment. There is no "helpful in dev" leak, because dev and
  * prod must exercise the same contract.
  */
-export function toErrorResponse(error: unknown): {
+export function toErrorResponse(error: unknown, assignedRequestId?: string): {
   status: number;
   body: ErrorResponseBody;
   requestId: string;
 } {
-  const requestId = generateRequestId();
+  // The proxy-assigned id when the route passes one (`requestIdOf`), so the
+  // body, the `x-request-id` header and the log line all agree.
+  const requestId = assignedRequestId ?? generateRequestId();
 
   if (error instanceof AppError) {
     return {

@@ -8,6 +8,9 @@ import type { GuestOrderView } from "@/server/orders/lookup";
 
 const { OrderLookup } = await import("../order-lookup");
 
+/** axe in jsdom is slow; under load it can pass the default 5 s. */
+const AXE_TIMEOUT_MS = 20_000;
+
 function order(overrides: Partial<GuestOrderView> = {}): GuestOrderView {
   return {
     orderNumber: "VK-10234",
@@ -94,5 +97,5 @@ describe("OrderLookup", () => {
       rules: { "color-contrast": { enabled: false } },
     });
     expect(result.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
-  });
+  }, AXE_TIMEOUT_MS);
 });

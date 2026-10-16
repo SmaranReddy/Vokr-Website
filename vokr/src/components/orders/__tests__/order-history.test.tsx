@@ -8,6 +8,9 @@ import type { OrderSummary } from "@/server/orders/history";
 
 const { OrderDetail, OrderHistory } = await import("../order-history");
 
+/** axe in jsdom is slow; under load it can pass the default 5 s. */
+const AXE_TIMEOUT_MS = 20_000;
+
 let replies: Record<string, { status: number; body: unknown }[]> = {};
 const urls: string[] = [];
 
@@ -79,7 +82,7 @@ describe("OrderHistory", () => {
       rules: { "color-contrast": { enabled: false } },
     });
     expect(result.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical")).toEqual([]);
-  });
+  }, AXE_TIMEOUT_MS);
 });
 
 describe("OrderDetail", () => {
