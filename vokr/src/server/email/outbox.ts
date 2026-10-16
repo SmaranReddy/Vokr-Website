@@ -6,7 +6,7 @@ import { siteConfig } from "@/config/site";
 import { decryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
 
-import { EmailSendError, type TransactionalEmailClient } from "./brevo";
+import { EmailSendError, type OutgoingEmail, type TransactionalEmailClient } from "./brevo";
 import { renderOrderConfirmation } from "./templates/order-confirmation";
 
 /**
@@ -18,9 +18,17 @@ import { renderOrderConfirmation } from "./templates/order-confirmation";
  *
  * - **One email per order event:** `UNIQUE(order_id, template)`.
  * - **No double send:** a row is claimed `pending → sending` by a
- *   conditional update; overlapping runs cannot both send it. Brevo has no
- *   idempotency key, so a row left `sending` (a crash mid-send) is never
- *   resent automatically — it goes to `failed` for a person.
+ *   conditional update, so overlapping runs cannot both send it, and every
+ *   send carries the row id as Brevo's idempotency key, so a retry after a
+ *   timeout cannot duplicate it either. A row left `sending` by a crash is
+ *   re-queued while it is still inside Brevo's deduplication window
+ *   ({@link RESEND_WINDOW_MS}); after that a resend could duplicate, so it
+ *   goes to `failed` for a person.
+ * - **Bounded run:** the step stops claiming after {@link STEP_BUDGET_MS}
+ *   (Scheduler's deadline is 90 s); unclaimed rows wait, still `pending`.
+ * - **Account problems stop the batch:** a bad key or unverified sender
+ *   (401/403) puts the row back to `pending` without spending an attempt
+ *   and stops — instead of failing every confirmation in the queue.
  * - **Bounded retry:** a retryable failure goes back to `pending` (up to
  *   {@link MAX_ATTEMPTS}); anything else, or the last attempt, is `failed`
  *   and logged under {@link EMAIL_FAILED_TAG}.
@@ -36,7 +44,11 @@ export const MAX_ATTEMPTS = 5;
 export const BATCH_SIZE = 20;
 export const DAILY_WARNING = 200;
 export const DAILY_LIMIT = 290;
-export const STALE_SENDING_MS = 15 * 60 * 1000;
+/** A `sending` row older than this was abandoned (a send takes at most a few seconds). */
+export const STALE_SENDING_MS = 3 * 60 * 1000;
+/** Inside Brevo's idempotency window (15 min, conservatively): a re-queued send is deduplicated. */
+export const RESEND_WINDOW_MS = 12 * 60 * 1000;
+export const STEP_BUDGET_MS = 30_000;
 export const EMAIL_FAILED_TAG = "EMAIL_FAILED";
 export const EMAIL_VOLUME_TAG = "EMAIL_VOLUME";
 
@@ -57,10 +69,17 @@ export interface EmailOutboxReport {
   sent: number;
   retrying: number;
   failed: number;
+  /** Abandoned sends re-queued inside the deduplication window. */
+  staleSendingRequeued: number;
+  /** Abandoned sends too old to resend safely — failed for a person. */
   staleSendingFailed: number;
   sentToday: number;
   /** True when the daily limit stopped sending; pending rows wait for tomorrow. */
   dailyLimitReached: boolean;
+  /** True when the time budget stopped claiming; the rest wait for the next run. */
+  budgetExhausted: boolean;
+  /** True when Brevo refused the account (bad key / unverified sender); the queue waits for a person. */
+  accountBlocked: boolean;
 }
 
 /** Start of today in India (the sending day the Brevo cap is counted against for this business). */
@@ -73,21 +92,36 @@ function startOfIndianDay(now: Date): Date {
 export async function sendPendingEmails(
   client: TransactionalEmailClient,
   now: Date = new Date(),
+  options: { budgetMs?: number; clock?: () => number } = {},
 ): Promise<EmailOutboxReport> {
+  const clock = options.clock ?? Date.now;
+  const startedAt = clock();
+  const budgetMs = options.budgetMs ?? STEP_BUDGET_MS;
   const report: EmailOutboxReport = {
     examined: 0,
     sent: 0,
     retrying: 0,
     failed: 0,
+    staleSendingRequeued: 0,
     staleSendingFailed: 0,
     sentToday: 0,
     dailyLimitReached: false,
+    budgetExhausted: false,
+    accountBlocked: false,
   };
 
-  // A send that never finished: never resent (no idempotency key) — a person checks.
+  // Abandoned sends: still inside Brevo's dedup window → re-queue (the
+  // same idempotency key makes a resend safe); older → a person checks.
+  const staleBefore = new Date(now.getTime() - STALE_SENDING_MS);
+  const resendAfter = new Date(now.getTime() - RESEND_WINDOW_MS);
+  const requeued = await prisma.emailLog.updateMany({
+    where: { status: EmailStatus.sending, updatedAt: { lt: staleBefore, gte: resendAfter } },
+    data: { status: EmailStatus.pending, lastError: "send interrupted; re-queued (idempotent resend)" },
+  });
+  report.staleSendingRequeued = requeued.count;
   const stale = await prisma.emailLog.updateMany({
-    where: { status: EmailStatus.sending, updatedAt: { lt: new Date(now.getTime() - STALE_SENDING_MS) } },
-    data: { status: EmailStatus.failed, lastError: "send interrupted; not resent automatically (could duplicate)" },
+    where: { status: EmailStatus.sending, updatedAt: { lt: resendAfter } },
+    data: { status: EmailStatus.failed, lastError: "send interrupted beyond the dedup window; not resent (could duplicate)" },
   });
   report.staleSendingFailed = stale.count;
   if (stale.count > 0) console.error(`[email] ${EMAIL_FAILED_TAG} stale_sending=${stale.count}`);
@@ -105,6 +139,10 @@ export async function sendPendingEmails(
   report.examined = pending.length;
 
   for (const row of pending) {
+    if (clock() - startedAt >= budgetMs) {
+      report.budgetExhausted = true;
+      break;
+    }
     if (report.sentToday >= DAILY_LIMIT) {
       report.dailyLimitReached = true;
       console.error(`[email] ${EMAIL_VOLUME_TAG} daily limit ${DAILY_LIMIT} reached; ${pending.length - report.sent} pending wait`);
@@ -119,7 +157,7 @@ export async function sendPendingEmails(
 
     try {
       const { to, email } = await renderFor(row.orderId, row.template);
-      const { messageId } = await client.send(email);
+      const { messageId } = await client.send({ ...email, idempotencyKey: row.id });
       await prisma.emailLog.update({
         where: { id: row.id },
         data: {
@@ -138,6 +176,17 @@ export async function sendPendingEmails(
       }
       console.info(`[email] sent template=${row.template} order=${row.orderId} message=${messageId}`);
     } catch (error) {
+      if (error instanceof EmailSendError && error.kind === "account") {
+        // Not this email's fault: put it back untouched and stop the batch.
+        await prisma.emailLog.update({
+          where: { id: row.id },
+          data: { status: EmailStatus.pending, attempts: row.attempts, lastError: error.message.slice(0, 500) },
+          select: { id: true },
+        });
+        report.accountBlocked = true;
+        console.error(`[email] ${EMAIL_FAILED_TAG} account-level failure, queue paused: ${error.message.slice(0, 300)}`);
+        break;
+      }
       // Brevo said whether it is worth retrying; anything else (a database
       // blip while rendering) is retried within the attempt limit.
       const retryable = error instanceof EmailSendError ? error.retryable : true;
@@ -163,7 +212,7 @@ export async function sendPendingEmails(
 async function renderFor(
   orderId: string | null,
   template: EmailTemplate,
-): Promise<{ to: string; email: { to: string; subject: string; text: string; html: string } }> {
+): Promise<{ to: string; email: Omit<OutgoingEmail, "idempotencyKey"> }> {
   if (!orderId || template !== EmailTemplate.order_confirmation) {
     throw new EmailSendError(`no renderer for template ${template}`, false);
   }

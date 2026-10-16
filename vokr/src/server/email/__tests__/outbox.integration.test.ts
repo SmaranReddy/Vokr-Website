@@ -17,7 +17,7 @@ import { createPaymentOrder } from "@/server/payments/service";
 import { handleRazorpayWebhook } from "@/server/payments/webhook";
 
 import { EmailSendError, type OutgoingEmail, type TransactionalEmailClient } from "../brevo";
-import { DAILY_LIMIT, MAX_ATTEMPTS, recipientHash, sendPendingEmails, STALE_SENDING_MS } from "../outbox";
+import { DAILY_LIMIT, MAX_ATTEMPTS, recipientHash, RESEND_WINDOW_MS, sendPendingEmails, STALE_SENDING_MS } from "../outbox";
 
 /**
  * The email outbox (plan §5 Phase 11) against a real Postgres, with real
@@ -47,9 +47,13 @@ class FakeRazorpay implements RazorpayClient {
 
 class FakeBrevo implements TransactionalEmailClient {
   readonly sent: OutgoingEmail[] = [];
+  readonly keys: string[] = [];
   failures: EmailSendError[] = [];
   delayMs = 0;
+  onSend: (() => void) | null = null;
   async send(email: OutgoingEmail) {
+    this.keys.push(email.idempotencyKey);
+    this.onSend?.();
     if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     const failure = this.failures.shift();
     if (failure) throw failure;
@@ -161,19 +165,59 @@ describe("sending", () => {
     expect((await rowsFor(orderId))[0]).toMatchObject({ status: "failed", attempts: 1 });
   });
 
-  it("a send interrupted mid-flight is never resent automatically (it could duplicate)", async () => {
-    const { orderId } = await paidOrder();
+  it("an abandoned send is re-queued inside Brevo's dedup window (same key), and failed for a person after it", async () => {
+    const recent = await paidOrder();
+    const old = await paidOrder();
     await prisma.$executeRaw`
       UPDATE email_log SET status = 'sending', updated_at = now() - make_interval(secs => ${STALE_SENDING_MS / 1000 + 60})
-       WHERE order_id = ${orderId}::uuid
+       WHERE order_id = ${recent.orderId}::uuid
+    `;
+    await prisma.$executeRaw`
+      UPDATE email_log SET status = 'sending', updated_at = now() - make_interval(secs => ${RESEND_WINDOW_MS / 1000 + 60})
+       WHERE order_id = ${old.orderId}::uuid
     `;
     const brevo = new FakeBrevo();
 
     const report = await sendPendingEmails(brevo);
 
+    expect(report.staleSendingRequeued).toBeGreaterThanOrEqual(1);
     expect(report.staleSendingFailed).toBeGreaterThanOrEqual(1);
-    expect((await rowsFor(orderId))[0]?.status).toBe("failed");
+    expect((await rowsFor(recent.orderId))[0]?.status).toBe("sent");
+    expect((await rowsFor(old.orderId))[0]?.status).toBe("failed");
+    const recentRow = await prisma.emailLog.findFirstOrThrow({ where: { orderId: recent.orderId }, select: { id: true } });
+    expect(brevo.keys).toContain(recentRow.id);
+  });
+
+  it("a bad key or unverified sender pauses the queue without spending any email's attempts", async () => {
+    const first = await paidOrder();
+    const second = await paidOrder();
+    const brevo = new FakeBrevo();
+    brevo.failures = [new EmailSendError("Brevo 401: unauthorized", false, "account")];
+
+    const report = await sendPendingEmails(brevo);
+
+    expect(report.accountBlocked).toBe(true);
+    const rows = [...(await rowsFor(first.orderId)), ...(await rowsFor(second.orderId))];
+    expect(rows.map((row) => row.status)).toEqual(["pending", "pending"]);
+    expect(rows.map((row) => row.attempts)).toEqual([0, 0]);
     expect(brevo.sent).toHaveLength(0);
+  });
+
+  it("stops claiming when its time budget is spent; the rest stay pending, attempts untouched", async () => {
+    const first = await paidOrder();
+    const second = await paidOrder();
+    let now = 0;
+    const brevo = new FakeBrevo();
+    brevo.onSend = () => {
+      now += 20_000; // each send "takes" 20 s
+    };
+
+    const report = await sendPendingEmails(brevo, new Date(), { budgetMs: 15_000, clock: () => now });
+
+    expect(report.budgetExhausted).toBe(true);
+    const statuses = [(await rowsFor(first.orderId))[0], (await rowsFor(second.orderId))[0]];
+    expect(statuses.filter((row) => row?.status === "sent")).toHaveLength(report.sent);
+    expect(statuses.filter((row) => row?.status === "pending" && row.attempts === 0).length).toBeGreaterThanOrEqual(1);
   });
 
   it(`stops for the day at ${DAILY_LIMIT} sends; the rest wait`, async () => {

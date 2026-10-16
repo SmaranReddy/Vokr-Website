@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { BREVO_SEND_URL, createBrevoEmailClient, EmailSendError, ORDER_EMAIL_SENDER } from "../brevo";
 
-const EMAIL = { to: "buyer@example.com", subject: "Your Vokr order VK-10001", text: "t", html: "<p>h</p>" };
+const EMAIL = { to: "buyer@example.com", subject: "Your Vokr order VK-10001", text: "t", html: "<p>h</p>", idempotencyKey: "0199e3f0-row-id" };
 
 function reply(status: number, body: unknown) {
   return new Response(typeof body === "string" ? body : JSON.stringify(body), { status });
@@ -25,17 +25,42 @@ describe("createBrevoEmailClient", () => {
       subject: EMAIL.subject,
       textContent: "t",
       htmlContent: "<p>h</p>",
+      headers: { idempotencyKey: "0199e3f0-row-id" },
     });
   });
 
-  it("a 4xx (bad key, unverified sender) is not retried and is not retryable", async () => {
+  it("401/403 (bad key, unverified sender) is an account-level failure, not retried", async () => {
     const fetchImpl = vi.fn(async () => reply(401, { code: "unauthorized" }));
     const client = createBrevoEmailClient("k", { fetchImpl: fetchImpl as unknown as typeof fetch, retryPauseMs: 0 });
 
     const error = await client.send(EMAIL).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(EmailSendError);
+    expect((error as EmailSendError).kind).toBe("account");
     expect((error as EmailSendError).retryable).toBe(false);
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("another 4xx is a problem with this message, not retried", async () => {
+    const fetchImpl = vi.fn(async () => reply(400, { code: "invalid_parameter" }));
+    const client = createBrevoEmailClient("k", { fetchImpl: fetchImpl as unknown as typeof fetch, retryPauseMs: 0 });
+
+    const error = await client.send(EMAIL).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmailSendError);
+    expect((error as EmailSendError).kind).toBe("message");
+    expect((error as EmailSendError).retryable).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("a retry reuses the idempotency key; Brevo's duplicate reply means it was already sent", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("socket hang up")) // the first send may have been accepted
+      .mockResolvedValueOnce(reply(400, { code: "duplicate_parameter", message: "idempotency key already used" }));
+    const client = createBrevoEmailClient("k", { fetchImpl: fetchImpl as unknown as typeof fetch, retryPauseMs: 0 });
+
+    await expect(client.send(EMAIL)).resolves.toEqual({ messageId: "idempotent:0199e3f0-row-id" });
+    const keys = fetchImpl.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)).headers.idempotencyKey);
+    expect(keys).toEqual(["0199e3f0-row-id", "0199e3f0-row-id"]);
   });
 
   it("a 5xx or 429 is retried once", async () => {

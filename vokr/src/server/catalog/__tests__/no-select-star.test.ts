@@ -28,6 +28,9 @@ const METHODS_REQUIRING_SELECT = [
   "create",
   "update",
   "upsert",
+  "delete",
+  "updateManyAndReturn",
+  "createManyAndReturn",
   // Not `updateMany` / `deleteMany` / `createMany` / `count`: they return
   // only a count, never row data, and Prisma rejects `select` on them —
   // requiring it could only be satisfied by renaming the client variable.
