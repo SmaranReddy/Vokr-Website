@@ -36,6 +36,8 @@ vi.mock("@/server/db/client", () => ({
 async function loadProxy(supabase = true) {
   vi.resetModules();
   vi.stubEnv("ORIGIN_AUTH_SECRET", "");
+  // Same-site for the CSRF check, whatever the CI environment sets.
+  vi.stubEnv("NEXT_PUBLIC_SITE_URL", "http://localhost:3000");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", supabase ? "https://sb.test" : "");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", supabase ? "anon" : "");
   return import("@/proxy");
