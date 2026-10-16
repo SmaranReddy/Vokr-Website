@@ -76,6 +76,7 @@ afterEach(async () => {
   await prisma.inventoryReservation.deleteMany({ where: { checkoutSessionId: { in: movedIds } } });
   await prisma.orderStatusHistory.deleteMany({ where: { order: { checkoutSessionId: { in: movedIds } } } });
   await prisma.orderItem.deleteMany({ where: { order: { checkoutSessionId: { in: movedIds } } } });
+  await prisma.emailLog.deleteMany({ where: { order: { checkoutSessionId: { in: movedIds } } } });
   await prisma.order.deleteMany({ where: { checkoutSessionId: { in: movedIds } } });
   await prisma.payment.deleteMany({ where: { checkoutSessionId: { in: movedIds } } });
   await prisma.checkoutSession.deleteMany({ where: { id: { in: movedIds } } });

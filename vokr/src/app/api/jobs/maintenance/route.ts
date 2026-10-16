@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { requireServerEnv } from "@/lib/env";
 import { toErrorResponse } from "@/lib/errors";
+import { createBrevoEmailClient } from "@/server/email/brevo";
 import { logServerError } from "@/lib/log";
 import { getMaintenanceOidcExpectation, handleMaintenanceRequest } from "@/server/jobs/handler";
 import { runMaintenance } from "@/server/jobs/maintenance";
@@ -21,6 +23,12 @@ function razorpayOrNull(): ReturnType<typeof createRazorpayClient> | null {
   }
 }
 
+/** `null` when Brevo is not configured — the email outbox is then `not_configured` and pending emails wait. */
+function emailOrNull(): ReturnType<typeof createBrevoEmailClient> | null {
+  const { BREVO_API_KEY } = requireServerEnv();
+  return BREVO_API_KEY ? createBrevoEmailClient(BREVO_API_KEY) : null;
+}
+
 /**
  * Cloud Scheduler job 3 (plan §5 Phase 8, task 7). Not behind the
  * `ORDERING_ENABLED` gate: expiring holds and reconciling payments must
@@ -35,7 +43,7 @@ export async function POST(request: NextRequest) {
       resolveKey,
       run: () => {
         const razorpay = razorpayOrNull();
-        return runMaintenance(razorpay, razorpay);
+        return runMaintenance(razorpay, razorpay, emailOrNull());
       },
     });
     return NextResponse.json(result.body, {

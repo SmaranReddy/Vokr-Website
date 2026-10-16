@@ -311,6 +311,7 @@ describe("after the order exists", () => {
     const [order] = await ordersFor(sessionId);
     await prisma.orderStatusHistory.deleteMany({ where: { orderId: order?.id } });
     await prisma.orderItem.deleteMany({ where: { orderId: order?.id } });
+    await prisma.emailLog.deleteMany({ where: { orderId: order?.id } });
     await prisma.order.delete({ where: { id: order?.id } });
 
     expect(await findOrderOrphans()).toEqual({
