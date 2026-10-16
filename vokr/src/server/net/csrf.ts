@@ -16,7 +16,8 @@
  *   CSRF does not concern.
  * - Exempt: endpoints called server-to-server and authenticated by their
  *   own signature or token, never by a cookie — the Razorpay webhook (HMAC)
- *   and the maintenance job (Cloud Scheduler OIDC).
+ *   and the maintenance job (Cloud Scheduler OIDC) — and `/api/csp-report`,
+ *   which only logs and holds no cookie-authenticated state.
  * - Pages are out of scope: Next.js server actions carry their own origin
  *   check, and pages are only read with GET.
  */
@@ -26,6 +27,8 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 export const CROSS_SITE_EXEMPT_PATHS: ReadonlySet<string> = new Set([
   "/api/webhooks/razorpay",
   "/api/jobs/maintenance",
+  // Log-only CSP violation reports, sent by browsers themselves.
+  "/api/csp-report",
 ]);
 
 export type CrossSiteCheck = "allowed" | "refused";

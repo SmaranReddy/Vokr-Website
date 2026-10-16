@@ -65,6 +65,7 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/checkout/session/[id]/pricing": { methods: ["GET"], guards: ["ordering-gate", "session", "rate-limit", "strict-body"], why: "Server-computed snapshot; ownership 404." },
   "/api/checkout/session/[id]/reserve": { methods: ["POST"], guards: ["ordering-gate", "session", "rate-limit"], why: "No body: reserves the session's own snapshot; ownership 404." },
   "/api/checkout/session": { methods: ["POST"], guards: ["ordering-gate", "session", "rate-limit", "strict-body"], why: "Idempotency key bound to the caller's identity." },
+  "/api/csp-report": { methods: ["POST"], guards: [], why: "Log-only CSP reports: body capped, URLs cut to origin+path, per-instance log budget; no DB, no identity." },
   "/api/health": { methods: ["GET"], guards: [], why: "Trivial indexed Postgres query; no data returned." },
   "/api/jobs/maintenance": { methods: ["POST"], guards: ["scheduler-oidc"], why: "RS256 OIDC: Google issuer, exact audience and service account." },
   "/api/marketing/contact": { methods: ["POST"], guards: ["rate-limit", "strict-body"], why: "Public form; rate limited." },
