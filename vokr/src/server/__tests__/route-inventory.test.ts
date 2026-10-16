@@ -27,17 +27,19 @@ type Guard =
   | "strict-body" // zod .strict() body / query schema
   | "signature" // HMAC-verified Razorpay webhook
   | "scheduler-oidc" // Cloud Scheduler OIDC token verified in-app
-  | "guest-lookup"; // lookupGuestOrder(): limits, uniform errors, uniform timing
+  | "guest-lookup" // lookupGuestOrder(): limits, uniform errors, uniform timing
+  | "admin"; // handleAdmin(): verified admin or 404, session age, per-admin rate limit, audit in the service
 
 const GUARD_PATTERNS: Record<Guard, RegExp> = {
   "ordering-gate": /assertOrderingEnabled\(\)/,
   session: /getSession\(request\)/,
   "signed-in": /requireUser\(request\)/,
   "rate-limit": /assertWithinRateLimit\(|assert[A-Za-z]+Allowed\(/,
-  "strict-body": /\.strict\(\)|Schema\.safeParse\(/,
+  "strict-body": /\.strict\(\)|Schema\.safeParse\(|parseJsonBody\(request, [A-Za-z]+Schema\)/,
   signature: /handleRazorpayWebhook\(/,
   "scheduler-oidc": /handleMaintenanceRequest\(/,
   "guest-lookup": /lookupGuestOrder\(/,
+  admin: /handleAdmin\(\s*request,/,
 };
 
 interface RouteEntry {
@@ -49,6 +51,11 @@ interface RouteEntry {
 
 const ROUTES: Record<string, RouteEntry> = {
   "/account": { methods: ["GET"], guards: [], why: "Redirect only; reads the Supabase session, writes nothing." },
+  "/api/admin/exports/shiprocket": { methods: ["GET"], guards: ["admin", "strict-body"], why: "Admin only (proxy + handler 404 otherwise); decrypts PII, so the export is audit-logged with its order numbers." },
+  "/api/admin/inventory/adjust": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; row-locked, expected on-hand, never below held units; audit row in the same transaction." },
+  "/api/admin/orders/[orderNumber]/refund": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only, signed in within 15 min, order number retyped; full refund of the captured amount via the idempotent payment-issue path; audited." },
+  "/api/admin/orders/[orderNumber]/reveal": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; the PII reveal is audit-logged before the data is returned." },
+  "/api/admin/orders/[orderNumber]/transition": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; the shared order state machine (no `refunded` by assertion); audited." },
   "/api/auth/callback": { methods: ["GET"], guards: [], why: "OAuth code exchange; Supabase verifies the code and PKCE verifier." },
   "/api/auth/confirm": { methods: ["GET"], guards: [], why: "Email-link token_hash verified by Supabase; signup type only." },
   "/api/auth/reset/confirm": { methods: ["GET"], guards: [], why: "Recovery token_hash verified by Supabase; no sign-in side effects." },

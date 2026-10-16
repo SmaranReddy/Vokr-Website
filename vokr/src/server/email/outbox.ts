@@ -8,6 +8,7 @@ import { prisma } from "@/server/db/client";
 
 import { EmailSendError, type OutgoingEmail, type TransactionalEmailClient } from "./brevo";
 import { renderOrderConfirmation } from "./templates/order-confirmation";
+import { renderOrderShipped } from "./templates/order-shipped";
 
 /**
  * The email outbox (plan §5 Phase 11, tasks 4–6, 8). Rows are written
@@ -56,6 +57,14 @@ export const EMAIL_VOLUME_TAG = "EMAIL_VOLUME";
 export async function enqueueOrderConfirmation(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
   await tx.emailLog.createMany({
     data: [{ orderId, template: EmailTemplate.order_confirmation }],
+    skipDuplicates: true,
+  });
+}
+
+/** Writes the shipped email's outbox row inside the ship transition's transaction. Idempotent per order. */
+export async function enqueueOrderShipped(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+  await tx.emailLog.createMany({
+    data: [{ orderId, template: EmailTemplate.order_shipped }],
     skipDuplicates: true,
   });
 }
@@ -213,6 +222,7 @@ async function renderFor(
   orderId: string | null,
   template: EmailTemplate,
 ): Promise<{ to: string; email: Omit<OutgoingEmail, "idempotencyKey"> }> {
+  if (orderId && template === EmailTemplate.order_shipped) return renderShipped(orderId);
   if (!orderId || template !== EmailTemplate.order_confirmation) {
     throw new EmailSendError(`no renderer for template ${template}`, false);
   }
@@ -255,6 +265,33 @@ async function renderFor(
     codFeePaise: order.codFeePaise,
     totalPaise: order.totalPaise,
     gst: { cgstPaise: sum("cgstPaise"), sgstPaise: sum("sgstPaise"), igstPaise: sum("igstPaise") },
+    shipTo: { city: order.shipCity, state: order.shipState, pincode: order.shipPincode },
+    siteUrl: siteConfig.url,
+  });
+  return { to, email: { to, ...rendered } };
+}
+
+async function renderShipped(orderId: string): Promise<{ to: string; email: Omit<OutgoingEmail, "idempotencyKey"> }> {
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { id: orderId },
+    select: {
+      orderNumber: true,
+      contactEmailEnc: true,
+      courier: true,
+      awb: true,
+      shipCity: true,
+      shipState: true,
+      shipPincode: true,
+      items: { select: { productName: true, sizeLabel: true, colorway: true, quantity: true }, orderBy: { id: "asc" } },
+    },
+  });
+  if (!order.courier || !order.awb) throw new EmailSendError("order has no courier/AWB recorded", false);
+  const to = decryptField(order.contactEmailEnc);
+  const rendered = renderOrderShipped({
+    orderNumber: order.orderNumber,
+    courier: order.courier,
+    awb: order.awb,
+    items: order.items,
     shipTo: { city: order.shipCity, state: order.shipState, pincode: order.shipPincode },
     siteUrl: siteConfig.url,
   });
