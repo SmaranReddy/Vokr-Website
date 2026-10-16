@@ -84,6 +84,10 @@ repeated; the order and payment move to `refunded` only when Razorpay lists
 processed refunds covering it. Anything odd lands in `manual_review` on the
 Exceptions page.
 
+- **Needs Razorpay keys.** Without `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`
+  the maintenance job's refund step reports `not_configured`, and a queued
+  refund stays `open` on the Exceptions page until keys exist. With keys,
+  it is processed on the next run (every 5 minutes).
 - Full refunds only. Partial refunds: Razorpay dashboard, then the issue
   shows in `manual_review`; reconcile by hand.
 - COD orders have no online payment to refund (COD is not built — D11).

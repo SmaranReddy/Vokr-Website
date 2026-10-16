@@ -163,7 +163,14 @@ export async function proxy(request: NextRequest) {
     try {
       const { resolveAdmin } = await import("@/server/admin/guard");
       await resolveAdmin(supabase);
-    } catch {
+    } catch (error) {
+      // Not an admin (404) or a stale session (401) is the expected refusal;
+      // anything else — the guard failing to load, the database down — still
+      // refuses, but must be visible, or a broken gate looks like "not an admin".
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code !== "NOT_FOUND" && code !== "UNAUTHORIZED") {
+        console.error(`[admin] ADMIN_GATE_ERROR request=${requestId}`, error);
+      }
       return adminNotFound(requestId);
     }
     response.headers.set("cache-control", "no-store");

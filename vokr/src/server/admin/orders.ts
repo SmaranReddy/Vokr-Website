@@ -168,7 +168,7 @@ export async function getAdminOrder(orderNumberInput: string) {
           providerOrderId: true,
           providerPaymentId: true,
           issues: {
-            select: { state: true, reason: true, amountPaise: true, refundId: true, lastError: true, createdAt: true },
+            select: { state: true, reason: true, providerPaymentId: true, amountPaise: true, refundId: true, lastError: true, createdAt: true },
             orderBy: { createdAt: "asc" },
           },
         },
@@ -188,15 +188,25 @@ export async function getAdminOrder(orderNumberInput: string) {
 
 export type AdminOrderDetail = Awaited<ReturnType<typeof getAdminOrder>>;
 
+/**
+ * Issues hang off the payment row but are keyed per Razorpay attempt: an
+ * `additional_payment` / `bag_already_paid` issue for a *second* attempt
+ * says nothing about the captured one this order was paid with.
+ */
 function canRequestRefund(order: {
   status: OrderStatus;
-  payment: { status: PaymentStatus; providerPaymentId: string | null; issues: unknown[] } | null;
+  payment: {
+    status: PaymentStatus;
+    providerPaymentId: string | null;
+    issues: { providerPaymentId: string }[];
+  } | null;
 }): boolean {
+  const payment = order.payment;
   return (
     order.status !== OrderStatus.refunded &&
-    order.payment?.status === PaymentStatus.captured &&
-    !!order.payment.providerPaymentId &&
-    order.payment.issues.length === 0
+    payment?.status === PaymentStatus.captured &&
+    !!payment.providerPaymentId &&
+    !payment.issues.some((issue) => issue.providerPaymentId === payment.providerPaymentId)
   );
 }
 

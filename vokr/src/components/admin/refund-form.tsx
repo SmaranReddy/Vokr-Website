@@ -27,8 +27,8 @@ export function RefundForm({ orderNumber, amountPaise }: { orderNumber: string; 
   return (
     <form onSubmit={onSubmit} className="flex max-w-md flex-col gap-3">
       <p className="text-sm text-muted">
-        This queues a FULL refund of {formatPaiseAsRupees(amountPaise)}. The maintenance job processes it within about 5
-        minutes. Refunds never restock: adjust stock in Inventory if units come back.
+        This queues a FULL refund of {formatPaiseAsRupees(amountPaise)}. The maintenance job processes it on its next run
+        (every 5 minutes) once Razorpay keys are configured; until then it waits on the Exceptions page. Refunds never restock: adjust stock in Inventory if units come back.
       </p>
       <label className="flex flex-col gap-1 text-sm">
         Retype the order number ({orderNumber}) to confirm
