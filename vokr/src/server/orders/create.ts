@@ -1,6 +1,7 @@
 import { CheckoutPaymentMethod, OrderStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { encryptField } from "@/server/checkout/crypto";
+import { enqueueOrderConfirmation } from "@/server/email/outbox";
 import type { PricingSnapshot } from "@/server/pricing";
 
 import { assertValidOrderTransition } from "./state-machine";
@@ -140,6 +141,9 @@ export async function createOrderForPaidSession(
     },
     select: { id: true, orderNumber: true },
   });
+  // The confirmation email's outbox row, in this same transaction: sent by
+  // the maintenance job after commit, never inline (plan §5 Phase 11).
+  await enqueueOrderConfirmation(tx, order.id);
   console.info(
     `[orders] order=${order.id} number=${order.orderNumber} created session=${input.checkoutSessionId} total=${snapshot.totalPaise}`,
   );

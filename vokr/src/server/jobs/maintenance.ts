@@ -1,4 +1,6 @@
 import { invalidateCatalogCache } from "@/server/catalog";
+import type { TransactionalEmailClient } from "@/server/email/brevo";
+import { sendPendingEmails, type EmailOutboxReport } from "@/server/email/outbox";
 import { findOrderOrphans, type OrderReconciliationReport } from "@/server/orders/reconcile";
 import { resolvePaymentIssues, type PaymentIssueReport } from "@/server/payments/late-payment";
 import type { RazorpayClient, RazorpayRefundClient } from "@/server/payments/razorpay";
@@ -27,6 +29,8 @@ export interface MaintenanceReport {
   latePayments: Step<PaymentIssueReport>;
   /** Orders against payments (plan §5 Phase 9, task 9). Reported, never failing the run. */
   orders: Step<OrderReconciliationReport>;
+  /** The email outbox (plan §5 Phase 11). `not_configured` without a Brevo key; pending rows wait. */
+  emails: Step<EmailOutboxReport>;
   pruning: Step<PruneReport>;
 }
 
@@ -56,6 +60,7 @@ async function step<T>(name: string, run: () => Promise<T>): Promise<Step<T>> {
 export async function runMaintenance(
   razorpay: RazorpayClient | null,
   refunds: RazorpayRefundClient | null = null,
+  email: TransactionalEmailClient | null = null,
 ): Promise<MaintenanceReport> {
   const reconciliation: MaintenanceReport["reconciliation"] = razorpay
     ? await step("reconciliation", async () => {
@@ -86,6 +91,11 @@ export async function runMaintenance(
 
   const orders = await step("orders", findOrderOrphans);
 
+  // After everything that can create an order, so a confirmation is sent in the same run.
+  const emails: MaintenanceReport["emails"] = email
+    ? await step("emails", () => sendPendingEmails(email))
+    : { status: "not_configured" };
+
   const pruning = await step("pruning", pruneExpiredRows);
 
   const ok =
@@ -96,7 +106,8 @@ export async function runMaintenance(
     latePayments.status !== "error" &&
     (latePayments.status !== "ok" || latePayments.result.errors === 0) &&
     orders.status === "ok" &&
+    emails.status !== "error" &&
     pruning.status === "ok";
-  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, pruning })}`);
-  return { ok, reconciliation, expiry, latePayments, orders, pruning };
+  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, emails, pruning })}`);
+  return { ok, reconciliation, expiry, latePayments, orders, emails, pruning };
 }
