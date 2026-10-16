@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+import { SECURITY_HEADERS } from "./src/config/security-headers";
+
 const nextConfig: NextConfig = {
   /**
    * Emit a self-contained server bundle in `.next/standalone`.
@@ -15,6 +17,11 @@ const nextConfig: NextConfig = {
 
   /** Don't advertise the framework and its version to every client. */
   poweredByHeader: false,
+
+  /** Security headers on every response (plan §5 Phase 16, task 1) — see `src/config/security-headers.ts`. */
+  async headers() {
+    return [{ source: "/:path*", headers: [...SECURITY_HEADERS] }];
+  },
 };
 
 export default nextConfig;
