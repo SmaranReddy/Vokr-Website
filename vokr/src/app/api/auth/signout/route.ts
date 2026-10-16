@@ -7,6 +7,7 @@ import {
   createRouteSupabaseClient,
   type CookieWrite,
 } from "@/server/auth/supabase";
+import { requestIdOf } from "@/server/net/request-id";
 
 export async function POST(request: NextRequest) {
   let cookiesToSet: CookieWrite[] = [];
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
       cookiesToSet,
     );
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("auth/signout", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

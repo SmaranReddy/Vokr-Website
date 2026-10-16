@@ -8,6 +8,7 @@ import { removeItem, updateQuantity } from "@/server/cart";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { assertCartMutationAllowed } from "@/server/cart/rate-limit";
 import { updateQuantityBodySchema } from "@/server/cart/schemas";
+import { requestIdOf } from "@/server/net/request-id";
 
 export async function PATCH(
   request: NextRequest,
@@ -32,7 +33,7 @@ export async function PATCH(
     const cart = await updateQuantity(session.identity, id, parsed.data.quantity);
     return applyCookies(NextResponse.json({ cart }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("cart/items/[id]", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }
@@ -54,7 +55,7 @@ export async function DELETE(
     const cart = await removeItem(session.identity, id);
     return applyCookies(NextResponse.json({ cart }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("cart/items/[id]", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

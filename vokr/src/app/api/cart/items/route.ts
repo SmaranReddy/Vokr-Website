@@ -8,6 +8,7 @@ import { addItem } from "@/server/cart";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { assertCartMutationAllowed } from "@/server/cart/rate-limit";
 import { addItemBodySchema } from "@/server/cart/schemas";
+import { requestIdOf } from "@/server/net/request-id";
 
 export async function POST(request: NextRequest) {
   let cookiesToSet: CookieWrite[] = [];
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     const cart = await addItem(session.identity, parsed.data);
     return applyCookies(NextResponse.json({ cart }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("cart/items", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

@@ -8,6 +8,11 @@ import {
   VERIFIED_ORIGIN_HEADER,
 } from "@/server/net/origin-auth";
 import { checkCrossSite, siteOriginFrom } from "@/server/net/csrf";
+import {
+  assignRequestId,
+  REQUEST_ID_HEADER,
+  RESPONSE_REQUEST_ID_HEADER,
+} from "@/server/net/request-id";
 
 // Read once at module load (boot), never per request.
 const originAuthSecret = requireServerEnv().ORIGIN_AUTH_SECRET;
@@ -31,6 +36,7 @@ const siteOrigin = siteOriginFrom(clientEnv.NEXT_PUBLIC_SITE_URL || "http://loca
 function nextWithOriginVerdict(
   request: NextRequest,
   verdict: Exclude<OriginCheck, "refused">,
+  requestId: string,
 ) {
   const headers = new Headers(request.headers);
   if (verdict === "trusted") {
@@ -38,7 +44,11 @@ function nextWithOriginVerdict(
   } else {
     headers.delete(VERIFIED_ORIGIN_HEADER);
   }
-  return NextResponse.next({ request: { headers } });
+  // Always overwritten, never passed through (Phase 15, task 5).
+  headers.set(REQUEST_ID_HEADER, requestId);
+  const response = NextResponse.next({ request: { headers } });
+  response.headers.set(RESPONSE_REQUEST_ID_HEADER, requestId);
+  return response;
 }
 
 /**
@@ -82,20 +92,24 @@ export async function proxy(request: NextRequest) {
   // — never carries the matching header and is refused here. Unconfigured
   // (local/dev/preview, no Worker in front) always passes.
   const verdict = checkOrigin(request, originAuthSecret);
+  const requestId = assignRequestId(request.headers, verdict === "trusted");
   if (verdict === "refused") {
-    return new NextResponse("Not found", { status: 404 });
+    return new NextResponse("Not found", {
+      status: 404,
+      headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId },
+    });
   }
 
   // Phase 16, task 3: a state-changing API request from another site is
   // refused before any route handler (or session refresh) runs.
   if (checkCrossSite(request, siteOrigin) === "refused") {
     return NextResponse.json(
-      { error: { code: "CROSS_SITE_REQUEST", message: "Cross-site requests are not allowed." } },
-      { status: 403 },
+      { error: { code: "CROSS_SITE_REQUEST", message: "Cross-site requests are not allowed.", requestId } },
+      { status: 403, headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId } },
     );
   }
 
-  let response = nextWithOriginVerdict(request, verdict);
+  let response = nextWithOriginVerdict(request, verdict, requestId);
 
   if (SKIP_SESSION_REFRESH.test(request.nextUrl.pathname)) {
     return response;
@@ -117,7 +131,7 @@ export async function proxy(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
         });
-        response = nextWithOriginVerdict(request, verdict);
+        response = nextWithOriginVerdict(request, verdict, requestId);
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options);
         });

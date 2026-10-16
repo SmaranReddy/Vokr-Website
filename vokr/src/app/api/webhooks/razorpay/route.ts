@@ -5,6 +5,7 @@ import { logServerError } from "@/lib/log";
 import { getRazorpayWebhookSecret } from "@/server/payments/config";
 import { assertWebhookAllowed } from "@/server/payments/rate-limit";
 import { handleRazorpayWebhook } from "@/server/payments/webhook";
+import { requestIdOf } from "@/server/net/request-id";
 
 /**
  * Unauthenticated by design; the HMAC signature is the authentication.
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("webhooks/razorpay", requestId, error);
     return NextResponse.json(body, { status });
   }

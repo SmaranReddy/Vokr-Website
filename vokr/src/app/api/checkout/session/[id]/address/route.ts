@@ -8,6 +8,7 @@ import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertCheckoutMutationAllowed } from "@/server/checkout/rate-limit";
 import { addressBodySchema } from "@/server/checkout/schemas";
 import { setCheckoutAddress } from "@/server/checkout/service";
+import { requestIdOf } from "@/server/net/request-id";
 
 export async function PUT(
   request: NextRequest,
@@ -36,7 +37,7 @@ export async function PUT(
     );
     return applyCookies(NextResponse.json({ checkoutSession }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("checkout/session/[id]/address", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }

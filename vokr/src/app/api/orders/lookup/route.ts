@@ -5,6 +5,7 @@ import { logServerError } from "@/lib/log";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { getClientIp } from "@/server/net/client-ip";
 import { lookupGuestOrder } from "@/server/orders/lookup";
+import { requestIdOf } from "@/server/net/request-id";
 
 /**
  * `POST /api/orders/lookup` — guest order lookup by order number + email
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     const order = await lookupGuestOrder({ ip: getClientIp(request), body });
     return NextResponse.json({ order }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("orders/lookup", requestId, error);
     return NextResponse.json(body, { status, headers: { "cache-control": "no-store" } });
   }

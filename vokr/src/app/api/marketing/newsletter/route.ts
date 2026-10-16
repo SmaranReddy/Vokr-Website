@@ -6,6 +6,7 @@ import { logServerError } from "@/lib/log";
 import { getClientIp } from "@/server/net/client-ip";
 import { subscribeToNewsletter } from "@/server/marketing/brevo";
 import { assertWithinRateLimit } from "@/server/rate-limit";
+import { requestIdOf } from "@/server/net/request-id";
 
 const bodySchema = z.object({ email: z.email() }).strict();
 
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     await subscribeToNewsletter(parsed.data.email);
     return NextResponse.json({ message: "You're on the list." });
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("marketing/newsletter", requestId, error);
     return NextResponse.json(body, { status });
   }

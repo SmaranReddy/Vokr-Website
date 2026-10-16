@@ -6,6 +6,7 @@ import { logServerError } from "@/lib/log";
 import { getClientIp } from "@/server/net/client-ip";
 import { sendContactMessage } from "@/server/marketing/brevo";
 import { assertWithinRateLimit } from "@/server/rate-limit";
+import { requestIdOf } from "@/server/net/request-id";
 
 const bodySchema = z
   .object({
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
       message: "Thanks — we'll get back to you soon.",
     });
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("marketing/contact", requestId, error);
     return NextResponse.json(body, { status });
   }

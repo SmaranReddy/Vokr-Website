@@ -7,6 +7,7 @@ import { getSession } from "@/server/auth/session";
 import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { getPaymentStatus } from "@/server/payments/service";
+import { requestIdOf } from "@/server/net/request-id";
 
 const querySchema = z.object({ checkoutSessionId: z.uuid() }).strict();
 
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
     const payment = await getPaymentStatus(session.identity, parsed.data.checkoutSessionId);
     return applyCookies(NextResponse.json({ payment }), cookiesToSet);
   } catch (error) {
-    const { status, body, requestId } = toErrorResponse(error);
+    const { status, body, requestId } = toErrorResponse(error, requestIdOf(request));
     logServerError("payments/status", requestId, error);
     return applyCookies(NextResponse.json(body, { status }), cookiesToSet);
   }
