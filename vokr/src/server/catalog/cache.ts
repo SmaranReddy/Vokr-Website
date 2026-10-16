@@ -11,10 +11,18 @@
  * Keyed by a `Map` (rather than a single value) so one cache instance can
  * serve more than one logical entry if a later phase needs it — Phase 2
  * itself only ever uses one key.
+ *
+ * `invalidate()` bumps a per-key generation. A fetch that was already in
+ * flight when the key was invalidated (it may have read stock from before
+ * a reservation committed) still answers the callers waiting on it, but
+ * its result is not cached and later callers do not join it — they start
+ * a fresh read. Without this, a stale read could be cached for a full TTL
+ * right after the invalidation meant to remove it.
  */
 export class TtlCache<T> {
   private readonly store = new Map<string, { value: T; expiresAt: number }>();
   private readonly inflight = new Map<string, Promise<T>>();
+  private readonly generations = new Map<string, number>();
 
   constructor(private readonly ttlMs: number) {}
 
@@ -29,13 +37,16 @@ export class TtlCache<T> {
       return pending;
     }
 
+    const generation = this.generations.get(key) ?? 0;
     const promise = fetcher()
       .then((value) => {
-        this.store.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+        if ((this.generations.get(key) ?? 0) === generation) {
+          this.store.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+        }
         return value;
       })
       .finally(() => {
-        this.inflight.delete(key);
+        if (this.inflight.get(key) === promise) this.inflight.delete(key);
       });
 
     this.inflight.set(key, promise);
@@ -44,9 +55,11 @@ export class TtlCache<T> {
 
   invalidate(key: string): void {
     this.store.delete(key);
+    this.inflight.delete(key);
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
   }
 
   clear(): void {
-    this.store.clear();
+    for (const key of new Set([...this.store.keys(), ...this.inflight.keys()])) this.invalidate(key);
   }
 }

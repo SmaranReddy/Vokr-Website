@@ -71,6 +71,25 @@ describe("TtlCache", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("a fetch in flight when the key is invalidated answers its callers but is never cached", async () => {
+    const cache = new TtlCache<number>(60_000);
+    let release!: (value: number) => void;
+    const stale = new Promise<number>((resolve) => {
+      release = resolve;
+    });
+    const fetcher = vi.fn().mockReturnValueOnce(stale).mockResolvedValueOnce(2);
+
+    const before = cache.get("k", fetcher);
+    cache.invalidate("k"); // e.g. a reservation committed while the read was running
+    const after = cache.get("k", fetcher); // must not join the stale read
+    release(1);
+
+    await expect(before).resolves.toBe(1);
+    await expect(after).resolves.toBe(2);
+    await expect(cache.get("k", fetcher)).resolves.toBe(2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("a rejected fetch is not cached and the next get retries", async () => {
     const cache = new TtlCache<number>(1000);
     const fetcher = vi
