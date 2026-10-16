@@ -120,6 +120,18 @@ jobs:
       - name: Generate Prisma Client
         run: npm run db:generate
 
+      # Phase 16, task 9: a known high or critical advisory in anything that
+      # ships (production dependencies) fails the build. Dev-only tooling is
+      # reported but not gated: it never reaches the runtime image, and the
+      # one open advisory there (braces, via eslint-config-next) has no
+      # fixed version. See docs/security/dependency-audit.md.
+      - name: Dependency audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Dependency audit (dev tooling, report only)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
       - name: Lint
         run: npm run lint
 
