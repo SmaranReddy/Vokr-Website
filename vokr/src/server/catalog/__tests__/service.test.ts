@@ -154,6 +154,21 @@ describe("catalog service", () => {
     );
   });
 
+  it("a cold instance hit by 80 concurrent requests issues exactly one catalog query (plan §5 Phase 13, task 6)", async () => {
+    let release!: (rows: ReturnType<typeof fixtureProducts>) => void;
+    findManyMock.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const requests = Array.from({ length: 80 }, (_, i) =>
+      i % 2 === 0 ? listProducts() : getProductBySlug("model-x"),
+    );
+    release(fixtureProducts());
+    await Promise.all(requests);
+    expect(findManyMock).toHaveBeenCalledTimes(1);
+  });
+
   it("serves repeated calls from the 60s cache without re-querying", async () => {
     findManyMock.mockResolvedValue(fixtureProducts());
     await listProducts();
