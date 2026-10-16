@@ -124,6 +124,11 @@ model AppUser {
   /// checkout (Phase 6), not at signup.
   phoneEnc String? @map("phone_enc")
 
+  /// Operator access to `/admin` and `/api/admin` (plan §5 Phase 12, task 1).
+  /// Granted only out of band (production SQL by the owner) — no route ever
+  /// writes it. Checked on every admin request, never cached client-side.
+  isAdmin Boolean @default(false) @map("is_admin")
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   /// DPDP erasure marker (Phase 17). Never a hard delete of a row an
   /// order's `user_id` may still reference.
@@ -625,6 +630,12 @@ model Order {
   totalPaise    Int    @map("total_paise")
   currency      String @default("INR")
 
+  /// Courier and AWB entered by an operator from the Shiprocket panel when
+  /// the order ships (plan §5 Phase 10, task 3). Both or neither (CHECK).
+  courier   String?
+  awb       String?
+  shippedAt DateTime? @map("shipped_at") @db.Timestamptz(6)
+
   placedAt  DateTime @default(now()) @map("placed_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -692,6 +703,7 @@ model OrderStatusHistory {
 /// The transactional emails this system sends (plan §5 Phase 11).
 enum EmailTemplate {
   order_confirmation
+  order_shipped
 
   @@map("email_template")
 }
@@ -737,4 +749,30 @@ model EmailLog {
   @@index([status, updatedAt])
   @@index([sentAt])
   @@map("email_log")
+}
+
+/// Every operator action (plan §5 Phase 12, task 10): who, what, on which
+/// row, the state before and after, and the stated reason. Written in the
+/// same transaction as the change it records, so neither can exist
+/// without the other. Append-only — a trigger refuses UPDATE. Holds no PII:
+/// a PII reveal records *that* it happened, never what was shown.
+model AuditLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// `admin:<app_users.id>`.
+  actor    String
+  /// e.g. `inventory.adjust`, `order.transition`, `order.refund`, `pii.reveal`, `export.shiprocket`.
+  action   String
+  entity   String
+  entityId String  @map("entity_id")
+  before   Json?
+  after    Json?
+  reason   String?
+  requestId String? @map("request_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([entity, entityId, createdAt])
+  @@index([createdAt])
+  @@map("audit_log")
 }

@@ -8,6 +8,7 @@ import {
   VERIFIED_ORIGIN_HEADER,
 } from "@/server/net/origin-auth";
 import { checkCrossSite, siteOriginFrom } from "@/server/net/csrf";
+import { ADMIN_PATH } from "@/server/admin/paths";
 import {
   assignRequestId,
   REQUEST_ID_HEADER,
@@ -49,6 +50,21 @@ function nextWithOriginVerdict(
   const response = NextResponse.next({ request: { headers } });
   response.headers.set(RESPONSE_REQUEST_ID_HEADER, requestId);
   return response;
+}
+
+/**
+ * The admin surface (plan §5 Phase 12). Gated here, before anything
+ * renders: a page's own `notFound()` would arrive after the root
+ * `loading.tsx` shell has streamed with HTTP 200, so only the proxy can
+ * give a non-admin a real 404 (Security: "an unauthenticated request
+ * receives 404, not a login redirect"). Route handlers and pages check
+ * again themselves.
+ */
+function adminNotFound(requestId: string) {
+  return new NextResponse("Not found", {
+    status: 404,
+    headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId, "cache-control": "no-store" },
+  });
 }
 
 /**
@@ -110,14 +126,16 @@ export async function proxy(request: NextRequest) {
   }
 
   let response = nextWithOriginVerdict(request, verdict, requestId);
+  const isAdminPath = ADMIN_PATH.test(request.nextUrl.pathname);
 
-  if (SKIP_SESSION_REFRESH.test(request.nextUrl.pathname)) {
+  if (!isAdminPath && SKIP_SESSION_REFRESH.test(request.nextUrl.pathname)) {
     return response;
   }
 
   const url = clientEnv.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
+    if (isAdminPath) return adminNotFound(requestId);
     // Supabase not configured yet (e.g. a clean checkout before Phase 3
     // secrets are supplied) — pass the request through unauthenticated
     // rather than failing every page.
@@ -138,6 +156,26 @@ export async function proxy(request: NextRequest) {
       },
     },
   });
+
+  if (isAdminPath) {
+    // `resolveAdmin` calls `getUser()` itself, so the refresh still runs.
+    // Loaded lazily: it needs the database, which no other proxied path does.
+    try {
+      const { resolveAdmin } = await import("@/server/admin/guard");
+      await resolveAdmin(supabase);
+    } catch (error) {
+      // Not an admin (404) or a stale session (401) is the expected refusal;
+      // anything else — the guard failing to load, the database down — still
+      // refuses, but must be visible, or a broken gate looks like "not an admin".
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code !== "NOT_FOUND" && code !== "UNAUTHORIZED") {
+        console.error(`[admin] ADMIN_GATE_ERROR request=${requestId}`, error);
+      }
+      return adminNotFound(requestId);
+    }
+    response.headers.set("cache-control", "no-store");
+    return response;
+  }
 
   // Must be called for the refresh-and-rewrite above to ever run — see
   // the `@supabase/ssr` `CookieMethodsServer.setAll` doc comment.
