@@ -171,6 +171,7 @@ export async function cleanupCheckoutFixtures(fixtures: CheckoutFixtures, extraE
   const addressIds = sessions.map((session) => session.addressId).filter((id): id is string => !!id);
   await prisma.inventoryReservation.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });
   const orderWhere = { order: { checkoutSessionId: { in: sessionIds } } };
+  await prisma.returnRequest.deleteMany({ where: orderWhere });
   await prisma.orderStatusHistory.deleteMany({ where: orderWhere });
   await prisma.orderItem.deleteMany({ where: orderWhere });
   await prisma.emailLog.deleteMany({ where: orderWhere });

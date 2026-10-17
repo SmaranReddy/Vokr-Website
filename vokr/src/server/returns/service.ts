@@ -562,6 +562,8 @@ export async function refundReturn(
     });
     if (issue) throw new ConflictError(`A refund is already ${issue.state.replaceAll("_", " ")} for this payment.`);
 
+    // Every row of the order is locked before it is read or changed.
+    await tx.$queryRaw`SELECT id FROM return_requests WHERE order_id = ${order.id}::uuid ORDER BY id FOR UPDATE`;
     const full = await tx.order.findUniqueOrThrow({
       where: { id: order.id },
       select: {
@@ -573,8 +575,6 @@ export async function refundReturn(
         },
       },
     });
-    // Every row of the order is locked before any is changed.
-    await tx.$queryRaw`SELECT id FROM return_requests WHERE order_id = ${order.id}::uuid ORDER BY id FOR UPDATE`;
     const unitPrice = new Map(full.items.map((item) => [item.id, item.unitPricePaise]));
     const amountOf = (r: { orderItemId: string; quantity: number }) =>
       lineRefundPaise({ unitPricePaise: unitPrice.get(r.orderItemId) ?? 0 }, r.quantity);
