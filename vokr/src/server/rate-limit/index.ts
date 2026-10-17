@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { RateLimitError } from "@/lib/errors";
 import { prisma } from "@/server/db/client";
 
@@ -12,6 +14,22 @@ export interface RateLimitResult {
   allowed: boolean;
   remaining: number;
   resetAt: Date;
+}
+
+/**
+ * What is stored for a key: its scope in clear (`auth:signin:email`), the
+ * identifier — an IP address, an email, an order number, an account id — only as
+ * a SHA-256 digest. Limiting needs equality, never the value, so this keeps
+ * raw emails and IPs out of the database (personal-data inventory finding)
+ * at no cost. 160 bits: collisions are not a practical concern.
+ */
+export function storedRateLimitKey(key: string): string {
+  // `area:action:kind` stays readable (`orders:lookup:number`, `auth:signin:email`);
+  // shorter keys keep all but their last segment, so an id is never left in clear.
+  const parts = key.split(":");
+  const scope = (parts.length > 3 ? parts.slice(0, 3) : parts.slice(0, -1)).join(":");
+  const digest = createHash("sha256").update(key).digest("hex").slice(0, 40);
+  return scope ? `${scope}:${digest}` : digest;
 }
 
 interface RateLimitRow {
@@ -41,7 +59,7 @@ export async function consumeRateLimit({
 
   const rows = await prisma.$queryRaw<RateLimitRow[]>`
     INSERT INTO rate_limit_counters (key, window_start, count)
-    VALUES (${key}, now(), 1)
+    VALUES (${storedRateLimitKey(key)}, now(), 1)
     ON CONFLICT (key) DO UPDATE SET
       count = CASE
         WHEN rate_limit_counters.window_start <= now() - (interval '1 millisecond' * ${windowMillis})
