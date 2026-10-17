@@ -1,9 +1,8 @@
 # Brevo — what the live newsletter and contact forms need
 
 Plan §3.7.1, Phase 4 task 10 (the two forms), Phase 11 (transactional
-email), R3, R12. Recorded 11 Sep 2026 by code inspection and a read of the
-live configuration. **No Brevo account is accessible from this
-environment, and no key has been created, read or stored.**
+email), R3, R12. First recorded 11 Sep 2026 (setup record, before any key
+existed); failure behaviour and state updated 17 Oct 2026 — see below.
 
 ## What the deployed application does
 
@@ -13,20 +12,55 @@ environment, and no key has been created, read or stored.**
 | `POST /api/marketing/contact`    | `POST https://api.brevo.com/v3/smtp/email` | sender **and** recipient `support@vokr.shop`, `replyTo` the visitor                                          |
 
 Both read `BREVO_API_KEY` through `requireServerEnv()`
-(`src/server/marketing/brevo.ts`). Without it they throw
-`InternalError("Newsletter/contact delivery is not configured.")` and the
-form shows an error.
+(`src/server/marketing/brevo.ts`).
 
-## State today
+### Failure behaviour (17 Oct 2026)
 
-- Secret Manager `BREVO_API_KEY`: **0 versions.** The runtime service
-  account already holds `secretAccessor` on it.
-- Cloud Run does **not** mount it — only `DATABASE_URL` is mapped. Cloud
-  Run refuses to create a revision that references a secret with no
-  version, so it cannot be mapped before a real key exists.
-- **Both forms therefore fail in production today.** (Code inspection; the
-  endpoints were not exercised against production, to avoid writing
-  rate-limit rows for a known outcome.)
+A form reports success **only** when Brevo accepted the request (2xx; for
+the newsletter also `400 duplicate_parameter` = already subscribed — never
+for the contact form). Everything else is HTTP **500** `INTERNAL_ERROR`
+with the unchanged visitor-facing message and a `requestId`:
+
+| Reason           | When                                                                       |
+| ---------------- | -------------------------------------------------------------------------- |
+| `not_configured` | `BREVO_API_KEY` empty — no request is made                                 |
+| `timeout`        | Brevo did not answer (headers **and** body) within `FORM_TIMEOUT_MS` = 8 s |
+| `network`        | DNS/connection/TLS failure                                                 |
+| `rejected`       | Any other HTTP status from Brevo (401 bad key, 403 IP/sender, 4xx, 5xx)    |
+| `unexpected`     | A bug or anything else thrown on the way (also logged with its stack)      |
+
+One attempt only, no retry: the contact send has no idempotency key, so a
+retry could deliver the same message twice. A **timed-out contact send may
+still have been delivered** — if the visitor retries, the support inbox can
+get a duplicate. Malformed JSON is a 400 (it used to be a 500 whose log
+line quoted part of the body).
+
+Each failure writes exactly one line at `error`:
+
+```
+[marketing/contact] FORM_DELIVERY_FAILED {"form":"contact","reason":"rejected","status":401,"code":"unauthorized","requestId":"…"}
+```
+
+It holds only the form, reason, Brevo's HTTP status, Brevo's machine
+`code` (allowlisted to `[a-z_]`, never its free-text message, which can
+echo the submitted email) and the request id. Never logged: the API key,
+request headers, the visitor's name, email, order number or message, or
+Brevo's response text. The `vokr_form_delivery_failed` metric counts these
+lines (`alerting.md`). Validation (400) and rate-limit (429) refusals are
+not delivery failures and keep their untagged `warn` line.
+
+**Reading a failure:** `status 401` → wrong or revoked key (an SMTP key,
+`xsmtpsib-…`, is also refused); `403` → the Authorised IPs restriction or
+the sender is not allowed; `timeout`, `network` or 5xx → Brevo side,
+usually transient.
+
+## State (reported from the plan's §0 Checkpoint, 17 Oct 2026)
+
+- `BREVO_API_KEY` v1 in Secret Manager, mounted on Cloud Run
+  (`BREVO_API_KEY_READY=true`) since `vokr-00038-877`; sender
+  `support@vokr.shop` active, `vokr.shop` authenticated.
+- Both forms are therefore live against Brevo. The sections below are the
+  original setup record (11 Sep 2026), kept for key rotation.
 
 ## What is required — all on the Brevo side, then one variable
 
