@@ -74,7 +74,27 @@ async function seed(): Promise<void> {
     pricePaise: 999_500,
     quantityOnHand: stock,
   });
-  const state = { variantId: variant.variantId, stock, deadlocksBefore: await deadlocks(), seededAt: new Date().toISOString() };
+  // `--companion-stock N`: a second, plentiful variant every buyer also
+  // carts (checkout-retry.js), so a sold-out buyer has a line that must
+  // roll back with the one that failed.
+  const companionStock = arg("companion-stock") === undefined ? undefined : intArg("companion-stock");
+  const companion =
+    companionStock === undefined
+      ? undefined
+      : await createActiveVariantFixture({
+          name: "Load test companion",
+          category: "Test",
+          gstRateBps: 1800,
+          pricePaise: 499_500,
+          quantityOnHand: companionStock,
+        });
+  const state = {
+    variantId: variant.variantId,
+    stock,
+    ...(companion ? { companionId: companion.variantId, companionStock } : {}),
+    deadlocksBefore: await deadlocks(),
+    seededAt: new Date().toISOString(),
+  };
   mkdirSync(RUNS_DIR, { recursive: true });
   writeFileSync(path.join(RUNS_DIR, `${variant.variantId}.json`), JSON.stringify(state, null, 2));
   console.log(JSON.stringify(state));
@@ -112,6 +132,8 @@ async function verify(): Promise<void> {
   const buyers = intArg("buyers");
   const state = JSON.parse(readFileSync(path.join(RUNS_DIR, `${variantId}.json`), "utf8")) as {
     stock: number;
+    companionId?: string;
+    companionStock?: number;
     deadlocksBefore: number;
   };
   const expectedHolds = Math.min(buyers, state.stock);
@@ -147,6 +169,32 @@ async function verify(): Promise<void> {
     check("k6 200s == held sessions", grantedByK6 === sessions.size, `k6_granted=${grantedByK6} held_sessions=${sessions.size}`);
   }
 
+  if (state.companionId !== undefined) {
+    // Holds are all-or-nothing per session: the plentiful line is held for
+    // exactly the sessions that won the scarce one, once each.
+    const companion = await prisma.inventory.findUniqueOrThrow({
+      where: { variantId: state.companionId },
+      select: { quantityOnHand: true, quantityReserved: true },
+    });
+    const companionRows = await prisma.inventoryReservation.findMany({
+      where: { variantId: state.companionId },
+      select: { checkoutSessionId: true, quantity: true, state: true },
+    });
+    const companionSessions = new Set(companionRows.map((row) => row.checkoutSessionId));
+    check(
+      "companion: on_hand unchanged, reserved == winning sessions",
+      companion.quantityOnHand === state.companionStock && companion.quantityReserved === sessions.size,
+      `on_hand=${companion.quantityOnHand} seeded=${state.companionStock} reserved=${companion.quantityReserved} winners=${sessions.size}`,
+    );
+    check(
+      "companion: one held unit per winning session, none for losers",
+      companionRows.length === sessions.size &&
+        companionRows.every((row) => row.state === ReservationState.held && row.quantity === 1 && sessions.has(row.checkoutSessionId)) &&
+        companionSessions.size === companionRows.length,
+      `rows=${companionRows.length} distinct_sessions=${companionSessions.size} winners=${sessions.size}`,
+    );
+  }
+
   const orders = await prisma.orderItem.count({ where: { variantId } });
   check("no orders without payment", orders === 0, `order_items=${orders}`);
 
@@ -166,8 +214,10 @@ async function verify(): Promise<void> {
     });
   }
   const expiry = await expireReservations(null);
-  const after = await prisma.inventory.findUniqueOrThrow({ where: { variantId }, select: { quantityReserved: true } });
-  const stillHeld = await prisma.inventoryReservation.count({ where: { variantId, state: ReservationState.held } });
+  const leakVariants = state.companionId === undefined ? [variantId] : [variantId, state.companionId];
+  const reservedAfter = await prisma.inventory.findMany({ where: { variantId: { in: leakVariants } }, select: { quantityReserved: true } });
+  const after = { quantityReserved: reservedAfter.reduce((sum, row) => sum + row.quantityReserved, 0) };
+  const stillHeld = await prisma.inventoryReservation.count({ where: { variantId: { in: leakVariants }, state: ReservationState.held } });
   check(
     "zero reservation leaks after expiry",
     stillHeld === 0 && after.quantityReserved === 0 && expiry.errors === 0,
