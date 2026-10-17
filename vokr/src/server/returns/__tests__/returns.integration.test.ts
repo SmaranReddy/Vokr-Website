@@ -272,7 +272,12 @@ describe("the guest request (task 7: no login, enumeration-resistant)", () => {
     const created = await requestReturnAsGuest({ ip: ip(), body: guestBody(order) }, FAST);
     expect(created).toMatchObject({ kind: "return", state: "requested", sku: order.lines[0]!.sku, quantity: 1, refund: null });
     const listed = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
-    expect(listed).toEqual([created]);
+    expect(listed.returns).toEqual([created]);
+    expect(listed.open).toBe(true);
+    expect(listed.windowClosesAt).not.toBeNull();
+    expect(listed.lines).toEqual([
+      expect.objectContaining({ sku: order.lines[0]!.sku, availableUnits: 0, hasOpenRequest: true, exchangeSizes: [] }),
+    ]);
     await expect(
       listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: "x@y.example" } }, FAST),
     ).rejects.toThrow(LOOKUP_NOT_FOUND_MESSAGE);
@@ -405,7 +410,8 @@ describe("return → approval → receipt → refund (whole order)", () => {
     expect(settled).toEqual({ status: OrderStatus.refunded, payment: { status: PaymentStatus.refunded } });
     expect(refunds.refunds.get(order.providerPaymentId)?.map((refund) => refund.amount)).toEqual([order.totalPaise]);
     const seen = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
-    expect(seen.map((row) => row.refund?.status)).toEqual(["refunded", "refunded"]);
+    expect(seen.returns.map((row) => row.refund?.status)).toEqual(["refunded", "refunded"]);
+    expect(seen.open).toBe(false);
   });
 
   it("two concurrent receipts restock once", async () => {
@@ -465,7 +471,7 @@ describe("partial returns: refunds never exceed the capture", () => {
     });
     // The customer sees it as recorded by us, never as a confirmed refund.
     const seen = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
-    expect(seen.find((row) => row.id === first.id)?.refund).toEqual({ amountPaise: PRICE, status: "recorded" });
+    expect(seen.returns.find((row) => row.id === first.id)?.refund).toEqual({ amountPaise: PRICE, status: "recorded" });
     await expect(recordManualRefund(ACTOR, first.id, { confirmOrderNumber: order.orderNumber, refundId: "rfnd_ABC123xyz" })).rejects.toBeInstanceOf(ConflictError);
 
     // The second line, later: due again, never a full refund of the whole capture.
@@ -537,6 +543,66 @@ describe("partial returns: refunds never exceed the capture", () => {
     });
   });
 
+  it("after one line is refunded by hand, the rest coming back never triggers the full refund", async () => {
+    const order = await delivered([{ quantity: 1 }, { quantity: 1 }, { quantity: 1 }]);
+    const [a, b, c] = order.lines;
+    const ask = (sku: string) => createReturnRequest(order.orderNumber, { sku, quantity: 1, kind: "return", reason: "size_fit", requestedBy: "guest" });
+    const first = await ask(a!.sku);
+    await approve(first.id);
+    await receivePassed(first.id);
+    await expect(refundReturn(ACTOR, first.id, confirm(order))).resolves.toMatchObject({ mode: ReturnRefundMode.manual_due });
+
+    const rest = [await ask(b!.sku), await ask(c!.sku)];
+    for (const request of rest) {
+      await approve(request.id);
+      await receivePassed(request.id);
+    }
+    // Every unit is now back, but one line was already refunded: still line by line.
+    for (const request of rest) {
+      await expect(refundReturn(ACTOR, request.id, confirm(order))).resolves.toEqual({ mode: ReturnRefundMode.manual_due, amountPaise: PRICE });
+    }
+    const recorded = await prisma.returnRequest.aggregate({ where: { orderId: order.orderId }, _sum: { refundDuePaise: true } });
+    expect(recorded._sum.refundDuePaise).toBeLessThanOrEqual(order.totalPaise);
+    expect(await prisma.returnRequest.count({ where: { orderId: order.orderId, refundMode: ReturnRefundMode.full_order_queued } })).toBe(0);
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: order.orderId }, select: { status: true } });
+    expect(after.status).toBe(OrderStatus.delivered);
+    expect(await prisma.paymentIssue.count({ where: { providerPaymentId: order.providerPaymentId } })).toBe(0);
+  });
+
+  it("two concurrent refunds on different lines whose sum would pass the capture: exactly one is recorded", async () => {
+    const order = await delivered([{ quantity: 1 }, { quantity: 1 }, { quantity: 1 }]);
+    const [a, b, c] = order.lines;
+    const ask = (sku: string) => createReturnRequest(order.orderNumber, { sku, quantity: 1, kind: "return", reason: "size_fit", requestedBy: "guest" });
+    const first = await ask(a!.sku);
+    await approve(first.id);
+    await receivePassed(first.id);
+    await refundReturn(ACTOR, first.id, confirm(order));
+    // Leave room for one more line, not two.
+    await prisma.returnRequest.update({ where: { id: first.id }, data: { refundDuePaise: order.totalPaise - PRICE - 1 }, select: { id: true } });
+    const rest = [await ask(b!.sku), await ask(c!.sku)];
+    for (const request of rest) {
+      await approve(request.id);
+      await receivePassed(request.id);
+    }
+    const results = await Promise.allSettled(rest.map((request) => refundReturn(ACTOR, request.id, confirm(order))));
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const refused = results.find((result) => result.status === "rejected");
+    expect(refused?.status === "rejected" && String(refused.reason)).toContain("would exceed the captured");
+    const recorded = await prisma.returnRequest.aggregate({ where: { orderId: order.orderId }, _sum: { refundDuePaise: true } });
+    expect(recorded._sum.refundDuePaise).toBe(order.totalPaise - 1);
+  });
+
+  it("once the order's full refund is queued, no return on it can record another", async () => {
+    const order = await delivered([{ quantity: 1 }, { quantity: 1 }]);
+    const request = await createReturnRequest(order.orderNumber, { sku: order.lines[1]!.sku, quantity: 1, kind: "return", reason: "size_fit", requestedBy: "guest" });
+    await approve(request.id);
+    await receivePassed(request.id);
+    await requestOrderRefund(ACTOR, order.orderNumber, confirm(order));
+    await expect(refundReturn(ACTOR, request.id, confirm(order))).rejects.toThrow("already open");
+    expect((await returnRow(request.id)).refundMode).toBeNull();
+    expect(await prisma.paymentIssue.count({ where: { providerPaymentId: order.providerPaymentId } })).toBe(1);
+  });
+
   it("refuses a refund that would take the recorded total past the captured amount", async () => {
     const order = await delivered([{ quantity: 1 }, { quantity: 1 }]);
     const [a, b] = order.lines;
@@ -574,6 +640,10 @@ describe("exchanges", () => {
     await expect(createReturnRequest(order.orderNumber, { ...base, exchangeSize: "IN 12" })).rejects.toBeInstanceOf(NotFoundError);
     await expect(createReturnRequest(order.orderNumber, { ...base, exchangeSize: "IN 10" })).rejects.toThrow("priced differently");
     await expect(createReturnRequest(order.orderNumber, { ...base, exchangeSize: "IN 8" })).rejects.toBeInstanceOf(ValidationError);
+    await siblingSize(line.variantId, "IN 11", 0);
+    const offered = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
+    // In stock and same price only: not IN 10 (priced differently), not IN 11 (none left), not its own size.
+    expect(offered.lines[0]?.exchangeSizes).toEqual(["IN 9"]);
     const request = await createReturnRequest(order.orderNumber, { ...base, exchangeSize: "IN 9" });
     expect(request).toMatchObject({ kind: "exchange", exchangeSize: "IN 9" });
 
@@ -639,7 +709,10 @@ describe("failed delivery (task 6: RTO)", () => {
     await expect(
       createReturnRequest(order.orderNumber, { sku: a!.sku, quantity: 1, kind: "return", reason: "size_fit", requestedBy: "guest" }),
     ).rejects.toBeInstanceOf(ConflictError);
-    expect(await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST)).toEqual([]);
+    expect(await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST)).toMatchObject({
+      returns: [],
+      open: false,
+    });
 
     await expect(requestOrderRefund(ACTOR, order.orderNumber, confirm(order))).resolves.toEqual({ queued: true, amountPaise: order.totalPaise });
   });

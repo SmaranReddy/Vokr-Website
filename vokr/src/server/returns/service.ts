@@ -26,6 +26,7 @@ import {
   claimedUnits,
   lineRefundPaise,
   OPEN_RETURN_STATES,
+  returnWindowClosesAt,
   wholeOrderReturn,
 } from "./policy";
 
@@ -178,20 +179,108 @@ export async function requestReturnAsGuest(
   return createReturnRequest(order.orderNumber, { ...request, requestedBy: "guest" }, options.now);
 }
 
-/** `POST /api/returns/lookup`: the order's returns, behind the same guest lookup. */
+/** What the request form may offer for one order line. Decided here, re-checked when the request is made. */
+export interface ReturnableLine {
+  sku: string;
+  productName: string;
+  sizeLabel: string;
+  colorway: string;
+  /** Units not yet returned or exchanged. */
+  availableUnits: number;
+  /** A request for this line is already open; no second one until it closes. */
+  hasOpenRequest: boolean;
+  /** Other sizes of the same shoe, same colour and price, in stock now. Stock is re-checked when the replacement ships. */
+  exchangeSizes: string[];
+}
+
+export interface GuestReturns {
+  returns: CustomerReturnView[];
+  /** Whether new requests can be made now (delivered, inside the window). */
+  open: boolean;
+  /** The last day of the window, once the order is delivered. */
+  windowClosesAt: string | null;
+  lines: ReturnableLine[];
+}
+
+/** `POST /api/returns/lookup`: the order's returns and what can still be requested, behind the same guest lookup. */
 export async function listReturnsAsGuest(
   input: { ip: string; body: unknown },
-  options: { minDurationMs?: number } = {},
-): Promise<CustomerReturnView[]> {
+  options: { minDurationMs?: number; now?: Date } = {},
+): Promise<GuestReturns> {
   const parsed = returnLookupBodySchema.safeParse(input.body);
   if (!parsed.success) throw new ValidationError("Enter your order number and email.");
-  const order = await lookupGuestOrder({ ip: input.ip, body: parsed.data }, options);
-  const rows = await prisma.returnRequest.findMany({
-    where: { order: { orderNumber: order.orderNumber }, kind: { not: ReturnKind.rto } },
-    select: RETURN_VIEW_SELECT,
-    orderBy: { createdAt: "asc" },
+  const found = await lookupGuestOrder({ ip: input.ip, body: parsed.data }, options);
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { orderNumber: found.orderNumber },
+    select: {
+      status: true,
+      history: { where: { toStatus: OrderStatus.delivered }, select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+      items: {
+        select: {
+          sku: true,
+          productName: true,
+          sizeLabel: true,
+          colorway: true,
+          quantity: true,
+          unitPricePaise: true,
+          variant: { select: { id: true, productId: true, colorway: true } },
+          returns: { select: { kind: true, state: true, quantity: true } },
+        },
+        orderBy: { id: "asc" },
+      },
+      returns: { where: { kind: { not: ReturnKind.rto } }, select: RETURN_VIEW_SELECT, orderBy: { createdAt: "asc" } },
+    },
   });
-  return rows.map(toCustomerReturnView);
+  const deliveredAt = order.history[0]?.createdAt ?? null;
+  let open = order.status === OrderStatus.delivered;
+  try {
+    if (open) assertWithinReturnWindow(deliveredAt, options.now ?? new Date());
+  } catch {
+    open = false;
+  }
+
+  const productIds = [...new Set(order.items.flatMap((item) => (item.variant ? [item.variant.productId] : [])))];
+  const siblings = open && productIds.length > 0
+    ? await prisma.productVariant.findMany({
+        where: { productId: { in: productIds }, status: CatalogStatus.active },
+        select: {
+          id: true,
+          productId: true,
+          colorway: true,
+          sizeLabel: true,
+          pricePaise: true,
+          position: true,
+          inventory: { select: { quantityOnHand: true, quantityReserved: true } },
+        },
+        orderBy: { position: "asc" },
+      })
+    : [];
+
+  return {
+    returns: order.returns.map(toCustomerReturnView),
+    open,
+    windowClosesAt: deliveredAt ? returnWindowClosesAt(deliveredAt).toISOString() : null,
+    lines: order.items.map((item) => ({
+      sku: item.sku,
+      productName: item.productName,
+      sizeLabel: item.sizeLabel,
+      colorway: item.colorway,
+      availableUnits: item.quantity - claimedUnits(item.returns),
+      hasOpenRequest: item.returns.some((row) => row.kind !== ReturnKind.rto && OPEN_RETURN_STATES.includes(row.state)),
+      exchangeSizes: item.variant
+        ? siblings
+            .filter(
+              (variant) =>
+                variant.productId === item.variant!.productId &&
+                variant.colorway === item.variant!.colorway &&
+                variant.id !== item.variant!.id &&
+                variant.pricePaise === item.unitPricePaise &&
+                (variant.inventory?.quantityOnHand ?? 0) - (variant.inventory?.quantityReserved ?? 0) > 0,
+            )
+            .map((variant) => variant.sizeLabel)
+        : [],
+    })),
+  };
 }
 
 function isUniqueViolation(error: unknown): boolean {
