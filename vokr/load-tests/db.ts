@@ -139,6 +139,10 @@ async function verify(): Promise<void> {
   check("reserved counter matches held rows", inventory.quantityReserved === heldUnits, `reserved=${inventory.quantityReserved} held_units=${heldUnits}`);
   const sessions = new Set(held.map((row) => row.checkoutSessionId));
   check("no duplicate holds (one row, one unit per session)", sessions.size === held.length && held.every((row) => row.quantity === 1), `rows=${held.length} sessions=${sessions.size}`);
+  // A refused buyer (sold out, rate limited, error) must leave nothing behind:
+  // before expiry runs, every reservation row for this variant is a live hold.
+  const notHeld = await prisma.inventoryReservation.count({ where: { variantId, state: { not: ReservationState.held } } });
+  check("refused buyers left no reservation rows", notHeld === 0, `non_held_rows=${notHeld}`);
   if (grantedByK6 !== undefined) {
     check("k6 200s == held sessions", grantedByK6 === sessions.size, `k6_granted=${grantedByK6} held_sessions=${sessions.size}`);
   }
