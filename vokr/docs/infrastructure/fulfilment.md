@@ -5,9 +5,11 @@ entry). The Shiprocket **API** is deliberately deferred (Phase 10 Out of
 Scope, ~600+ orders/month): orders reach Shiprocket by CSV upload in its
 panel, and the AWB comes back by hand.
 
-Code: `src/server/admin/*`, `src/app/admin/**`, `src/app/api/admin/**`,
-`src/components/admin/*`. Migration `20261016175750_admin_ops`. Tests:
-`src/server/admin/__tests__/*`, `src/server/net/__tests__/proxy-admin.test.ts`.
+Code: `src/server/admin/*`, `src/server/returns/*`, `src/app/admin/**`,
+`src/app/api/admin/**`, `src/app/api/returns/**`, `src/components/admin/*`.
+Migrations `20261016175750_admin_ops`, `20261017143950_returns_rto`. Tests:
+`src/server/admin/__tests__/*`, `src/server/returns/__tests__/*`,
+`src/server/net/__tests__/proxy-admin.test.ts`.
 
 ## Access
 
@@ -52,7 +54,8 @@ Revoke with `SET is_admin = false`. Record every grant/revoke in the plan.
    entering courier and AWB. This writes history and an audit row and queues
    the "your order has shipped" email (sent by the maintenance job within
    ~5 min, if Brevo is configured).
-5. **Delivered / RTO / returned** as the courier reports them.
+5. **Delivered / RTO** as the courier reports them (status change). Returns
+   and failed deliveries coming back: next section.
 
 ### Before the first real upload (once)
 
@@ -72,6 +75,75 @@ Revoke with `SET is_admin = false`. Record every grant/revoke in the plan.
   empty address line 2 carries the city (the column is mandatory); cells a
   spreadsheet could read as a formula are prefixed with `'`.
 
+## Returns, exchanges and failed deliveries (RTO)
+
+Published policy (terms §7–8, `/support-exchange-returns`): 30 days from
+delivery, unworn or gently tried on, refund to the original payment method
+after the item passes a quality check, exchanges ship once the original pair
+is in. The system enforces exactly that and nothing more.
+
+**Customer side (no login).** `POST /api/returns/request` with order number,
+email, SKU, quantity, `return` or `exchange`, a reason code (no free text)
+and, for an exchange, the size wanted. `POST /api/returns/lookup` shows
+their requests. Both sit behind the guest order lookup (same limits, same
+uniform "couldn't find" answer, same timing floor) and the ordering gate.
+The form is on the Order Status page, under the tracker result of a
+delivered order (copy DRAFT — owner sign-off before ordering opens). There
+is no operator "create on behalf" screen. Refused automatically: an order not delivered, past
+30 days, more units than bought, a second open request for the same item,
+an exchange to a size priced differently (return and reorder instead).
+
+**Operator side.** Order page → *Returns, exchanges and RTO*; everything
+waiting is also on the Exceptions page.
+
+1. **Requested → approve or reject.** Approving does not create a label:
+   **return labels are not built** (needs the Shiprocket account; Shiprocket
+   API is deferred). Book the reverse pickup in the Shiprocket panel and
+   email the customer yourself.
+2. **Approved → mark received** when the parcel arrives: tick *passed
+   quality check*, and *put back into sellable stock* if it can be sold
+   again. Restocking happens exactly once (the step cannot be repeated) and
+   is audit-logged as an inventory adjustment. A failed check closes the
+   request with no refund and no replacement — tell the customer why.
+3. **Return, received → Refund this return** (sign-in within 15 minutes,
+   order number retyped):
+   - **Every item of the order back**, and the order charged no shipping or
+     COD fee → the order becomes `returned` and the order's normal **full
+     refund** is queued (processed by the maintenance job once Razorpay keys
+     exist; the order moves to `refunded` when Razorpay confirms it).
+     *Tip: mark all parcels of an order received before refunding, or the
+     first one is refunded line by line.*
+   - **Anything less** (one line of several, or an order that charged
+     shipping) → the line's amount (GST-inclusive unit price × units) is
+     recorded **as due**. Refund exactly that amount in the Razorpay
+     dashboard (the order's payment → Refund → partial), then **Record
+     refund** with the `rfnd_…` id. The id is your statement — the system
+     does not read it back from Razorpay — and the payment and order rows
+     are not changed by a partial refund. Recorded amounts can never exceed
+     the captured payment, and the order's full-refund button disappears
+     once any partial refund is recorded.
+   - Shipping is never refunded automatically: whether it is refunded on a
+     return is not a published policy (owner decision).
+4. **Exchange, received → Replacement shipped**: enter courier and AWB from
+   the Shiprocket panel (create the forward shipment there by hand). The
+   replacement size's stock is taken at that moment, under lock; if it sold
+   out meanwhile the step is refused — restock it, or reject and handle as a
+   return. No new invoice or credit note is issued for an exchange (CA
+   question, with PR #38).
+5. **Failed delivery:** when the courier reports it, change the status to
+   `rto`. When the parcel is back, the order page shows **RTO received**:
+   per item, quality check and restock. Recorded once per item. Then either
+   queue the full refund (prepaid) or contact the customer. **A re-ship and
+   its charge are not built** — the terms say "re-shipping charges may
+   apply" but the amount is D11.
+
+**Not built (blocked):** return labels / reverse pickup (Shiprocket
+account), RTO re-ship charge (D11), COD refunds by bank transfer or store
+credit (D11 + D1's ledger), credit notes for partial refunds and any
+invoice for an exchange (CA review, PR #38), return/refund emails (copy not
+approved; the outbox is one email per order per template, so they need a
+per-return key), the operator create-on-behalf screen.
+
 ## Refunds
 
 Order page → "Queue full refund": retype the order number and give a
@@ -88,10 +160,11 @@ Exceptions page.
   the maintenance job's refund step reports `not_configured`, and a queued
   refund stays `open` on the Exceptions page until keys exist. With keys,
   it is processed on the next run (every 5 minutes).
-- Full refunds only. Partial refunds: Razorpay dashboard, then the issue
-  shows in `manual_review`; reconcile by hand.
+- Full refunds only from this button. A partial refund for a returned item
+  goes through *Refund this return* (above), which records it as due.
 - COD orders have no online payment to refund (COD is not built — D11).
-- Refunds **never restock**. If the goods come back sellable, adjust stock.
+- Refunds **never restock**. Returned and RTO items are restocked by the
+  *received* step; anything else, adjust stock.
 - An operator can never set an order to `refunded` directly.
 
 ## Stock

@@ -2,15 +2,17 @@
 
 import { useState } from "react";
 
+import { OrderReturns } from "@/components/marketing/order-returns";
 import { OrderCard } from "@/components/orders/order-card";
 import type { GuestOrderView } from "@/server/orders/lookup";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
+const RETURN_STATUSES = new Set(["delivered", "returned", "refunded"]);
 
 type State =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "found"; order: GuestOrderView }
+  | { kind: "found"; order: GuestOrderView; credentials: { orderNumber: string; email: string } }
   | { kind: "error"; message: string };
 
 /**
@@ -33,7 +35,7 @@ export function OrderLookup() {
         body: JSON.stringify({ orderNumber, email }),
       });
       const body = (await response.json()) as { order?: GuestOrderView; error?: { message?: string } };
-      if (response.ok && body.order) setState({ kind: "found", order: body.order });
+      if (response.ok && body.order) setState({ kind: "found", order: body.order, credentials: { orderNumber, email } });
       else setState({ kind: "error", message: body.error?.message ?? GENERIC_ERROR });
     } catch {
       setState({ kind: "error", message: GENERIC_ERROR });
@@ -41,6 +43,8 @@ export function OrderLookup() {
   }
 
   const order = state.kind === "found" ? state.order : null;
+  // Returns exist only from delivery on (plan §5 Phase 10, task 7).
+  const showReturns = state.kind === "found" && RETURN_STATUSES.has(state.order.status);
 
   return (
     <>
@@ -82,6 +86,9 @@ export function OrderLookup() {
         {state.kind === "error" && <p className="mb-8 text-sm font-medium text-red-600">{state.message}</p>}
         {order && <OrderCard order={order} />}
       </div>
+      {showReturns && state.kind === "found" ? (
+        <OrderReturns key={state.order.orderNumber} orderNumber={state.credentials.orderNumber} email={state.credentials.email} />
+      ) : null}
     </>
   );
 }

@@ -18,6 +18,7 @@ database dump shows ciphertext only.
 | Saved addresses | `addresses.name_enc`, `line1_enc`, `line2_enc`, `phone_enc`, `city`, `state`, `pincode` | Delivery, serviceability | Life of the account | Yes |
 | Checkout contact email | `checkout_sessions.contact_email_enc` | Order updates, guest lookup | With the session | Yes |
 | Order contact and ship-to | `orders.contact_email_enc`, `ship_name_enc`, `ship_phone_enc`, `ship_line1_enc`, `ship_line2_enc`, `ship_city`, `ship_state`, `ship_pincode` | Delivery, tax invoice | **8 years** (tax records) | Yes |
+| Returns, exchanges, failed deliveries | `return_requests` — item, quantity, a reason **code** (no free text), state, refund amount, replacement AWB; `requested_by` is `guest` or an account/admin id. No address, phone or bank detail | Returns and refunds (terms §7–8) | With the order (8 years, tax records) | Yes, under each order |
 | Email send records | `email_log.recipient_hash` (SHA-256 only, never the address or body) | One email per event | 180 days after sending | Records yes, hash no |
 | Guest device session | `guest_sessions.token_hash` | Guest bag | Until expiry | No (credential hash) |
 | Rate-limit buckets | `rate_limit_counters.key` — action scope + unsalted SHA-256 digest of the IP/email/id; raw values never stored, but this is **pseudonymised, not anonymised** (a known email or IPv4 address can be hashed and matched) | Abuse protection | 24 hours | No (transient) |

@@ -45,7 +45,7 @@ function OrderLink({ orderNumber }: { orderNumber: string | null | undefined }) 
 
 export default async function AdminExceptionsPage() {
   await requireAdminPage();
-  const { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders } = await loadExceptions();
+  const { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders, openReturns } = await loadExceptions();
   return (
     <main>
       <h1 className="mb-4 text-xl font-semibold text-foreground">Exceptions</h1>
@@ -128,6 +128,26 @@ export default async function AdminExceptionsPage() {
             <td className={TD_CLASS}>{order.status}</td>
             <td className={TD_CLASS}>{formatAdminDate(order.placedAt)}</td>
             <td className={TD_CLASS}>{formatAdminDate(order.updatedAt)}</td>
+          </tr>
+        ))}
+      </Section>
+
+      <Section
+        title="Returns and exchanges waiting on you (decide, receive, refund or ship the replacement)"
+        count={openReturns.length}
+        headers={["Order", "SKU", "Kind", "State", "Qty", "Refund due (by hand)", "Requested"]}
+      >
+        {openReturns.map((row) => (
+          <tr key={row.id}>
+            <td className={TD_CLASS}>
+              <OrderLink orderNumber={row.orderNumber} />
+            </td>
+            <td className={TD_CLASS}>{row.sku}</td>
+            <td className={TD_CLASS}>{row.kind}</td>
+            <td className={TD_CLASS}>{row.state}</td>
+            <td className={TD_CLASS}>{row.quantity}</td>
+            <td className={TD_CLASS}>{row.refundDuePaise === null ? "-" : formatPaiseAsRupees(row.refundDuePaise)}</td>
+            <td className={TD_CLASS}>{formatAdminDate(row.createdAt)}</td>
           </tr>
         ))}
       </Section>
