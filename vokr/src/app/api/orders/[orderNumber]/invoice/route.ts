@@ -5,7 +5,7 @@ import { logServerError } from "@/lib/log";
 import { requireUser } from "@/server/auth/session";
 import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
-import { loadInvoice, renderInvoiceHtml } from "@/server/invoices/render";
+import { documentKind, loadInvoice, renderInvoiceHtml } from "@/server/invoices/render";
 import { requestIdOf } from "@/server/net/request-id";
 
 /**
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/orde
     const user = await requireUser(request);
     cookiesToSet = user.cookiesToSet;
     const { orderNumber } = await context.params;
-    const html = renderInvoiceHtml(await loadInvoice(orderNumber, { ownerUserId: user.userId }));
+    const html = renderInvoiceHtml(await loadInvoice(orderNumber, { ownerUserId: user.userId }, documentKind(request)));
     return applyCookies(
       new NextResponse(html, {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" },

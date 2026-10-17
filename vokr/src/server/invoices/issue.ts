@@ -9,6 +9,30 @@ import {
   type InvoiceSeller,
 } from "./format";
 
+export type DocumentSeries = "invoice" | "credit_note";
+
+/**
+ * The next serial in a series for a financial year, from its counter row,
+ * incremented inside the caller's transaction: concurrent callers
+ * serialise on the row, and a rolled-back transaction gives the number
+ * back — consecutive with no gaps, which a sequence cannot promise.
+ */
+export async function nextSerial(
+  tx: Prisma.TransactionClient,
+  series: DocumentSeries,
+  financialYear: string,
+): Promise<number> {
+  const [counter] = await tx.$queryRaw<{ last_serial: number }[]>`
+    INSERT INTO invoice_counters (series, financial_year, last_serial, updated_at)
+    VALUES (${series}, ${financialYear}, 1, now())
+    ON CONFLICT (series, financial_year)
+    DO UPDATE SET last_serial = invoice_counters.last_serial + 1, updated_at = now()
+    RETURNING last_serial
+  `;
+  if (!counter) throw new Error(`${series} counter returned no row`);
+  return counter.last_serial;
+}
+
 /** The configured seller (decision D3). Throws {@link InvoiceBlockedError} until it is set. */
 export function getInvoiceSeller(): InvoiceSeller {
   return parseInvoiceSeller(requireServerEnv());
@@ -113,21 +137,14 @@ export async function issueInvoice(
 
   const issuedAt = options.now ?? new Date();
   const financialYear = financialYearOf(issuedAt);
-  const [counter] = await tx.$queryRaw<{ last_serial: number }[]>`
-    INSERT INTO invoice_counters (financial_year, last_serial, updated_at)
-    VALUES (${financialYear}, 1, now())
-    ON CONFLICT (financial_year)
-    DO UPDATE SET last_serial = invoice_counters.last_serial + 1, updated_at = now()
-    RETURNING last_serial
-  `;
-  if (!counter) throw new Error("invoice counter returned no row");
-  const invoiceNumber = invoiceNumberFor(financialYear, counter.last_serial);
+  const serial = await nextSerial(tx, "invoice", financialYear);
+  const invoiceNumber = invoiceNumberFor(financialYear, serial);
   await tx.invoice.create({
     data: {
       orderId,
       invoiceNumber,
       financialYear,
-      serial: counter.last_serial,
+      serial,
       seller: { ...seller },
       issuedAt,
     },

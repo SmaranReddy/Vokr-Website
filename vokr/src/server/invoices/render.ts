@@ -2,7 +2,7 @@ import { gstStateCode, isValidGstState } from "@/lib/gst-states";
 import { decryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
 import { escapeHtml } from "@/server/email/templates/order-confirmation";
-import { NotFoundError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import { normalizeOrderNumber } from "@/server/orders/lookup";
 
 import { amountInWords, type InvoiceSeller } from "./format";
@@ -43,10 +43,16 @@ export interface InvoiceDocument {
   subtotalPaise: number;
   taxPaise: number;
   totalPaise: number;
+  /** Set when this document is the credit note cancelling the invoice above (s.34 / r.53). */
+  creditNote?: { creditNoteNumber: string; issuedAt: Date; reason: string };
 }
 
 /** Loads one order's invoice. `ownerUserId` limits it to that customer's own order; omit only behind the admin guard. */
-export async function loadInvoice(orderNumberInput: string, access: { ownerUserId?: string }): Promise<InvoiceDocument> {
+export async function loadInvoice(
+  orderNumberInput: string,
+  access: { ownerUserId?: string },
+  kind: "invoice" | "credit_note" = "invoice",
+): Promise<InvoiceDocument> {
   const orderNumber = normalizeOrderNumber(orderNumberInput);
   if (!orderNumber) throw new NotFoundError("Invoice not found.");
   const order = await prisma.order.findUnique({
@@ -66,6 +72,7 @@ export async function loadInvoice(orderNumberInput: string, access: { ownerUserI
       taxPaise: true,
       totalPaise: true,
       invoice: { select: { invoiceNumber: true, issuedAt: true, seller: true } },
+      creditNote: { select: { creditNoteNumber: true, issuedAt: true, seller: true, reason: true } },
       items: {
         select: {
           sku: true,
@@ -89,13 +96,15 @@ export async function loadInvoice(orderNumberInput: string, access: { ownerUserI
   // Another customer's order, an unknown one, and one not yet invoiced are the same 404.
   if (!order || !order.invoice) throw new NotFoundError("Invoice not found.");
   if (access.ownerUserId !== undefined && order.userId !== access.ownerUserId) throw new NotFoundError("Invoice not found.");
+  if (kind === "credit_note" && !order.creditNote) throw new NotFoundError("Credit note not found.");
+  const creditNote = kind === "credit_note" ? order.creditNote : null;
 
   return {
     invoiceNumber: order.invoice.invoiceNumber,
     issuedAt: order.invoice.issuedAt,
     orderNumber: order.orderNumber,
     placedAt: order.placedAt,
-    seller: order.invoice.seller as unknown as InvoiceSeller,
+    seller: (creditNote?.seller ?? order.invoice.seller) as unknown as InvoiceSeller,
     buyer: {
       name: decryptField(order.shipNameEnc),
       line1: decryptField(order.shipLine1Enc),
@@ -125,7 +134,18 @@ export async function loadInvoice(orderNumberInput: string, access: { ownerUserI
     subtotalPaise: order.subtotalPaise,
     taxPaise: order.taxPaise,
     totalPaise: order.totalPaise,
+    ...(creditNote
+      ? { creditNote: { creditNoteNumber: creditNote.creditNoteNumber, issuedAt: creditNote.issuedAt, reason: creditNote.reason } }
+      : {}),
   };
+}
+
+/** `?type=credit-note` selects the credit note; nothing else is accepted. */
+export function documentKind(request: { nextUrl: URL }): "invoice" | "credit_note" {
+  const type = request.nextUrl.searchParams.get("type");
+  if (type === null || type === "invoice") return "invoice";
+  if (type === "credit-note") return "credit_note";
+  throw new ValidationError('type must be "invoice" or "credit-note".');
 }
 
 const money = (paise: number) =>
@@ -136,6 +156,7 @@ const date = (at: Date) =>
 
 export function renderInvoiceHtml(doc: InvoiceDocument): string {
   const e = escapeHtml;
+  const cn = doc.creditNote;
   const intra = doc.lines.every((line) => line.igstPaise === 0);
   const sum = (key: "cgstPaise" | "sgstPaise" | "igstPaise") => doc.lines.reduce((total, line) => total + line[key], 0);
   const taxable = doc.subtotalPaise - doc.taxPaise;
@@ -158,7 +179,7 @@ export function renderInvoiceHtml(doc: InvoiceDocument): string {
     .join("<br>");
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex">
-<title>Tax invoice ${e(doc.invoiceNumber)}</title>
+<title>${cn ? `Credit note ${e(cn.creditNoteNumber)}` : `Tax invoice ${e(doc.invoiceNumber)}`}</title>
 <style>
 body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;font-size:13px}
 h1{font-size:18px;margin:0 0 4px}table{border-collapse:collapse;width:100%}
@@ -167,11 +188,15 @@ th,td{border:1px solid #999;padding:6px;vertical-align:top;text-align:left}th{ba
 .totals{width:auto;margin-left:auto;margin-top:12px}.muted{color:#555}
 @media print{body{margin:0}}
 </style></head><body>
-<h1>Tax Invoice</h1>
+<h1>${cn ? "Credit Note" : "Tax Invoice"}</h1>
 <p class="muted">Original for recipient</p>
 <div class="grid">
 <div><strong>${e(doc.seller.legalName)}</strong><br>${e(doc.seller.address)}<br>State: ${e(doc.seller.state)} (${e(doc.seller.stateCode)})<br>GSTIN: ${e(doc.seller.gstin)}</div>
-<div>Invoice no.: <strong>${e(doc.invoiceNumber)}</strong><br>Invoice date: ${e(date(doc.issuedAt))}<br>Order: ${e(doc.orderNumber)} (placed ${e(date(doc.placedAt))})<br>Payment: ${e(doc.paymentMethod === "cod" ? "Cash on delivery" : "Prepaid")}</div>
+<div>${
+    cn
+      ? `Credit note no.: <strong>${e(cn.creditNoteNumber)}</strong><br>Credit note date: ${e(date(cn.issuedAt))}<br>Against tax invoice ${e(doc.invoiceNumber)} dated ${e(date(doc.issuedAt))}<br>Reason: ${e(cn.reason)}<br>`
+      : `Invoice no.: <strong>${e(doc.invoiceNumber)}</strong><br>Invoice date: ${e(date(doc.issuedAt))}<br>`
+  }Order: ${e(doc.orderNumber)} (placed ${e(date(doc.placedAt))})<br>Payment: ${e(doc.paymentMethod === "cod" ? "Cash on delivery" : "Prepaid")}</div>
 </div>
 <div class="grid">
 <div><strong>Billed and shipped to</strong><br>${e(doc.buyer.name)}<br>${buyerAddress}<br>GSTIN: Unregistered</div>
@@ -181,7 +206,7 @@ th,td{border:1px solid #999;padding:6px;vertical-align:top;text-align:left}th{ba
 <table class="totals"><tbody>
 <tr><td>Taxable value</td><td class="n">${e(money(taxable))}</td></tr>
 ${taxTotals}
-<tr><td><strong>Invoice total (₹)</strong></td><td class="n"><strong>${e(money(doc.totalPaise))}</strong></td></tr>
+<tr><td><strong>${cn ? "Total credited (₹)" : "Invoice total (₹)"}</strong></td><td class="n"><strong>${e(money(doc.totalPaise))}</strong></td></tr>
 </tbody></table>
 <p>Amount in words: <strong>${e(amountInWords(doc.totalPaise))}</strong></p>
 <p style="margin-top:40px">For ${e(doc.seller.legalName)}<br><br>Authorised signatory</p>

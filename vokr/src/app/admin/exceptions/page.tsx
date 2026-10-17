@@ -45,7 +45,7 @@ function OrderLink({ orderNumber }: { orderNumber: string | null | undefined }) 
 
 export default async function AdminExceptionsPage() {
   await requireAdminPage();
-  const { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders } = await loadExceptions();
+  const { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders, missingCreditNotes } = await loadExceptions();
   return (
     <main>
       <h1 className="mb-4 text-xl font-semibold text-foreground">Exceptions</h1>
@@ -127,6 +127,22 @@ export default async function AdminExceptionsPage() {
             </td>
             <td className={TD_CLASS}>{order.status}</td>
             <td className={TD_CLASS}>{formatAdminDate(order.placedAt)}</td>
+            <td className={TD_CLASS}>{formatAdminDate(order.updatedAt)}</td>
+          </tr>
+        ))}
+      </Section>
+
+      <Section
+        title="Refunded invoices without a credit note (normally issued within minutes)"
+        count={missingCreditNotes.length}
+        headers={["Order", "Invoice", "Refunded at"]}
+      >
+        {missingCreditNotes.map((order) => (
+          <tr key={order.orderNumber}>
+            <td className={TD_CLASS}>
+              <OrderLink orderNumber={order.orderNumber} />
+            </td>
+            <td className={TD_CLASS}>{order.invoice?.invoiceNumber ?? "-"}</td>
             <td className={TD_CLASS}>{formatAdminDate(order.updatedAt)}</td>
           </tr>
         ))}

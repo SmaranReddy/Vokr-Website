@@ -13,7 +13,7 @@ const LIMIT = 100;
 
 export async function loadExceptions(now: Date = new Date()) {
   const stuckBefore = new Date(now.getTime() - STUCK_ORDER_HOURS * 60 * 60 * 1000);
-  const [orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders] = await Promise.all([
+  const [orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders, missingCreditNotes] = await Promise.all([
     findOrderOrphans(),
     prisma.paymentIssue.findMany({
       where: { state: { in: [PaymentIssueState.open, PaymentIssueState.refund_initiated, PaymentIssueState.manual_review] } },
@@ -50,8 +50,16 @@ export async function loadExceptions(now: Date = new Date()) {
       orderBy: { placedAt: "asc" },
       take: LIMIT,
     }),
+    // Refunded and invoiced, still waiting on its credit note (normally
+    // minutes; longer means the maintenance step is failing).
+    prisma.order.findMany({
+      where: { status: OrderStatus.refunded, invoice: { isNot: null }, creditNote: { is: null } },
+      select: { orderNumber: true, updatedAt: true, invoice: { select: { invoiceNumber: true } } },
+      orderBy: { updatedAt: "asc" },
+      take: LIMIT,
+    }),
   ]);
-  return { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders };
+  return { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders, missingCreditNotes };
 }
 
 export type AdminExceptions = Awaited<ReturnType<typeof loadExceptions>>;

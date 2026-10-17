@@ -23,11 +23,20 @@ export function financialYearOf(at: Date): string {
  * and unique for the financial year, with `/` and `-` permitted.
  */
 export function invoiceNumberFor(financialYear: string, serial: number): string {
+  return documentNumber("VK", financialYear, serial);
+}
+
+/** `VKC/2627/000001`: 15 characters — credit notes are their own consecutive series (r.53, pending CA review). */
+export function creditNoteNumberFor(financialYear: string, serial: number): string {
+  return documentNumber("VKC", financialYear, serial);
+}
+
+function documentNumber(prefix: string, financialYear: string, serial: number): string {
   const match = /^(\d{2})(\d{2})-(\d{2})$/.exec(financialYear);
   if (!match || !Number.isInteger(serial) || serial < 1 || serial > 999_999) {
-    throw new Error(`cannot number invoice ${serial} in ${financialYear}`);
+    throw new Error(`cannot number ${prefix} document ${serial} in ${financialYear}`);
   }
-  return `VK/${match[2]}${match[3]}/${String(serial).padStart(6, "0")}`;
+  return `${prefix}/${match[2]}${match[3]}/${String(serial).padStart(6, "0")}`;
 }
 
 /**

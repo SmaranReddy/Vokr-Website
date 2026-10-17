@@ -138,6 +138,7 @@ export async function getAdminOrder(orderNumberInput: string) {
       awb: true,
       shippedAt: true,
       invoice: { select: { invoiceNumber: true, issuedAt: true } },
+      creditNote: { select: { creditNoteNumber: true, issuedAt: true } },
       items: {
         select: {
           sku: true,

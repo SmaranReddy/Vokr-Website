@@ -15,7 +15,7 @@ export function RefundForm({
 }: {
   orderNumber: string;
   amountPaise: number;
-  /** Set when a tax invoice was issued: a refund then needs a GST credit note, which is not automated. */
+  /** Set when a tax invoice was issued: a completed full refund then gets a credit note automatically. */
   invoiceNumber: string | null;
 }) {
   const { post, pending, error } = useAdminPost();
@@ -37,9 +37,9 @@ export function RefundForm({
     <form onSubmit={onSubmit} className="flex max-w-md flex-col gap-3">
       {invoiceNumber ? (
         <p role="note" className="border border-foreground p-2 text-sm">
-          Tax invoice {invoiceNumber} has been issued for this order. Refunding it requires a GST credit note
-          (CGST Act s.34), which Vokr does not generate yet: issue one with your accountant and keep it with the
-          invoice.
+          Tax invoice {invoiceNumber} has been issued for this order. When the full refund completes, a GST credit
+          note (CGST Act s.34) is issued against it automatically by the maintenance job; its format is pending your
+          CA&apos;s review. Partial refunds made in the Razorpay dashboard get no automatic credit note.
         </p>
       ) : null}
       <p className="text-sm text-muted">

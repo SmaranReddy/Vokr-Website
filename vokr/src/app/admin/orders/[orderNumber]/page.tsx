@@ -88,6 +88,24 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
               "Not issued (issued when the order ships)"
             )}
           </Row>
+          {order.invoice ? (
+            <Row label="Credit note">
+              {order.creditNote ? (
+                <a
+                  className="underline"
+                  href={`/api/admin/orders/${encodeURIComponent(order.orderNumber)}/invoice?type=credit-note`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {order.creditNote.creditNoteNumber}
+                </a>
+              ) : order.status === "refunded" ? (
+                "Pending — issued by the maintenance job within ~5 minutes"
+              ) : (
+                "None (issued automatically when a full refund completes)"
+              )}
+            </Row>
+          ) : null}
           <Row label="Shipped at">{formatAdminDate(order.shippedAt)}</Row>
         </dl>
       </Section>
