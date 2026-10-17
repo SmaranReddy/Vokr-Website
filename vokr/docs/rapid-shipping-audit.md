@@ -82,7 +82,7 @@ Migration `20261016175750_admin_ops` (additive): `app_users.is_admin`;
 | Shiprocket CSV accepted by the panel; real shipment | **BLOCKED** | Shiprocket account + panel sample |
 | COD, returns/exchanges, RTO | **NOT BUILT** | D11, Phase 10 |
 | Compliant invoice: gap-free numbering (concurrent, rollback, FY boundary), r.46 fields, refusal on unreconciled orders | PASS (branch `feat/gst-invoices`, not merged) | int + unit; **values blocked on D2/D3; CA review pending** |
-| GST credit note for a refund after invoicing | **NOT BUILT — launch-blocking** | refund form warns; manual via accountant |
+| GST credit note for a full refund after invoicing (own gap-free series, off the payment path) | PASS (branch `feat/gst-invoices`, not merged) | int: ship → refund → credit note; concurrent runs; CA review pending. Partial refunds: manual |
 | GST on shipping / COD fees | **UNDECIDED** — pricing adds them untaxed; invoicing refuses such orders | D11 + CA |
 | Backup restore | PASS (per migration) | restore-tested backups in `vokr-backups` |
 

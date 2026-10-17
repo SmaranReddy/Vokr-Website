@@ -112,9 +112,19 @@ signature/digital signature is needed on an electronic invoice; issuing at
 shipment rather than at payment; GST on shipping/COD fees. The GSTIN check
 digit is not verified in code (format and state code only).
 
-**Not built — launch-blocking:** **credit notes** (CGST Act s.34). A
-refund after an invoice was issued needs one; the refund form warns about
-this. Until it is built, issue credit notes with your accountant.
+**Credit notes** (CGST Act s.34; r.53 — pending CA review): when an
+invoiced order becomes `refunded` (a full refund Razorpay confirmed), the
+maintenance job issues a credit note within ~5 minutes, in its own
+transaction — never inside the payment path, so it cannot fail a refund.
+Numbered `VKC/2627/000001` (own consecutive series per financial year of
+issue), it copies the seller from the invoice, references the invoice
+number and date, and is immutable. Admin order page → "Credit note" link;
+the signed-in customer sees it in their order history. An order still
+waiting shows on the Exceptions page ("Refunded invoices without a credit
+note"); a log line tagged `CREDIT_NOTE_FAILED` means the step is failing.
+**Partial refunds** (Razorpay dashboard) never move an order to
+`refunded`, so they get no automatic credit note — issue one with your
+accountant.
 
 ## Refunds
 
