@@ -24,9 +24,9 @@ BASE="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$S
 # name | log filter (appended to BASE) | description
 METRICS=(
   "vokr_order_orphan|textPayload:\"ORDER_ORPHAN\"|Paid session without order, captured payment unaccounted, or prepaid order without capture"
-  "vokr_late_payment_manual_review|textPayload:\"LATE_PAYMENT manual_review\"|A late/extra payment the refund job will not decide alone"
+  "vokr_late_payment_manual_review|textPayload:\"LATE_PAYMENT\" AND textPayload:\"manual_review\"|A payment issue opened in, or moved to, manual review (late/extra payment, failed refund, amount mismatch)"
   "vokr_unmatched_payment|textPayload:\"UNMATCHED_PAYMENT\"|Razorpay money on an order this server has no record of"
-  "vokr_amount_mismatch|textPayload:\"AMOUNT_MISMATCH\"|A payment whose amount does not match its order"
+  "vokr_amount_mismatch|(textPayload:\"reason=amount_mismatch\" OR textPayload:\"AMOUNT_MISMATCH_UNRECORDED\")|A payment whose amount does not match its order (issue opened in manual review, or could not be recorded)"
   "vokr_reconcile_failed|textPayload:\"RECONCILE_FAILED\"|An order Razorpay could not be read for during reconciliation"
   "vokr_email_failed|textPayload:\"EMAIL_FAILED\"|A transactional email failed or the Brevo account refused the queue"
   "vokr_email_volume|textPayload:\"EMAIL_VOLUME\"|Daily email volume reached the 200 warning or the 290 stop"

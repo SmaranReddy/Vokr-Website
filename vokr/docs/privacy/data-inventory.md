@@ -20,7 +20,7 @@ database dump shows ciphertext only.
 | Order contact and ship-to | `orders.contact_email_enc`, `ship_name_enc`, `ship_phone_enc`, `ship_line1_enc`, `ship_line2_enc`, `ship_city`, `ship_state`, `ship_pincode` | Delivery, tax invoice | **8 years** (tax records) | Yes |
 | Email send records | `email_log.recipient_hash` (SHA-256 only, never the address or body) | One email per event | 180 days after sending | Records yes, hash no |
 | Guest device session | `guest_sessions.token_hash` | Guest bag | Until expiry | No (credential hash) |
-| Rate-limit buckets | `rate_limit_counters.key` — action scope + SHA-256 digest of the IP/email/id (raw values never stored) | Abuse protection | 24 hours | No (transient) |
+| Rate-limit buckets | `rate_limit_counters.key` — action scope + unsalted SHA-256 digest of the IP/email/id; raw values never stored, but this is **pseudonymised, not anonymised** (a known email or IPv4 address can be hashed and matched) | Abuse protection | 24 hours | No (transient) |
 | Operator audit | `audit_log` (actor = admin id; a PII reveal records *that* it happened, never the data) | Accountability | Not yet pruned | No (operator record) |
 
 ## Outside the database
@@ -54,8 +54,10 @@ database dump shows ciphertext only.
 
 ## Findings to act on
 
-1. ~~`rate_limit_counters.key` stores raw emails/IPs~~ — fixed: only a
-   digest is stored (`storedRateLimitKey`).
+1. `rate_limit_counters.key` no longer stores raw emails/IPs — only an
+   unsalted digest (`storedRateLimitKey`). That is pseudonymisation, not
+   anonymisation: the rows are still personal data for their 24 hours. A
+   keyed HMAC with a secret would close that; legal review to decide.
 2. `audit_log` has no retention rule yet.
 3. The Shiprocket CSV is a PII file on the operator's machine — the
    runbook says delete after upload; nothing enforces it.

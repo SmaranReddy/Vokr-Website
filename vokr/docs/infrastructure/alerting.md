@@ -9,8 +9,10 @@ day).
 
 ## State (17 Oct 2026)
 
-- **Metrics: created** in `vokr-website` (all ten below); the filter shape
-  was checked against live logs.
+- **Metrics: created** in `vokr-website` (all ten below). Every filter was
+  checked against the exact string its code path emits, and the filter shape
+  against live logs. Filters are substring matches on log text: **when a
+  tagged log line changes, update the script and re-run it.**
 - **Alert policies: not created — no notification channel exists.** The
   owner chooses where alerts go. To turn them on:
 
@@ -29,9 +31,9 @@ policies).
 | Metric | Fires when | Do this |
 |---|---|---|
 | `vokr_order_orphan` | A paid session has no order, a captured payment has neither order nor refund issue, or a prepaid order has no capture | Urgent: money and orders disagree. Admin → Exceptions; `late-payments.md` |
-| `vokr_late_payment_manual_review` | A late or extra payment the refund job will not decide alone | Admin → Exceptions → payment issue `last_error`; act in the Razorpay dashboard (`late-payments.md`) |
+| `vokr_late_payment_manual_review` | A payment issue opens in, or moves to, manual review — a late/extra payment the job will not decide alone, a failed refund, an amount mismatch | Admin → Exceptions → payment issue `last_error`; act in the Razorpay dashboard (`late-payments.md`) |
 | `vokr_unmatched_payment` | Razorpay reports money on an order this server has no record of | Check the Razorpay dashboard; never auto-refunded (`late-payments.md`) |
-| `vokr_amount_mismatch` | A payment's amount does not match its order | Treated as manual review; check in Razorpay |
+| `vokr_amount_mismatch` | A payment's amount does not match its order (`reason=amount_mismatch`), or such an issue could not even be recorded (`AMOUNT_MISMATCH_UNRECORDED` — urgent) | Never auto-refunded; check in Razorpay and refund by hand |
 | `vokr_reconcile_failed` | Razorpay could not be read for an order during reconciliation | Transient if it clears next run; persistent → Razorpay keys/status |
 | `vokr_email_failed` | A transactional email failed, or Brevo refused the account (queue paused) | `email.md`; Admin → Exceptions → failed emails; check the Brevo key/sender |
 | `vokr_email_volume` | 200 emails today (warning) or 290 (sending stopped for the day) | Brevo free tier is 300/day; upgrade if this recurs (`email.md`) |

@@ -54,7 +54,7 @@ export const PERSONAL_DATA_INVENTORY: readonly PersonalDataField[] = [
   },
   {
     field: "RateLimitCounter.key",
-    what: "Rate-limit bucket names: a scope (e.g. auth:signin:email) plus a SHA-256 digest of the IP, email or id (never the raw value)",
+    what: "Rate-limit bucket names: a scope (e.g. auth:signin:email) plus an unsalted SHA-256 digest of the IP, email or id — pseudonymised, not anonymised (a known email or IPv4 can be checked against it)",
     why: "Abuse protection (sign-in, reset, lookups)",
     retention: "24 hours (pruned by the maintenance job)",
     exported: "Transient security data, deleted within 24 hours",
