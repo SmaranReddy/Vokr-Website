@@ -12,7 +12,12 @@ import { prisma } from "@/server/db/client";
  *   it is kept until a person deals with it;
  * - `inventory_reservations` that were released or expired more than
  *   7 days ago. Committed holds are kept: they are the stock half of a
- *   paid checkout.
+ *   paid checkout;
+ * - `email_log` rows that finished (`sent` or `failed`) more than 180 days
+ *   ago (plan §5 Phase 11, Database Impact). `pending`/`sending` rows are
+ *   work in flight and are never pruned. No row is ever re-created by
+ *   this: emails are enqueued only on a one-time order event (creation,
+ *   the first `shipped` transition).
  *
  * Abandoned carts (30 days) and guest sessions (90 days) are **not** pruned
  * here yet: `checkout_sessions` references both, and its
@@ -24,7 +29,10 @@ export interface PruneReport {
   rateLimitCounters: number;
   webhookEvents: number;
   reservations: number;
+  emailLog: number;
 }
+
+export const EMAIL_LOG_RETENTION_DAYS = 180;
 
 export async function pruneExpiredRows(): Promise<PruneReport> {
   const rateLimitCounters = await prisma.$executeRaw`
@@ -38,5 +46,10 @@ export async function pruneExpiredRows(): Promise<PruneReport> {
     DELETE FROM inventory_reservations
      WHERE state IN ('released', 'expired') AND updated_at < now() - interval '7 days'
   `;
-  return { rateLimitCounters, webhookEvents, reservations };
+  const emailLog = await prisma.$executeRaw`
+    DELETE FROM email_log
+     WHERE status IN ('sent', 'failed')
+       AND COALESCE(sent_at, updated_at) < now() - make_interval(days => ${EMAIL_LOG_RETENTION_DAYS}::int)
+  `;
+  return { rateLimitCounters, webhookEvents, reservations, emailLog };
 }

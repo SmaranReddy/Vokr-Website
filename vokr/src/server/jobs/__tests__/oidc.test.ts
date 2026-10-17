@@ -135,7 +135,7 @@ describe("handleMaintenanceRequest", () => {
     latePayments: { status: "not_configured" },
     orders: { status: "ok", result: { paidSessionsWithoutOrder: 0, capturedPaymentsUnaccounted: 0, ordersWithoutCapture: 0 } },
     emails: { status: "not_configured" },
-    pruning: { status: "ok", result: { rateLimitCounters: 0, webhookEvents: 0, reservations: 0 } },
+    pruning: { status: "ok", result: { rateLimitCounters: 0, webhookEvents: 0, reservations: 0, emailLog: 0 } },
   };
 
   it("runs the job for the scheduler's token", async () => {
