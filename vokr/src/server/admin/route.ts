@@ -57,3 +57,13 @@ export async function parseJsonBody<T extends z.ZodType>(request: NextRequest, s
   }
   return parsed.data;
 }
+
+/** A value already taken from a parsed body (e.g. an action's `input`) against its own schema; same 400 as {@link parseJsonBody}. */
+export function parseInput<T extends z.ZodType>(schema: T, input: unknown): z.infer<T> {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new ValidationError(issue ? `${issue.path.join(".") || "input"}: ${issue.message}` : "Invalid request.");
+  }
+  return parsed.data;
+}

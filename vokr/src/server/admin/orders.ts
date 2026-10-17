@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { CheckoutPaymentMethod, OrderStatus, PaymentStatus } from "@/generated/prisma/enums";
+import type { Prisma } from "@/generated/prisma/client";
+import { CheckoutPaymentMethod, OrderStatus, PaymentStatus, ReturnRefundMode } from "@/generated/prisma/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { decryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
@@ -182,7 +183,11 @@ export async function getAdminOrder(orderNumberInput: string) {
     orderBy: { createdAt: "asc" },
     take: 200,
   });
-  const refundable = canRequestRefund(order);
+  // A full refund on top of a recorded partial (return) refund would exceed the capture.
+  const partialRefunds = await prisma.returnRequest.count({
+    where: { orderId: order.id, refundMode: ReturnRefundMode.manual_due },
+  });
+  const refundable = partialRefunds === 0 && canRequestRefund(order);
   return { ...order, audit, nextStatuses: adminNextStatuses(order.status), refundable };
 }
 
@@ -358,45 +363,76 @@ export async function requestOrderRefund(
       select: { id: true, paymentId: true },
     });
     if (!order) throw new NotFoundError("Order not found.");
-    if (!order.paymentId) throw new ConflictError("This order has no online payment to refund.");
-
-    const [payment] = await tx.$queryRaw<
-      { status: PaymentStatus; provider_payment_id: string | null; amount_paise: number; currency: string }[]
-    >`
-      SELECT status, provider_payment_id, amount_paise, currency FROM payments
-       WHERE id = ${order.paymentId}::uuid FOR UPDATE
-    `;
-    const [locked] = await tx.$queryRaw<{ status: OrderStatus }[]>`
-      SELECT status FROM orders WHERE id = ${order.id}::uuid FOR UPDATE
-    `;
-    if (!payment || !locked) throw new NotFoundError("Order not found.");
-    if (locked.status === OrderStatus.refunded) throw new ConflictError("This order is already refunded.");
-    if (payment.status !== PaymentStatus.captured || !payment.provider_payment_id) {
-      throw new ConflictError(`The payment is "${payment.status}", not captured; nothing to refund.`);
-    }
-    const existing = await tx.paymentIssue.findUnique({
-      where: { providerPaymentId: payment.provider_payment_id },
-      select: { state: true },
-    });
-    if (existing) throw new ConflictError(`A refund is already ${existing.state.replaceAll("_", " ")} for this payment.`);
-
-    await recordPaymentIssue(tx, {
-      paymentId: order.paymentId,
-      providerPaymentId: payment.provider_payment_id,
-      amountPaise: payment.amount_paise,
-      currency: payment.currency,
-      reason: ADMIN_REFUND_REASON,
-    });
-    await writeAudit(tx, {
-      actor,
-      action: "order.refund",
-      entity: "order",
-      entityId: order.id,
-      before: { status: locked.status, paymentStatus: payment.status },
-      after: { refundQueuedPaise: payment.amount_paise },
-      reason: input.reason,
-      requestId,
-    });
-    return { queued: true as const, amountPaise: payment.amount_paise };
+    return queueFullOrderRefund(tx, { orderId: order.id, paymentId: order.paymentId, actor, reason: input.reason, requestId });
   });
+}
+
+/**
+ * The refund queueing itself, in the caller's transaction — shared with a
+ * whole-order return (`src/server/returns/`). Locks payment → order, checks
+ * the payment is captured with no issue yet and that no partial (return)
+ * refund has been recorded against the order, then opens the issue and
+ * writes the audit row.
+ */
+export async function queueFullOrderRefund(
+  tx: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    paymentId: string | null;
+    actor: string;
+    reason: string;
+    requestId?: string;
+    /** Extra audit context, e.g. the returns it settles. Never PII. */
+    context?: Record<string, Prisma.InputJsonValue>;
+  },
+): Promise<{ queued: true; amountPaise: number }> {
+  if (!input.paymentId) throw new ConflictError("This order has no online payment to refund.");
+
+  const [payment] = await tx.$queryRaw<
+    { status: PaymentStatus; provider_payment_id: string | null; amount_paise: number; currency: string }[]
+  >`
+    SELECT status, provider_payment_id, amount_paise, currency FROM payments
+     WHERE id = ${input.paymentId}::uuid FOR UPDATE
+  `;
+  const [locked] = await tx.$queryRaw<{ status: OrderStatus }[]>`
+    SELECT status FROM orders WHERE id = ${input.orderId}::uuid FOR UPDATE
+  `;
+  if (!payment || !locked) throw new NotFoundError("Order not found.");
+  if (locked.status === OrderStatus.refunded) throw new ConflictError("This order is already refunded.");
+  if (payment.status !== PaymentStatus.captured || !payment.provider_payment_id) {
+    throw new ConflictError(`The payment is "${payment.status}", not captured; nothing to refund.`);
+  }
+  const existing = await tx.paymentIssue.findUnique({
+    where: { providerPaymentId: payment.provider_payment_id },
+    select: { state: true },
+  });
+  if (existing) throw new ConflictError(`A refund is already ${existing.state.replaceAll("_", " ")} for this payment.`);
+  // A full refund on top of a partial one would exceed the captured amount.
+  const partial = await tx.returnRequest.count({
+    where: { orderId: input.orderId, refundMode: ReturnRefundMode.manual_due },
+  });
+  if (partial > 0) {
+    throw new ConflictError(
+      "A partial refund is recorded against this order's returns; refund any remainder in the Razorpay dashboard.",
+    );
+  }
+
+  await recordPaymentIssue(tx, {
+    paymentId: input.paymentId,
+    providerPaymentId: payment.provider_payment_id,
+    amountPaise: payment.amount_paise,
+    currency: payment.currency,
+    reason: ADMIN_REFUND_REASON,
+  });
+  await writeAudit(tx, {
+    actor: input.actor,
+    action: "order.refund",
+    entity: "order",
+    entityId: input.orderId,
+    before: { status: locked.status, paymentStatus: payment.status },
+    after: { refundQueuedPaise: payment.amount_paise, ...(input.context ?? {}) },
+    reason: input.reason,
+    requestId: input.requestId,
+  });
+  return { queued: true as const, amountPaise: payment.amount_paise };
 }
