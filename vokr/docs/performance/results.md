@@ -139,8 +139,8 @@ still `false`, and `RAZORPAY_LIVE_MODE_ALLOWED` is untouched.
 - reserved ≤ on-hand (no oversell)
 - held units == min(N, stock)
 - reserved counter == held rows
-- one hold row of one unit per session (no duplicates)
-- refused buyers left **no** reservation rows
+- one hold row of one unit per session (no duplicates; also trivial here, since one call per session)
+- refused buyers left **no** reservation rows (trivial in this scenario, see the retry run below)
 - k6 200s == held sessions
 - zero orders without payment
 - `pg_stat_database.deadlocks` unchanged (**0 deadlocks**)
@@ -170,6 +170,58 @@ launcher, not the app. The server was relaunched under `cmd` redirection, and
 the whole 9-run matrix was rerun from scratch on fresh variants. Only the
 rerun is reported. The aborted run's 3 holds sat on their own variant and were
 expired by the next `verify`.
+
+### Retries and partial rollback (`checkout-retry.js`), 17 Oct 2026
+
+**Why a second scenario:** in the run above each session sends exactly one
+reserve for a single item. So "no duplicate holds" and "refused buyers left
+no rows" **cannot fail there**: nothing retries, and a one-line deny has no
+partial hold to roll back. Those two rows prove only single-attempt,
+single-item behaviour. This scenario tests both cases properly.
+
+**Setup:** same isolation and launcher. A fresh throwaway detached
+worktree at `7826e30` held the same uncommitted flip, and was removed afterwards.
+- Each run seeds a scarce variant (**3 units**) and a plentiful companion
+  (**100 units**). Every buyer carts **both**.
+- At the barrier, each buyer fires **two `/reserve` calls for the same
+  session at once** (`http.batch`), as a double click would.
+- `db.ts verify` adds two companion checks:
+  - companion reserved == winning sessions, on-hand unchanged;
+  - exactly one held companion unit per winning session, and **none for any
+    losing session**. Losers held nothing on either line.
+
+| Buyers | Run | Sessions 200+200 | Sessions 409+409 | Mixed | 429 | 5xx | Reserve p50 / p95 / p99 / max (ms) | DB verify |
+|---:|---:|---:|---:|---:|---:|---:|---|---|
+| 10 | 1 | 3 | 7 | 0 | 0 | 0 | 377 / 394 / 395 / 395 | 12/12 PASS |
+| 10 | 2 | 3 | 7 | 0 | 0 | 0 | 396 / 417 / 420 / 420 | 12/12 PASS |
+| 10 | 3 | 3 | 7 | 0 | 0 | 0 | 361 / 386 / 386 / 386 | 12/12 PASS |
+| 25 | 1 | 3 | 22 | 0 | 0 | 0 | 692 / 775 / 783 / 787 | 12/12 PASS |
+| 25 | 2 | 3 | 22 | 0 | 0 | 0 | 674 / 766 / 772 / 776 | 12/12 PASS |
+| 25 | 3 | 3 | 22 | 0 | 0 | 0 | 611 / 695 / 698 / 698 | 12/12 PASS |
+| 50 | 1 | 3 | 47 | 0 | 0 | 0 | 1185 / 1384 / 1389 / 1392 | 12/12 PASS |
+| 50 | 2 | 3 | 47 | 0 | 0 | 0 | 1080 / 1261 / 1265 / 1266 | 12/12 PASS |
+| 50 | 3 | 3 | 47 | 0 | 0 | 0 | 1084 / 1263 / 1271 / 1274 | 12/12 PASS |
+
+- **Duplicate reservations are prevented.** Both concurrent calls of every
+  winning session answered 200 and left **one** row per variant. The server
+  log has 60 `GRANT` lines: 2 lines × 30 winning sessions, counting a 5-buyer
+  smoke run. The second call adopted the existing hold and did not grant again.
+- **A sold-out bag reserves nothing at all.** Every losing session answered
+  409 `OUT_OF_STOCK` to both calls, and held **zero** companion units, though
+  the companion had 97 spare. That is 460 `DENY` lines: each call on a losing
+  session was refused on its own.
+- No session ever got one 200 and one 409. Deadlocks 0 → 0, no leaks after the
+  expiry job, 0 server errors.
+- Reserve p95 is higher than in the single-call run (≤ 1.39 s at 50), because
+  every buyer sends two two-line reservations into the same hot row. It is
+  still under the plan's 3 s on this machine.
+- The same behaviour is also covered below HTTP by
+  `reservation.integration.test.ts` ("insufficient stock on one line reserves
+  nothing at all").
+
+**Raw evidence** (k6 `--summary-export` JSON, verifier and lock-sampler output
+for every run above, both scenarios): `docs/performance/r10-2026-10-17/`.
+Buyer data is synthetic (`@load.invalid`). The 5-buyer smoke runs are not included.
 
 ### Still not measured for R10 (incomplete, not passed)
 

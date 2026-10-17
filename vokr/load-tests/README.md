@@ -7,6 +7,7 @@ verifier for the facts HTTP cannot show. Results: `docs/performance/results.md`.
 |---|---|
 | `browse.js` | Anonymous browse: homepage, PDPs, catalog API, a support page. GET-only allowlist, ≤ 50 VUs, ≤ 300 s. |
 | `checkout-concurrency.js` | R10: N guests buy one variant with small stock. Cart → session → address → pricing, then every buyer reserves at the same instant. Stops before Razorpay. |
+| `checkout-retry.js` | R10 companion: each buyer carts the scarce variant plus a plentiful one and fires `/reserve` twice at once (double click). Proves idempotent retries and all-or-nothing rollback over HTTP. Seed with `db.ts seed --stock 3 --companion-stock 100`; pass `COMPANION_ID`. |
 | `db.ts` | `seed` a fresh variant with known stock · `sample-locks` while k6 runs · `verify` oversell, duplicate holds, reserved-counter integrity, deadlocks, and leaks after the real expiry job. |
 | `lib/target.js` | Refuses any non-local host unless `ALLOW_REMOTE_TARGET=<exact host>`. Always refuses `vokr.shop`, Supabase, both production Cloud Run URLs and any run.app host of a service named `vokr-…` (including revision tags), even when allowed. |
 
