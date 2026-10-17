@@ -1,9 +1,8 @@
 # Brevo — what the live newsletter and contact forms need
 
 Plan §3.7.1, Phase 4 task 10 (the two forms), Phase 11 (transactional
-email), R3, R12. Recorded 11 Sep 2026 by code inspection and a read of the
-live configuration. **No Brevo account is accessible from this
-environment, and no key has been created, read or stored.**
+email), R3, R12. First recorded 11 Sep 2026 (setup record, before any key
+existed); failure behaviour and state updated 17 Oct 2026 — see below.
 
 ## What the deployed application does
 

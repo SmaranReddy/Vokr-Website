@@ -11,9 +11,11 @@ day).
 
 - **Metrics: created** in `vokr-website` (the first ten below).
   `vokr_form_delivery_failed` (17 Oct 2026) is defined in the script but
-  **not yet created** — the owner re-runs the script to add it. Every filter was
-  checked against the exact string its code path emits, and the filter shape
-  against live logs. Filters are substring matches on log text: **when a
+  **not yet created** — the owner re-runs the script to add it. Its filter is
+  checked only against the line the unit tests pin (`FORM_DELIVERY_FAILED`
+  in `src/server/marketing/__tests__/`), not yet against live logs. The
+  first ten filters were checked against the exact string their code path
+  emits, and the filter shape against live logs. Filters are substring matches on log text: **when a
   tagged log line changes, update the script and re-run it.**
 - **Alert policies: not created — no notification channel exists.** The
   owner chooses where alerts go. To turn them on:
