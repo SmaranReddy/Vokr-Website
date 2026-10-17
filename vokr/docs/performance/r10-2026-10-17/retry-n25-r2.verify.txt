@@ -1,0 +1,25 @@
+﻿[inventory] RELEASE(expired) session=01a14aa2-f73a-73cc-8a15-82d7dee88781 variant=100ab17f-604c-4126-9869-dceff0dc500d qty=1 on_hand=3 reserved=2
+[inventory] RELEASE(expired) session=01a14aa2-f73a-73cc-8a15-82d7dee88781 variant=9fa506d4-7f08-4b43-a70f-84cfae303594 qty=1 on_hand=100 reserved=2
+[checkout] session=01a14aa2-f73a-73cc-8a15-82d7dee88781 transition reserved -> expired
+[jobs/expiry] session=01a14aa2-f73a-73cc-8a15-82d7dee88781 outcome=expired
+[inventory] RELEASE(expired) session=01a14aa2-f754-75da-b2ec-563e9b5955da variant=100ab17f-604c-4126-9869-dceff0dc500d qty=1 on_hand=3 reserved=1
+[inventory] RELEASE(expired) session=01a14aa2-f754-75da-b2ec-563e9b5955da variant=9fa506d4-7f08-4b43-a70f-84cfae303594 qty=1 on_hand=100 reserved=1
+[checkout] session=01a14aa2-f754-75da-b2ec-563e9b5955da transition reserved -> expired
+[jobs/expiry] session=01a14aa2-f754-75da-b2ec-563e9b5955da outcome=expired
+[inventory] RELEASE(expired) session=01a14aa2-f7f6-75fb-908d-2c8e89a4f5a1 variant=100ab17f-604c-4126-9869-dceff0dc500d qty=1 on_hand=3 reserved=0
+[inventory] RELEASE(expired) session=01a14aa2-f7f6-75fb-908d-2c8e89a4f5a1 variant=9fa506d4-7f08-4b43-a70f-84cfae303594 qty=1 on_hand=100 reserved=0
+[checkout] session=01a14aa2-f7f6-75fb-908d-2c8e89a4f5a1 transition reserved -> expired
+[jobs/expiry] session=01a14aa2-f7f6-75fb-908d-2c8e89a4f5a1 outcome=expired
+PASS  on_hand unchanged and never negative  (on_hand=3 seeded=3)
+PASS  no oversell (reserved <= on_hand)  (reserved=3 on_hand=3)
+PASS  held units == min(buyers, stock)  (held_units=3 expected=3)
+PASS  reserved counter matches held rows  (reserved=3 held_units=3)
+PASS  no duplicate holds (one row, one unit per session)  (rows=3 sessions=3)
+PASS  refused buyers left no reservation rows  (non_held_rows=0)
+PASS  k6 200s == held sessions  (k6_granted=3 held_sessions=3)
+PASS  companion: on_hand unchanged, reserved == winning sessions  (on_hand=100 seeded=100 reserved=3 winners=3)
+PASS  companion: one held unit per winning session, none for losers  (rows=3 distinct_sessions=3 winners=3)
+PASS  no orders without payment  (order_items=0)
+PASS  zero deadlocks  (pg_stat_database.deadlocks 0 -> 0)
+PASS  zero reservation leaks after expiry  (held_after=0 reserved_after=0 expiry={"expired":3,"kept_payment_in_progress":0,"kept_attempt_unfinished":0,"kept_in_payment_grace":0,"kept_unverified":0,"nothing_to_do":0} errors=0)
+{"variantId":"100ab17f-604c-4126-9869-dceff0dc500d","buyers":25,"stock":3,"pass":true}

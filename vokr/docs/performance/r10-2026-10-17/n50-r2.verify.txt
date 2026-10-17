@@ -1,0 +1,20 @@
+﻿[inventory] RELEASE(expired) session=01a14a91-83ae-7394-980a-7cca13372ec1 variant=8d49002c-18d6-4bc7-95bf-95ddf4a9d7a1 qty=1 on_hand=3 reserved=2
+[checkout] session=01a14a91-83ae-7394-980a-7cca13372ec1 transition reserved -> expired
+[jobs/expiry] session=01a14a91-83ae-7394-980a-7cca13372ec1 outcome=expired
+[inventory] RELEASE(expired) session=01a14a91-83b5-7309-98ea-3a77d29988ce variant=8d49002c-18d6-4bc7-95bf-95ddf4a9d7a1 qty=1 on_hand=3 reserved=1
+[checkout] session=01a14a91-83b5-7309-98ea-3a77d29988ce transition reserved -> expired
+[jobs/expiry] session=01a14a91-83b5-7309-98ea-3a77d29988ce outcome=expired
+[inventory] RELEASE(expired) session=01a14a91-83cb-77d8-8e9a-40877f63df6d variant=8d49002c-18d6-4bc7-95bf-95ddf4a9d7a1 qty=1 on_hand=3 reserved=0
+[checkout] session=01a14a91-83cb-77d8-8e9a-40877f63df6d transition reserved -> expired
+[jobs/expiry] session=01a14a91-83cb-77d8-8e9a-40877f63df6d outcome=expired
+PASS  on_hand unchanged and never negative  (on_hand=3 seeded=3)
+PASS  no oversell (reserved <= on_hand)  (reserved=3 on_hand=3)
+PASS  held units == min(buyers, stock)  (held_units=3 expected=3)
+PASS  reserved counter matches held rows  (reserved=3 held_units=3)
+PASS  no duplicate holds (one row, one unit per session)  (rows=3 sessions=3)
+PASS  refused buyers left no reservation rows  (non_held_rows=0)
+PASS  k6 200s == held sessions  (k6_granted=3 held_sessions=3)
+PASS  no orders without payment  (order_items=0)
+PASS  zero deadlocks  (pg_stat_database.deadlocks 0 -> 0)
+PASS  zero reservation leaks after expiry  (held_after=0 reserved_after=0 expiry={"expired":3,"kept_payment_in_progress":0,"kept_attempt_unfinished":0,"kept_in_payment_grace":0,"kept_unverified":0,"nothing_to_do":0} errors=0)
+{"variantId":"8d49002c-18d6-4bc7-95bf-95ddf4a9d7a1","buyers":50,"stock":3,"pass":true}
