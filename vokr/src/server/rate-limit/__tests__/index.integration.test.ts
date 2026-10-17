@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { RateLimitError } from "@/lib/errors";
-import { assertWithinRateLimit, consumeRateLimit } from "@/server/rate-limit";
+import { assertWithinRateLimit, consumeRateLimit, storedRateLimitKey } from "@/server/rate-limit";
 import { prisma } from "@/server/db/client";
 
 /**
@@ -33,12 +33,34 @@ function newKey(): string {
 
 afterEach(async () => {
   await prisma.rateLimitCounter.deleteMany({
-    where: { key: { in: createdKeys } },
+    where: { key: { in: createdKeys.map(storedRateLimitKey) } },
   });
 });
 
 afterAll(async () => {
   await prisma.$disconnect();
+});
+
+describe("stored keys hold no personal data", () => {
+  it("keeps the action scope readable and stores the identifier only as a digest", async () => {
+    const email = `${randomUUID()}@example.com`;
+    const key = `auth:signin:email:${email}`;
+    createdKeys.push(key);
+    await consumeRateLimit({ key, limit: 5, windowMs: 60_000 });
+    await consumeRateLimit({ key, limit: 5, windowMs: 60_000 });
+
+    expect(await prisma.rateLimitCounter.count({ where: { key: { contains: email } } })).toBe(0);
+    const row = await prisma.rateLimitCounter.findUniqueOrThrow({
+      where: { key: storedRateLimitKey(key) },
+      select: { key: true, count: true },
+    });
+    expect(row.key).toMatch(/^auth:signin:email:[0-9a-f]{40}$/);
+    expect(row.count).toBe(2); // equality still works: the same identifier hits the same counter
+    expect(storedRateLimitKey(`auth:signin:email:other-${email}`)).not.toBe(row.key);
+    // Short keys keep no identifier in clear; IPv6 colons stay inside the digest.
+    expect(storedRateLimitKey("admin:3f2c9e1a-0000-4000-8000-000000000001")).toMatch(/^admin:[0-9a-f]{40}$/);
+    expect(storedRateLimitKey("cart:mutate:ip:2001:db8::1")).toMatch(/^cart:mutate:ip:[0-9a-f]{40}$/);
+  });
 });
 
 describe("consumeRateLimit (Phase 3, task 11)", () => {
