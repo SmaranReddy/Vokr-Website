@@ -8,7 +8,7 @@ verifier for the facts HTTP cannot show. Results: `docs/performance/results.md`.
 | `browse.js` | Anonymous browse: homepage, PDPs, catalog API, a support page. GET-only allowlist, ≤ 50 VUs, ≤ 300 s. |
 | `checkout-concurrency.js` | R10: N guests buy one variant with small stock. Cart → session → address → pricing, then every buyer reserves at the same instant. Stops before Razorpay. |
 | `db.ts` | `seed` a fresh variant with known stock · `sample-locks` while k6 runs · `verify` oversell, duplicate holds, reserved-counter integrity, deadlocks, and leaks after the real expiry job. |
-| `lib/target.js` | Refuses any non-local host unless `ALLOW_REMOTE_TARGET=<host>`; refuses `vokr.shop`, `*.run.app` and Supabase always. |
+| `lib/target.js` | Refuses any non-local host unless `ALLOW_REMOTE_TARGET=<exact host>`. Always refuses `vokr.shop`, Supabase, both production Cloud Run URLs and any run.app host of a service named `vokr-…` (including revision tags), even when allowed. |
 
 **Never point these at production.** Not even `browse.js`: the plan names
 Supabase egress (HTTP 402 on every service) as the sharpest risk in the stack.
@@ -60,7 +60,10 @@ authorizes). Never commit that change.
 
 ## Against staging (R5), later
 
-Set `BASE_URL=https://<staging host>` and `ALLOW_REMOTE_TARGET=<staging host>`,
+Deploy staging as its **own Cloud Run service whose name does not start with
+`vokr`** (e.g. `staging-vokr`) — the guard refuses the production service
+`vokr` and every `vokr-…` run.app host by design. Then set
+`BASE_URL=https://<staging host>` and `ALLOW_REMOTE_TARGET=<staging host>` (exact match),
 `SITE_ORIGIN` to the staging origin, `EDGE_SECRET` to staging's
 origin-auth secret (if a Worker fronts it). `db.ts` writes rows and today
 refuses any non-local database; widening that to staging's own database is
