@@ -67,66 +67,126 @@ from 10 to 50 VUs. Zero errors and zero 429s: browse has no rate limit. The
 real constraint on browse is **Supabase egress per pageview** (R18), which
 local Postgres cannot measure.
 
-## Checkout / R10 over HTTP: **BLOCKED, gate verified instead**
+## Checkout / R10 over HTTP, 17 Oct 2026: **executed locally, all 9 runs pass**
 
-`checkout-concurrency.js` is written and run. N guests (separate cookies) each walk cart → checkout
-session → address → pricing. Then a start barrier makes every buyer call
-`POST /api/checkout/session/[id]/reserve` at the same instant. `db.ts verify` checks
-oversell, duplicate holds, the reserved counter, deadlocks
-(`pg_stat_database`) and leaks after the real expiry job. `db.ts sample-locks`
-samples lock waiters during the run. Thresholds come only from Phase 21 task 4 and the R10 row:
+**Owner-authorized, local-only.** The owner approved (17 Oct 2026) one local
+production build with `ORDERING_ENABLED = true`. That flip was a
+working-copy edit in a throwaway detached worktree (`vokr-worktrees\r10-local`,
+no branch, at `aa6904f`). It was **never committed** and the worktree was removed
+afterwards. `src/config/commerce.ts` on every branch and on `master` is
+still `false`, and `RAZORPAY_LIVE_MODE_ALLOWED` is untouched.
 
+**Isolation, checked before anything ran:**
+- The launcher refuses to start unless `DATABASE_URL` is `localhost:55432/vokr_load`,
+  and refuses if any environment value matches `supabase.co`, `vokr.shop`,
+  `run.app`, `rzp_live`, `rzp_test` or `api.brevo`.
+- Every provider key is explicitly unset: Razorpay key and secret, webhook
+  secret, Brevo, Sentry, R2, the service-role key and Google.
+- The worktree has no `.env.local`, so neither Prisma's dotenv nor Next loads
+  one. `NEXT_PUBLIC_SUPABASE_URL` is the unroutable `http://127.0.0.1:9`.
+- `prisma migrate status` reported `vokr_load` at `localhost:55432`, 10
+  migrations, up to date.
+- The built bundle contains `supabase.co` only in the CSP allowlist, and
+  `vokr.shop` only in email addresses.
+- The server bound to `127.0.0.1`. D3 and D11 values (`CHECKOUT_SELLER_STATE`,
+  fees) are local placeholders, never real config.
+- No payment was created: no Razorpay keys exist in that process, and the run
+  stops at the reservation.
+
+**Setup:**
+- Standalone server (`node .next/standalone/server.js`, as Cloud Run runs it),
+  `NODE_ENV=production`.
+- k6 `grafana/k6:0.57.0` in `EDGE_SECRET` mode with a throwaway
+  `ORIGIN_AUTH_SECRET`, so each buyer arrives with its own `cf-connecting-ip`,
+  as behind the Worker.
+- Each run seeds a **fresh variant with 3 units** and clears the rate-limit
+  counters. Every buyer walks cart → session → address → pricing, then all
+  reserve at one barrier instant.
+- `db.ts sample-locks` samples `pg_stat_activity` every 100 ms during each run,
+  and `db.ts verify` runs after each one.
+- Same machine as the browse runs (i5-12500H, local Postgres 17).
+
+| Buyers | Run | Granted (200) | Sold out (409) | 429 | 5xx | Reserve p50 / p95 / p99 / max (ms) | Journey p50 / p95 / p99 (ms) | All requests p95 / p99 (ms) | Max lock waiters | DB verify |
+|---:|---:|---:|---:|---:|---:|---|---|---|---:|---|
+| 10 | 1 | 3 | 7 | 0 | 0 | 121 / 126 / 127 / 127 | 543 / 555 / 555 | 191 / 192 | 0 | 10/10 PASS |
+| 10 | 2 | 3 | 7 | 0 | 0 | 105 / 110 / 110 / 110 | 398 / 403 / 404 | 107 / 110 | 2 | 10/10 PASS |
+| 10 | 3 | 3 | 7 | 0 | 0 | 114 / 118 / 118 / 119 | 391 / 400 / 400 | 116 / 118 | 0 | 10/10 PASS |
+| 25 | 1 | 3 | 22 | 0 | 0 | 185 / 198 / 198 / 198 | 767 / 787 / 795 | 198 / 217 | 2 | 10/10 PASS |
+| 25 | 2 | 3 | 22 | 0 | 0 | 181 / 192 / 193 / 193 | 758 / 782 / 787 | 192 / 216 | 5 | 10/10 PASS |
+| 25 | 3 | 3 | 22 | 0 | 0 | 183 / 199 / 201 / 202 | 751 / 770 / 771 | 199 / 206 | 0 | 10/10 PASS |
+| 50 | 1 | 3 | 47 | 0 | 0 | 311 / 344 / 344 / 345 | 1461 / 1505 / 1508 | 361 / 373 | 8 | 10/10 PASS |
+| 50 | 2 | 3 | 47 | 0 | 0 | 294 / 322 / 324 / 325 | 1325 / 1356 / 1361 | 322 / 349 | 4 | 10/10 PASS |
+| 50 | 3 | 3 | 47 | 0 | 0 | 283 / 311 / 313 / 314 | 1781 / 1839 / 1844 | 578 / 592 | 3 | 10/10 PASS |
+
+- **Journey** is the buyer's own steps (cart → session → address → pricing)
+  plus the reserve. The barrier wait is excluded.
+- **"All requests"** covers every HTTP call in the run (5 per buyer).
+- k6's `http_req_failed` (14.0 / 17.6 / 18.8 %) is exactly the share of 409
+  sold-out answers, which k6 counts as failed because they are 4xx. They are
+  correct denials, not errors.
+- Requests/s (1.7 / 4.2 / 8.3) only reflects the barrier design, not capacity.
+
+**Every k6 threshold passed in all 9 runs (exit 0):**
 - 0 % 5xx
-- `reserve_granted == min(N, stock)`
-- `reserve_sold_out_409 == N − stock`
-- no unexpected responses
-- every buyer reaches the barrier
-- p95 reserve and p95 whole journey under 3 s
+- granted == min(N, 3)
+- sold-out == N − 3, each a 409 `OUT_OF_STOCK`
+- 0 unexpected responses
+- 0 buyers failed before the barrier
+- p95 reserve < 3 s, and p95 journey < 3 s (worst: 1.84 s at 50)
 
-**Why it could not run to completion here:**
+**`db.ts verify`, 10 checks, all PASS in all 9 runs:**
+- on-hand unchanged and never negative
+- reserved ≤ on-hand (no oversell)
+- held units == min(N, stock)
+- reserved counter == held rows
+- one hold row of one unit per session (no duplicates)
+- refused buyers left **no** reservation rows
+- k6 200s == held sessions
+- zero orders without payment
+- `pg_stat_database.deadlocks` unchanged (**0 deadlocks**)
+- **zero leaks after expiry:** holds backdated, the real `expireReservations`
+  job run, then 0 held and `quantity_reserved` 0, with 0 job errors
 
-1. **`ORDERING_ENABLED` is a hardcoded `false`** (`src/config/commerce.ts`, by design: a
-   reviewed code change, never config). A local build with it flipped to
-   `true`, never committed, was attempted for this run and **refused by the
-   session's permission policy**. The flip needs the owner's explicit
-   authorization or an isolated staging build (R5).
-2. **Past the reservation, Razorpay:** `POST /api/payments/razorpay/order`
-   calls `https://api.razorpay.com/v1` (base URL hardcoded in
-   `src/server/payments/razorpay.ts`). The R7–R9 fakes are module-level
-   injected clients, unusable inside a running server. The order, webhook and
-   delayed-Razorpay test (task 5) need staging with Razorpay **test** keys and
-   a webhook secret.
+**Server log, independently:** 27 `[inventory] GRANT` lines (9 × 3) and 228
+`DENY` lines (3 × (7 + 22 + 47)). No error, unhandled rejection, deadlock or
+connection error.
 
-**Run against the real build instead (ordering gate on), 17 Oct 2026:** one
-fresh variant (stock 3), 10 / 25 / 50 buyers. In every run, every buyer's first
-call (`POST /api/cart/items`) answered **403 `ORDERING_UNAVAILABLE`**, with
-**0 5xx**, 0 unexpected responses, and p95 205 ms at 50. Database afterwards: 0
-cart items, 0 reservations and 0 checkout sessions for the variant;
-inventory 3 / 0 (on hand / reserved). k6 exited 99 (thresholds crossed: the gate
-held, so nothing was reserved). That is the expected result, and it proves the
-gate under concurrent load, not R10.
+**Reading:**
+- The reservation is correct under real HTTP concurrency at every level.
+- Contention is visible but small: at most 8 sessions waiting on a lock in any
+  100 ms sample at 50 buyers. Reserve p95 grows roughly linearly with buyers
+  (≈ 120 → 195 → 325 ms), which is the serialisation on the hot inventory row
+  the plan predicts, not a cliff.
+- The journey p95 at 50 (1.4–1.8 s) is dominated by 50 buyers doing their
+  first four steps at once on one machine. It is under the plan's 3 s on this
+  hardware, but Cloud Run's 1 vCPU / 512 MiB will be slower. That has to be
+  measured there.
 
-`db.ts verify --buyers 50 --granted 0` on that variant passed 8 of 9 checks. It
-failed exactly the one it should: `held units == min(buyers, stock)`, held 0,
-expected 3. So the verifier detects a run that reserved nothing. Deadlocks went 0 → 0;
-the expiry job had nothing to release. `sample-locks` ran: 16 samples, 0 lock waiters, idle.
+**One harness fault, fixed and rerun:** the first matrix attempt lost its
+server mid-run. The PowerShell launcher had `$ErrorActionPreference = 'Stop'`,
+which turns the server's first stderr line (the expected `OUT_OF_STOCK`
+warning) into a terminating error and kills `node`. This is an artefact of the
+launcher, not the app. The server was relaunched under `cmd` redirection, and
+the whole 9-run matrix was rerun from scratch on fresh variants. Only the
+rerun is reported. The aborted run's 3 holds sat on their own variant and were
+expired by the next `verify`.
 
-**Unexercised:** the gate stops every buyer at the first call, so the
-session, address, pricing and reserve steps of the script have never run
-against a live server. Their request bodies and response fields were taken
-from the route handlers and zod schemas, not observed. Expect to fix small
-things on the first real run.
+### Still not measured for R10 (incomplete, not passed)
 
-**Known setup constraint (found by reading the code, to confirm when the run happens):** without
-the Cloudflare Worker in front, every buyer shares one IP bucket
-(`client-ip.ts` trusts forwarded IPs only behind the origin-auth secret), and
-the per-IP limits (60 checkout mutations, 20 reservations per 5 min) would
-answer 429 from about the 20th buyer. They are counted as `rate_limited_429`, never as
-success. The script's `EDGE_SECRET` mode plays the Worker with a throwaway
-local `ORIGIN_AUTH_SECRET` (one `cf-connecting-ip` per buyer), which is how
-production traffic arrives. Note also that the counters live in Postgres
-(`rate_limit_counters`). The per-IP row is a shared hot row, so lock waits there
-belong in the R10 reading.
+- **Razorpay round-trip.** Neither `POST /api/payments/razorpay/order` nor the
+  verified webhook → order creation was run, and neither was the injected
+  Razorpay delay (task 5, proving the call is outside the lock). So the R10
+  row's "duplicate orders" and "payment/order consistency at every level" are
+  **not evidenced over HTTP**. They need staging (R5) with Razorpay **test**
+  keys and a webhook secret: the API base is hardcoded, and the existing fakes
+  are module-level.
+- **Cloud Run performance.** One local machine with the whole CPU, local
+  Postgres with no pooler, no network to ap-south-1. Latencies are a lower
+  bound. The 3 s p95 has to be re-measured on staging with Cloud Run's
+  1 vCPU / 512 MiB and Supabase's pooler.
+- **Without the Worker** (an ordinary single-IP client), buyers past the
+  per-IP limits (20 reservations / 60 mutations per 5 min) get 429. That was
+  not exercised here, because every buyer had its own IP as in production.
 
 ## Database-level R10 (existing, for comparison)
 
@@ -137,7 +197,7 @@ the reservation transaction itself, not HTTP.
 
 ## Not yet measured (Phase 21 tasks)
 
-- R10 over HTTP at 10 / 25 / 50 × 3 runs (blocked above)
+- R10 Razorpay round-trip (order + webhook) over HTTP, and R10 on Cloud Run (see above)
 - Razorpay-delay test (task 5)
 - Cloud Run vCPU-seconds and Supabase bytes per pageview (task 6, R18)
 - cold start with and without keep-warm (task 7)

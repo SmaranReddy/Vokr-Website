@@ -58,6 +58,14 @@ The real R10 run needs a build where it is `true` — on an isolated
 environment only (R5 staging, or a local build the owner explicitly
 authorizes). Never commit that change.
 
+How the owner-authorized local run of 17 Oct 2026 did it (`docs/performance/results.md`):
+a throwaway **detached** worktree (`git worktree add --detach`), the flip as
+an uncommitted edit there, a launcher that unsets every provider key and
+refuses any `DATABASE_URL` other than `localhost:55432/vokr_load`, the
+standalone server under `cmd` redirection (in PowerShell,
+`$ErrorActionPreference = 'Stop'` kills `node` on its first stderr line), and
+the worktree removed afterwards.
+
 ## Against staging (R5), later
 
 Deploy staging as its **own Cloud Run service whose name does not start with
