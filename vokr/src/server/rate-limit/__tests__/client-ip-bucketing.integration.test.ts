@@ -7,7 +7,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient } from "@/generated/prisma/client";
-import { consumeRateLimit } from "@/server/rate-limit";
+import { consumeRateLimit, storedRateLimitKey } from "@/server/rate-limit";
 import { getClientIp } from "@/server/net/client-ip";
 import { VERIFIED_ORIGIN_HEADER } from "@/server/net/origin-auth";
 import { prisma } from "@/server/db/client";
@@ -66,7 +66,7 @@ function trackKey(key: string): string {
 afterEach(async () => {
   if (createdKeys.length > 0) {
     await prisma.rateLimitCounter.deleteMany({
-      where: { key: { in: createdKeys } },
+      where: { key: { in: createdKeys.map(storedRateLimitKey) } },
     });
     createdKeys.length = 0;
   }
@@ -164,7 +164,7 @@ describe("R13 — limiting is per client IP, not per server instance", () => {
 
     try {
       const seenByB = await instanceB.rateLimitCounter.findUnique({
-        where: { key },
+        where: { key: storedRateLimitKey(key) },
         select: { count: true },
       });
 
