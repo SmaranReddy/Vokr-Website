@@ -91,6 +91,7 @@ const RETURN_VIEW_SELECT = {
   createdAt: true,
   orderItem: { select: { sku: true, productName: true, sizeLabel: true, colorway: true } },
   requestedVariant: { select: { sizeLabel: true } },
+  order: { select: { status: true } },
 } as const;
 
 type ReturnRow = Prisma.ReturnRequestGetPayload<{ select: typeof RETURN_VIEW_SELECT }>;
@@ -108,7 +109,14 @@ export interface CustomerReturnView {
   quantity: number;
   exchangeSize: string | null;
   requestedAt: string;
-  refund: { amountPaise: number; status: "queued" | "due" | "refunded" } | null;
+  /**
+   * - `queued`: the order's full refund is queued; `refunded` once Razorpay
+   *   confirmed it (the order itself moved to `refunded`).
+   * - `due`: an operator still has to make the (partial) refund.
+   * - `recorded`: an operator recorded the dashboard refund's id. Not read
+   *   back from Razorpay, so never shown as a confirmed refund.
+   */
+  refund: { amountPaise: number; status: "queued" | "refunded" | "due" | "recorded" } | null;
   replacement: { courier: string; awb: string; dispatchedAt: string } | null;
 }
 
@@ -118,7 +126,13 @@ export function toCustomerReturnView(row: ReturnRow): CustomerReturnView {
     refund = {
       amountPaise: row.refundDuePaise,
       status:
-        row.refundMode === ReturnRefundMode.full_order_queued ? "queued" : row.refundReference ? "refunded" : "due",
+        row.refundMode === ReturnRefundMode.full_order_queued
+          ? row.order.status === OrderStatus.refunded
+            ? "refunded"
+            : "queued"
+          : row.refundReference
+            ? "recorded"
+            : "due",
     };
   }
   return {

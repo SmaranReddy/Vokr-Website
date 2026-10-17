@@ -28,10 +28,12 @@ import {
   RazorpayApiError,
   type RazorpayClient,
   type RazorpayOrder,
+  type RazorpayPayment,
   type RazorpayPaymentDetail,
   type RazorpayRefund,
   type RazorpayRefundClient,
 } from "@/server/payments/razorpay";
+import { reconcileClosedOrders } from "@/server/payments/reconcile";
 import { createPaymentOrder } from "@/server/payments/service";
 import { handleRazorpayWebhook } from "@/server/payments/webhook";
 import { exportAccountData } from "@/server/privacy/export";
@@ -402,6 +404,8 @@ describe("return → approval → receipt → refund (whole order)", () => {
     });
     expect(settled).toEqual({ status: OrderStatus.refunded, payment: { status: PaymentStatus.refunded } });
     expect(refunds.refunds.get(order.providerPaymentId)?.map((refund) => refund.amount)).toEqual([order.totalPaise]);
+    const seen = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
+    expect(seen.map((row) => row.refund?.status)).toEqual(["refunded", "refunded"]);
   });
 
   it("two concurrent receipts restock once", async () => {
@@ -459,6 +463,9 @@ describe("partial returns: refunds never exceed the capture", () => {
     await expect(recordManualRefund(ACTOR, first.id, { confirmOrderNumber: order.orderNumber, refundId: "rfnd_ABC123xyz" })).resolves.toEqual({
       state: ReturnState.completed,
     });
+    // The customer sees it as recorded by us, never as a confirmed refund.
+    const seen = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
+    expect(seen.find((row) => row.id === first.id)?.refund).toEqual({ amountPaise: PRICE, status: "recorded" });
     await expect(recordManualRefund(ACTOR, first.id, { confirmOrderNumber: order.orderNumber, refundId: "rfnd_ABC123xyz" })).rejects.toBeInstanceOf(ConflictError);
 
     // The second line, later: due again, never a full refund of the whole capture.
@@ -469,6 +476,65 @@ describe("partial returns: refunds never exceed the capture", () => {
     await expect(recordManualRefund(ACTOR, second.id, { confirmOrderNumber: order.orderNumber, refundId: "rfnd_ABC123xyz" })).rejects.toThrow("already recorded");
     const recorded = await prisma.returnRequest.aggregate({ where: { orderId: order.orderId }, _sum: { refundDuePaise: true } });
     expect(recorded._sum.refundDuePaise).toBe(order.totalPaise);
+  });
+
+  it("a partial refund Razorpay reports (webhook, reconciliation) never moves the payment or the order", async () => {
+    const order = await delivered([{ quantity: 1 }, { quantity: 1 }]);
+    const request = await createReturnRequest(order.orderNumber, { sku: order.lines[0]!.sku, quantity: 1, kind: "return", reason: "size_fit", requestedBy: "guest" });
+    await approve(request.id);
+    await receivePassed(request.id);
+    await refundReturn(ACTOR, request.id, confirm(order));
+    const payment = await prisma.payment.findFirstOrThrow({
+      where: { providerPaymentId: order.providerPaymentId },
+      select: { providerOrderId: true },
+    });
+
+    // The dashboard refund's signed webhook, for the line amount only.
+    const rawBody = JSON.stringify({
+      event: "refund.processed",
+      payload: {
+        payment: { entity: { id: order.providerPaymentId, order_id: payment.providerOrderId, amount: order.totalPaise, currency: "INR", status: "refunded" } },
+        refund: { entity: { id: "rfnd_PARTIAL0001", payment_id: order.providerPaymentId, amount: PRICE, status: "processed" } },
+      },
+    });
+    const eventId = `evt_${randomUUID()}`;
+    eventIds.push(eventId);
+    await handleRazorpayWebhook({ rawBody, signature: createHmac("sha256", SECRET).update(rawBody).digest("hex"), eventId, secret: SECRET });
+
+    // Reconciliation reads Razorpay's payment summary, which reads "refunded" after any refund.
+    const summary: RazorpayPayment = {
+      id: order.providerPaymentId,
+      order_id: payment.providerOrderId,
+      amount: order.totalPaise,
+      currency: "INR",
+      status: "refunded",
+    };
+    const reporting: RazorpayClient = {
+      createOrder: async () => {
+        throw new Error("not used");
+      },
+      findOrderByReceipt: async () => null,
+      listOrderPayments: async () => [summary],
+    };
+    await reconcileClosedOrders(reporting);
+
+    const after = await prisma.order.findUniqueOrThrow({
+      where: { id: order.orderId },
+      select: { status: true, payment: { select: { status: true } } },
+    });
+    expect(after).toEqual({ status: OrderStatus.delivered, payment: { status: PaymentStatus.captured } });
+    expect(await prisma.paymentIssue.count({ where: { providerPaymentId: order.providerPaymentId } })).toBe(0);
+  });
+
+  it("an operator cannot mark the order returned by hand while its returns are in progress", async () => {
+    const order = await delivered();
+    const request = await createReturnRequest(order.orderNumber, { sku: order.lines[0]!.sku, quantity: 1, kind: "return", reason: "size_fit", requestedBy: "guest" });
+    await expect(adminTransitionOrder(ACTOR, order.orderNumber, { to: OrderStatus.returned })).rejects.toThrow("returns in progress");
+    await decideReturn(ACTOR, request.id, { decision: "reject" });
+    await expect(adminTransitionOrder(ACTOR, order.orderNumber, { to: OrderStatus.returned })).resolves.toEqual({
+      changed: true,
+      status: OrderStatus.returned,
+    });
   });
 
   it("refuses a refund that would take the recorded total past the captured amount", async () => {

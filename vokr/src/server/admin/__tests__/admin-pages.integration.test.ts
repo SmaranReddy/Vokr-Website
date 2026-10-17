@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import type { ReactElement } from "react";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
-import { OrderStatus } from "@/generated/prisma/enums";
+import { OrderStatus, ReturnKind, ReturnRefundMode, ReturnState } from "@/generated/prisma/enums";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
 import { prisma } from "@/server/db/client";
 import {
@@ -54,23 +54,27 @@ class FakeRazorpay implements RazorpayClient {
   }
 }
 
-async function placedOrder() {
+async function placedOrder(lineCount = 1) {
   const razorpay = new FakeRazorpay();
-  const variantId = await stockedVariant(fixtures, 5, AMOUNT);
-  const { identity, sessionId } = await pricedSession(fixtures, { lines: [{ variantId, quantity: 1 }], totalPaise: AMOUNT });
+  const variantIds: string[] = [];
+  for (let i = 0; i < lineCount; i += 1) variantIds.push(await stockedVariant(fixtures, 5, AMOUNT));
+  const { identity, sessionId } = await pricedSession(fixtures, {
+    lines: variantIds.map((variantId) => ({ variantId, quantity: 1 })),
+    totalPaise: AMOUNT * lineCount,
+  });
   await reserveCheckoutSession(identity, sessionId);
   const { razorpayOrderId } = await createPaymentOrder(identity, sessionId, razorpay);
   const providerPaymentId = `pay_${randomUUID().replaceAll("-", "").slice(0, 14)}`;
   const rawBody = JSON.stringify({
     event: "payment.captured",
-    payload: { payment: { entity: { id: providerPaymentId, order_id: razorpayOrderId, amount: AMOUNT, currency: "INR", status: "captured" } } },
+    payload: { payment: { entity: { id: providerPaymentId, order_id: razorpayOrderId, amount: AMOUNT * lineCount, currency: "INR", status: "captured" } } },
   });
   const eventId = `evt_${randomUUID()}`;
   eventIds.push(eventId);
   await handleRazorpayWebhook({ rawBody, signature: createHmac("sha256", SECRET).update(rawBody).digest("hex"), eventId, secret: SECRET });
   const order = await prisma.order.findUniqueOrThrow({
     where: { checkoutSessionId: sessionId },
-    select: { id: true, orderNumber: true, paymentId: true },
+    select: { id: true, orderNumber: true, paymentId: true, items: { select: { id: true, variantId: true }, orderBy: { id: "asc" } } },
   });
   orderIds.push(order.id);
   return { ...order, providerPaymentId };
@@ -122,5 +126,58 @@ describe("admin pages render with real data", () => {
 
     const { default: ExceptionsPage } = await import("@/app/admin/exceptions/page");
     expect(await render(ExceptionsPage())).toContain("additional_payment");
+  });
+});
+
+describe("admin pages render returns, exchanges and RTO with real rows", () => {
+  it("shows each row's next step on the order page and the open ones on Exceptions", async () => {
+    const order = await placedOrder(3);
+    await prisma.order.update({ where: { id: order.id }, data: { status: OrderStatus.delivered }, select: { id: true } });
+    const [a, b, c] = order.items;
+    await prisma.returnRequest.createMany({
+      data: [
+        { orderId: order.id, orderItemId: a!.id, kind: ReturnKind.return, reason: "size_fit", quantity: 1, requestedBy: "guest" },
+        {
+          orderId: order.id,
+          orderItemId: b!.id,
+          kind: ReturnKind.return,
+          reason: "defective",
+          quantity: 1,
+          requestedBy: "guest",
+          state: ReturnState.received,
+          qcPassed: true,
+          refundMode: ReturnRefundMode.manual_due,
+          refundDuePaise: AMOUNT,
+        },
+        {
+          orderId: order.id,
+          orderItemId: c!.id,
+          kind: ReturnKind.exchange,
+          reason: "size_fit",
+          quantity: 1,
+          requestedBy: "guest",
+          requestedVariantId: c!.variantId,
+          state: ReturnState.approved,
+        },
+      ],
+    });
+
+    const { default: OrderPage } = await import("@/app/admin/orders/[orderNumber]/page");
+    const detail = await render(OrderPage({ params: Promise.resolve({ orderNumber: order.orderNumber }) } as never));
+    expect(detail).toContain("Returns, exchanges and RTO");
+    expect(detail).toContain("Approve");
+    expect(detail).toContain("Record refund");
+    expect(detail).toContain("Mark received");
+    expect(detail).not.toContain("Queue full refund"); // a partial refund is recorded
+
+    const { default: ExceptionsPage } = await import("@/app/admin/exceptions/page");
+    const exceptions = await render(ExceptionsPage());
+    expect(exceptions).toContain("Returns and exchanges waiting on you");
+    expect(exceptions).toContain(order.orderNumber);
+
+    const rto = await placedOrder();
+    await prisma.order.update({ where: { id: rto.id }, data: { status: OrderStatus.rto }, select: { id: true } });
+    const rtoPage = await render(OrderPage({ params: Promise.resolve({ orderNumber: rto.orderNumber }) } as never));
+    expect(rtoPage).toContain("RTO received");
   });
 });

@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 import type { Prisma } from "@/generated/prisma/client";
-import { CheckoutPaymentMethod, OrderStatus, PaymentStatus, ReturnRefundMode } from "@/generated/prisma/enums";
+import {
+  CheckoutPaymentMethod,
+  OrderStatus,
+  PaymentStatus,
+  ReturnKind,
+  ReturnRefundMode,
+  ReturnState,
+} from "@/generated/prisma/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { decryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
@@ -291,6 +298,20 @@ export async function adminTransitionOrder(
       SELECT status FROM orders WHERE id = ${order.id}::uuid FOR UPDATE
     `;
     if (!before) throw new NotFoundError("Order not found.");
+    if (input.to === OrderStatus.returned && before.status !== OrderStatus.returned) {
+      // Returns in progress settle the order themselves (`src/server/returns/`);
+      // marking it returned by hand would strand them.
+      const open = await tx.returnRequest.count({
+        where: {
+          orderId: order.id,
+          kind: { not: ReturnKind.rto },
+          state: { in: [ReturnState.requested, ReturnState.approved, ReturnState.received] },
+        },
+      });
+      if (open > 0) {
+        throw new ConflictError("This order has returns in progress; finish them on this page instead.");
+      }
+    }
     const changed = await transitionOrder(tx, { orderId: order.id, to: input.to, actor, note: input.note });
     if (!changed) return { changed: false, status: input.to };
 
