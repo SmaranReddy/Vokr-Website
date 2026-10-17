@@ -8,7 +8,16 @@ import { FormStatus } from "./form-status";
 import { BUTTON_CLASS, INPUT_CLASS } from "./format";
 import { useAdminPost } from "./use-admin-post";
 
-export function RefundForm({ orderNumber, amountPaise }: { orderNumber: string; amountPaise: number }) {
+export function RefundForm({
+  orderNumber,
+  amountPaise,
+  invoiceNumber,
+}: {
+  orderNumber: string;
+  amountPaise: number;
+  /** Set when a tax invoice was issued: a refund then needs a GST credit note, which is not automated. */
+  invoiceNumber: string | null;
+}) {
   const { post, pending, error } = useAdminPost();
   const [confirmOrderNumber, setConfirm] = useState("");
   const [reason, setReason] = useState("");
@@ -26,6 +35,13 @@ export function RefundForm({ orderNumber, amountPaise }: { orderNumber: string; 
 
   return (
     <form onSubmit={onSubmit} className="flex max-w-md flex-col gap-3">
+      {invoiceNumber ? (
+        <p role="note" className="border border-foreground p-2 text-sm">
+          Tax invoice {invoiceNumber} has been issued for this order. Refunding it requires a GST credit note
+          (CGST Act s.34), which Vokr does not generate yet: issue one with your accountant and keep it with the
+          invoice.
+        </p>
+      ) : null}
       <p className="text-sm text-muted">
         This queues a FULL refund of {formatPaiseAsRupees(amountPaise)}. The maintenance job processes it on its next run
         (every 5 minutes) once Razorpay keys are configured; until then it waits on the Exceptions page. Refunds never restock: adjust stock in Inventory if units come back.

@@ -23,7 +23,7 @@ production build probed over HTTP), **none** (not verified).
 | **Admin panel (Ph 12)** | **Was not started → built in this pass** | int + unit + build/HTTP |
 | **Manual fulfilment: AWB entry, Shiprocket CSV, shipped email (Ph 10 tasks 2–3)** | **Was not started → built in this pass** | int + unit |
 | COD lifecycle, returns/exchange flow, RTO charges (Ph 10 rest) | Not built — COD blocked on D11 | none |
-| Invoices (gap-free numbering, GST invoice) | Not built — blocked on D2/D3 | none |
+| Invoices (gap-free numbering, GST invoice) | Built on `feat/gst-invoices` (PR open, not merged); seller values blocked on D3 | int + unit |
 | Backups | Manual `pg_dump` + restore tests before each migration (`C:\Users\Asus\vokr-backups\`) | restore logs |
 | Browser E2E of checkout/payment | Not run — `/checkout` is gated, no Razorpay test keys | none |
 
@@ -81,14 +81,16 @@ Migration `20261016175750_admin_ops` (additive): `app_users.is_admin`;
 | Admin pages in a browser with a real admin session | **NOT RUN** | needs the first admin grant (owner) |
 | Shiprocket CSV accepted by the panel; real shipment | **BLOCKED** | Shiprocket account + panel sample |
 | COD, returns/exchanges, RTO | **NOT BUILT** | D11, Phase 10 |
-| Compliant invoice | **NOT BUILT** | D2, D3 |
+| Compliant invoice: gap-free numbering (concurrent, rollback, FY boundary), r.46 fields, refusal on unreconciled orders | PASS (branch `feat/gst-invoices`, not merged) | int + unit; **values blocked on D2/D3; CA review pending** |
+| GST credit note for a refund after invoicing | **NOT BUILT — launch-blocking** | refund form warns; manual via accountant |
+| GST on shipping / COD fees | **UNDECIDED** — pricing adds them untaxed; invoicing refuses such orders | D11 + CA |
 | Backup restore | PASS (per migration) | restore-tested backups in `vokr-backups` |
 
 ## 5. Owner actions (smallest list that unblocks launch)
 
 1. **Razorpay test keys + webhook secret** into Secret Manager → agent runs the sandbox payment/refund matrix.
 2. **Brevo:** verify `support@vokr.shop` as sender (or authenticate the domain), then add `BREVO_API_KEY`; sign off the DRAFT confirmation and shipped email copy.
-3. **D2** GST rate + HSN per SKU (from your CA). **D3** legal entity, GSTIN, registered address (Razorpay live KYC + invoices). **D11** flat shipping fee and COD fee (or decide prepaid-only launch). **D12** confirm the automatic full refund policy for late payments.
+3. **D2** GST rate + HSN per SKU (from your CA); ask the CA too about **GST on the shipping and COD fees** and to review a sample invoice. **D3** also fills `INVOICE_SELLER_LEGAL_NAME`, `INVOICE_SELLER_GSTIN`, `INVOICE_SELLER_ADDRESS`. **D3** legal entity, GSTIN, registered address (Razorpay live KYC + invoices). **D11** flat shipping fee and COD fee (or decide prepaid-only launch). **D12** confirm the automatic full refund policy for late payments.
 4. **First admin:** sign up/in once on vokr.shop, then run the SQL in `docs/infrastructure/fulfilment.md` (production SQL — owner only). Then open `/admin` and confirm it renders.
 5. **Shiprocket:** account with the SKUs in its catalogue; download the bulk-upload sample and compare headers with `SHIPROCKET_HEADERS`.
 6. **D9** Cloudflare cutover (WAF rule for `/admin*`).

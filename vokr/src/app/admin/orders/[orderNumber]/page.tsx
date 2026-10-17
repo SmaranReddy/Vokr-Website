@@ -74,6 +74,20 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
           </Row>
           <Row label="Courier">{order.courier ?? "-"}</Row>
           <Row label="AWB">{order.awb ?? "-"}</Row>
+          <Row label="Tax invoice">
+            {order.invoice ? (
+              <a
+                className="underline"
+                href={`/api/admin/orders/${encodeURIComponent(order.orderNumber)}/invoice`}
+                target="_blank"
+                rel="noopener"
+              >
+                {order.invoice.invoiceNumber}
+              </a>
+            ) : (
+              "Not issued (issued when the order ships)"
+            )}
+          </Row>
           <Row label="Shipped at">{formatAdminDate(order.shippedAt)}</Row>
         </dl>
       </Section>
@@ -127,7 +141,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
 
       {order.refundable && payment ? (
         <Section title="Refund">
-          <RefundForm orderNumber={order.orderNumber} amountPaise={payment.amountPaise} />
+          <RefundForm
+            orderNumber={order.orderNumber}
+            amountPaise={payment.amountPaise}
+            invoiceNumber={order.invoice?.invoiceNumber ?? null}
+          />
         </Section>
       ) : null}
 

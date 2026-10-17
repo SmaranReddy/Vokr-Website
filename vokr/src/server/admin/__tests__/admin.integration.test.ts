@@ -1,7 +1,17 @@
 import { createHmac, randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+
+// Shipping now issues a tax invoice, which needs seller details (decision
+// D3). Obviously fake, test-only values, set before any import (server env
+// is parsed once); the fixtures price orders as a Maharashtra sale.
+vi.hoisted(() => {
+  process.env.INVOICE_SELLER_LEGAL_NAME = "TEST SELLER (NOT REAL)";
+  process.env.INVOICE_SELLER_GSTIN = "27AAAAA0000A1Z5";
+  process.env.INVOICE_SELLER_ADDRESS = "1 Test Lane, Pune 411001";
+  process.env.CHECKOUT_SELLER_STATE = "Maharashtra";
+});
 
 import { EmailTemplate, OrderStatus, PaymentIssueState, PaymentStatus } from "@/generated/prisma/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
