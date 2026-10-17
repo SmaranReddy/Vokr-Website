@@ -82,6 +82,7 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/orders": { methods: ["GET"], guards: ["ordering-gate", "signed-in"], why: "Only the caller's orders; cursor follows only their own." },
   "/api/payments/razorpay/order": { methods: ["POST"], guards: ["ordering-gate", "session", "rate-limit", "strict-body"], why: "Amount only from the pricing snapshot; an `amount` field is a 400." },
   "/api/payments/status": { methods: ["GET"], guards: ["ordering-gate", "session", "strict-body"], why: "Read-only; ownership 404; never accepts the browser callback's payment details." },
+  "/api/privacy/export": { methods: ["POST"], guards: ["signed-in", "rate-limit"], why: "The caller's own account only; per-account and per-IP limits; POST so cross-site refusal applies; nothing stored." },
   "/api/shipping/serviceability": { methods: ["GET"], guards: ["ordering-gate", "rate-limit", "strict-body"], why: "Unauthenticated by design (no identity needed for a PIN lookup); rate limited per IP; fails closed." },
   "/api/webhooks/razorpay": { methods: ["POST"], guards: ["signature", "rate-limit"], why: "HMAC over the raw body, constant-time; replay-safe by event id." },
 };
