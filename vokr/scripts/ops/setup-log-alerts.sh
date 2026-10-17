@@ -29,6 +29,7 @@ METRICS=(
   "vokr_amount_mismatch|(textPayload:\"reason=amount_mismatch\" OR textPayload:\"AMOUNT_MISMATCH_UNRECORDED\")|A payment whose amount does not match its order (issue opened in manual review, or could not be recorded)"
   "vokr_reconcile_failed|textPayload:\"RECONCILE_FAILED\"|An order Razorpay could not be read for during reconciliation"
   "vokr_email_failed|textPayload:\"EMAIL_FAILED\"|A transactional email failed or the Brevo account refused the queue"
+  "vokr_form_delivery_failed|textPayload:\"FORM_DELIVERY_FAILED\"|The contact or newsletter form could not be delivered to Brevo (rejected, timeout, network, not configured)"
   "vokr_email_volume|textPayload:\"EMAIL_VOLUME\"|Daily email volume reached the 200 warning or the 290 stop"
   "vokr_credit_note_failed|textPayload:\"CREDIT_NOTE_FAILED\"|A GST credit note could not be issued"
   "vokr_admin_gate_error|textPayload:\"ADMIN_GATE_ERROR\"|The admin gate failed for a reason other than not-an-admin"
