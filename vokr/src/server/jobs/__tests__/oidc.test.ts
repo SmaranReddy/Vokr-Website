@@ -135,6 +135,7 @@ describe("handleMaintenanceRequest", () => {
     latePayments: { status: "not_configured" },
     orders: { status: "ok", result: { paidSessionsWithoutOrder: 0, capturedPaymentsUnaccounted: 0, ordersWithoutCapture: 0 } },
     emails: { status: "not_configured" },
+    creditNotes: { status: "ok", result: { examined: 0, issued: 0, errors: 0 } },
     pruning: { status: "ok", result: { rateLimitCounters: 0, webhookEvents: 0, reservations: 0, emailLog: 0 } },
   };
 

@@ -175,7 +175,7 @@ export function OrderDetail({ orderNumber }: { orderNumber: string }) {
   if (state.kind === "error") return <p role="alert" className="text-sm font-medium text-red-600">{GENERIC_ERROR}</p>;
   return (
     <>
-      <OrderCard order={state.order} />
+      <OrderCard order={state.order} showDocuments />
       <p className="text-xs text-muted">
         Questions about this order?{" "}
         <Link href="/support-contact" className="underline underline-offset-4">

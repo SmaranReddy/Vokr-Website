@@ -72,6 +72,60 @@ Revoke with `SET is_admin = false`. Record every grant/revoke in the plan.
   empty address line 2 carries the city (the column is mandatory); cells a
   spreadsheet could read as a formula are prefixed with `'`.
 
+## Tax invoices (R11)
+
+Code: `src/server/invoices/`. Migration `20261017045745_invoices`.
+
+- **Issued when the order ships**, in the same transaction as the ship
+  transition (CGST Act s.31: at removal of the goods). If it cannot be
+  issued, the order does not ship and the admin sees why (409).
+- **Numbering:** `VK/<yy><yy>/<serial>`, e.g. `VK/2627/000001` — 14
+  characters, restarting every financial year (1 April 00:00 IST). Serials
+  come from a per-year counter row incremented inside that transaction, so
+  they are consecutive with no gaps, even under concurrent shipping or a
+  failed ship (tested).
+- **Content:** seller legal name, address, GSTIN and state; invoice
+  number and date; order number; buyer name and address (GSTIN
+  "Unregistered"); place of supply; per line HSN, quantity, GST-inclusive
+  unit price, taxable value, CGST+SGST (intra-state) or IGST (inter-state)
+  rate and amount; totals; amount in words; reverse charge "No";
+  "Authorised signatory". All from the order's immutable snapshot plus the
+  seller details captured at issue. An issued invoice cannot be edited.
+- **Where:** admin order page → "Tax invoice" link
+  (`/api/admin/orders/<n>/invoice`); the signed-in customer at
+  `/api/orders/<n>/invoice` (their own orders only). Print to PDF from the
+  browser.
+
+**Refuses to issue (and so to ship) when:**
+- seller details are not configured (D3): `INVOICE_SELLER_LEGAL_NAME`,
+  `INVOICE_SELLER_GSTIN`, `INVOICE_SELLER_ADDRESS`, plus
+  `CHECKOUT_SELLER_STATE`; the GSTIN must be well-formed and its state code
+  must match that state;
+- the order carries a **shipping or COD fee** — pricing adds these with no
+  GST breakdown, and their GST treatment is undecided (D11 + CA);
+- the order's snapshot does not reconcile (lines vs totals, tax split vs
+  seller/ship state, missing HSN or rate).
+
+**Pending the CA's review (R11 acceptance needs a CA-reviewed sample):**
+the number format; the field list above against CGST Rules r.46; whether a
+signature/digital signature is needed on an electronic invoice; issuing at
+shipment rather than at payment; GST on shipping/COD fees. The GSTIN check
+digit is not verified in code (format and state code only).
+
+**Credit notes** (CGST Act s.34; r.53 — pending CA review): when an
+invoiced order becomes `refunded` (a full refund Razorpay confirmed), the
+maintenance job issues a credit note within ~5 minutes, in its own
+transaction — never inside the payment path, so it cannot fail a refund.
+Numbered `VKC/2627/000001` (own consecutive series per financial year of
+issue), it copies the seller from the invoice, references the invoice
+number and date, and is immutable. Admin order page → "Credit note" link;
+the signed-in customer sees it in their order history. An order still
+waiting shows on the Exceptions page ("Refunded invoices without a credit
+note"); a log line tagged `CREDIT_NOTE_FAILED` means the step is failing.
+**Partial refunds** (Razorpay dashboard) never move an order to
+`refunded`, so they get no automatic credit note — issue one with your
+accountant.
+
 ## Refunds
 
 Order page → "Queue full refund": retype the order number and give a

@@ -174,6 +174,8 @@ export async function cleanupCheckoutFixtures(fixtures: CheckoutFixtures, extraE
   await prisma.orderStatusHistory.deleteMany({ where: orderWhere });
   await prisma.orderItem.deleteMany({ where: orderWhere });
   await prisma.emailLog.deleteMany({ where: orderWhere });
+  await prisma.creditNote.deleteMany({ where: orderWhere });
+  await prisma.invoice.deleteMany({ where: orderWhere });
   await prisma.order.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });
   await prisma.paymentIssue.deleteMany({ where: { payment: { checkoutSessionId: { in: sessionIds } } } });
   await prisma.payment.deleteMany({ where: { checkoutSessionId: { in: sessionIds } } });

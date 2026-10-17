@@ -17,6 +17,8 @@ export const ORDER_VIEW_SELECT = {
     orderBy: { id: "asc" },
   },
   history: { select: { toStatus: true, createdAt: true }, orderBy: { createdAt: "asc" } },
+  invoice: { select: { invoiceNumber: true } },
+  creditNote: { select: { creditNoteNumber: true } },
 } as const;
 
 export interface OrderView {
@@ -30,6 +32,9 @@ export interface OrderView {
   codFeePaise: number;
   totalPaise: number;
   shipTo: { city: string; state: string; pincode: string };
+  /** Tax documents issued for the order (R11): the invoice at shipment, a credit note after a full refund. */
+  invoiceNumber: string | null;
+  creditNoteNumber: string | null;
 }
 
 interface OrderViewRow {
@@ -45,6 +50,8 @@ interface OrderViewRow {
   shipPincode: string;
   items: OrderView["items"];
   history: { toStatus: OrderStatus; createdAt: Date }[];
+  invoice: { invoiceNumber: string } | null;
+  creditNote: { creditNoteNumber: string } | null;
 }
 
 /** One order as the tracker shows it: status, timeline, items, totals, city/state/PIN — no name, phone or email. */
@@ -60,5 +67,7 @@ export function toOrderView(order: OrderViewRow): OrderView {
     codFeePaise: order.codFeePaise,
     totalPaise: order.totalPaise,
     shipTo: { city: order.shipCity, state: order.shipState, pincode: order.shipPincode },
+    invoiceNumber: order.invoice?.invoiceNumber ?? null,
+    creditNoteNumber: order.creditNote?.creditNoteNumber ?? null,
   };
 }
