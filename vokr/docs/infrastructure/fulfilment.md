@@ -87,9 +87,9 @@ email, SKU, quantity, `return` or `exchange`, a reason code (no free text)
 and, for an exchange, the size wanted. `POST /api/returns/lookup` shows
 their requests. Both sit behind the guest order lookup (same limits, same
 uniform "couldn't find" answer, same timing floor) and the ordering gate.
-**There is no storefront form yet, and no operator "create on behalf"
-screen** — the Order Status page promises "select Exchange or Return", so
-the form must ship before ordering opens (launch checklist). Refused automatically: an order not delivered, past
+The form is on the Order Status page, under the tracker result of a
+delivered order (copy DRAFT — owner sign-off before ordering opens). There
+is no operator "create on behalf" screen. Refused automatically: an order not delivered, past
 30 days, more units than bought, a second open request for the same item,
 an exchange to a size priced differently (return and reorder instead).
 
@@ -142,7 +142,7 @@ account), RTO re-ship charge (D11), COD refunds by bank transfer or store
 credit (D11 + D1's ledger), credit notes for partial refunds and any
 invoice for an exchange (CA review, PR #38), return/refund emails (copy not
 approved; the outbox is one email per order per template, so they need a
-per-return key), the storefront request form.
+per-return key), the operator create-on-behalf screen.
 
 ## Refunds
 
