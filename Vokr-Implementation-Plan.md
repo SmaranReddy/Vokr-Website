@@ -3854,7 +3854,7 @@ the site renders.
 ### PHASE 15 — Observability + Logging
 
 #### Status
-**NOT STARTED**
+**IN PROGRESS (19 Oct 2026, branch `ops/alert-policies`, stacked on PR #47).** Done: 10 log-based metrics live in `vokr-website` (verified read-only); `vokr_form_delivery_failed` + `vokr_maintenance_finished` defined, not created. **Alert policies as code:** 13 policies in `vokr/scripts/ops/alert-policies/` (11 count-based with severities and justified thresholds — reconcile > 1 in 15 min, the rest > 0 in 5 min; `vokr_maintenance_absent` metric-absence 20 min; `vokr-health` uptime check on `https://vokr.shop/api/health` every 5 min, ≥ 2 regions failing 5 min), `apply-alert-policies.sh` (dry-run default, idempotent), `test-fire-alerts.sh` (dry-run default; `--apply` writes one synthetic `ALERT-TEST` log line per metric — no app/DB/provider effect) plus manual steps for the absence and uptime alerts (`docs/infrastructure/alerting.md` → Test-fire). Offline test `scripts/__tests__/alert-policies.test.ts` (8 tests; mutation-checked: a renamed tag fails it). **Finding:** `CREDIT_NOTE_FAILED` is written only by unmerged PR #38 — that alert cannot fire on master yet. **Owner:** create a notification channel on an inbox someone reads, run `setup-log-alerts.sh --channel <ID>`, then `test-fire-alerts.sh --apply` and the two manual fires; record each receipt here. **Not done:** Sentry with proven PII scrubbing (needs a Sentry DSN); weekly log export to R2 (R22, needs R2 credentials).
 
 #### Objective
 Know what the application is doing in production: Sentry with PII scrubbing,

@@ -113,6 +113,25 @@ describe("alert policies", () => {
     }
   });
 
+  it("test-fire-alerts.sh has a synthetic line matching every count-based metric's filter", () => {
+    const fire = readFileSync(path.join(OPS, "test-fire-alerts.sh"), "utf8");
+    const lines = [...fire.matchAll(/^\s*"(vokr_[a-z_]+)\|(.+)"$/gm)].map(([, metric, text]) => ({ metric, text: text.replace(/\\"/g, '"') }));
+    for (const { name, filter } of metrics) {
+      if (name === "vokr_maintenance_finished") continue; // watched for absence, fired by pausing the Scheduler
+      const tags = [...filter.matchAll(/textPayload:\\"(.+?)\\"/g)].map(([, tag]) => tag);
+      const mine = lines.filter(({ metric }) => metric === name);
+      expect(mine.length, name).toBeGreaterThan(0);
+      for (const { text } of mine) {
+        // OR filters (amount_mismatch) need one tag; AND filters need all.
+        const matches = filter.includes(" OR ") ? tags.some((tag) => text.includes(tag)) : tags.every((tag) => text.includes(tag));
+        expect(matches, `${name}: "${text}"`).toBe(true);
+        expect(text.startsWith("ALERT-TEST"), name).toBe(true);
+      }
+    }
+    // The reconcile alert fires only above 1 in 15 min, so it needs two lines.
+    expect(lines.filter(({ metric }) => metric === "vokr_reconcile_failed")).toHaveLength(2);
+  });
+
   it("the uptime check probes the public health endpoint through Cloudflare", () => {
     const check = JSON.parse(readFileSync(path.join(POLICIES, "uptime-check-health.json"), "utf8"));
     expect(check.monitoredResource.labels.host).toBe("vokr.shop");
