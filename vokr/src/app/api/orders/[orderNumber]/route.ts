@@ -7,6 +7,7 @@ import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { getUserOrder } from "@/server/orders/history";
 import { requestIdOf } from "@/server/net/request-id";
+import { assertOrderReadAllowed } from "@/server/orders/rate-limit";
 
 /** `GET /api/orders/[orderNumber]` — one of the signed-in customer's orders; anyone else's is a 404 (plan §5 Phase 9, task 7). */
 export async function GET(request: NextRequest, context: RouteContext<"/api/orders/[orderNumber]">) {
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/orde
     assertOrderingEnabled();
     const user = await requireUser(request);
     cookiesToSet = user.cookiesToSet;
+    await assertOrderReadAllowed(user.userId);
     const { orderNumber } = await context.params;
     const order = await getUserOrder(user.userId, orderNumber);
     return applyCookies(NextResponse.json({ order }, { headers: { "cache-control": "no-store" } }), cookiesToSet);
