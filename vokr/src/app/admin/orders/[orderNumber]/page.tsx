@@ -3,12 +3,16 @@ import type { ReactNode } from "react";
 
 import { formatAdminDate, TABLE_CLASS, TD_CLASS, TH_CLASS } from "@/components/admin/format";
 import { RefundForm } from "@/components/admin/refund-form";
+import { ReturnActions } from "@/components/admin/return-actions";
 import { RevealPii } from "@/components/admin/reveal-pii";
+import { AdminReturnForm } from "@/components/admin/admin-return-form";
+import { RtoReceiveForm } from "@/components/admin/rto-receive-form";
 import { TransitionForm } from "@/components/admin/transition-form";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { getAdminOrder } from "@/server/admin/orders";
 import { requireAdminPage } from "@/server/admin/page-guard";
+import { listOrderReturns } from "@/server/returns/service";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -58,6 +62,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
     throw error;
   }
   const payment = order.payment;
+  const returns = await listOrderReturns(order.id);
+  const rtoRecorded = returns.some((row) => row.kind === "rto");
+  const paidOnline = payment?.status === "captured";
 
   return (
     <main>
@@ -123,6 +130,54 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
 
       <Section title="Change status">
         <TransitionForm orderNumber={order.orderNumber} nextStatuses={order.nextStatuses} />
+      </Section>
+
+      <Section title="Returns, exchanges and RTO">
+        {returns.length === 0 ? (
+          <p className="mb-3 text-sm text-muted">None</p>
+        ) : (
+          <Table headers={["Kind", "SKU", "Qty", "Reason", "State", "QC", "Exchange to", "Refund", "Replacement", "Requested", "Next step"]}>
+            {returns.map((row) => (
+              <tr key={row.id}>
+                <td className={TD_CLASS}>{row.kind}</td>
+                <td className={TD_CLASS}>{row.sku}</td>
+                <td className={TD_CLASS}>{row.quantity}</td>
+                <td className={TD_CLASS}>{row.reason}</td>
+                <td className={TD_CLASS}>{row.state}</td>
+                <td className={TD_CLASS}>{row.qcPassed === null ? "-" : row.qcPassed ? "passed" : "failed"}</td>
+                <td className={TD_CLASS}>{row.exchangeSize ?? "-"}</td>
+                <td className={TD_CLASS}>
+                  {row.refund
+                    ? `${formatPaiseAsRupees(row.refund.amountPaise)} ${row.refund.status}${row.refundReference ? ` (${row.refundReference})` : ""}`
+                    : "-"}
+                </td>
+                <td className={TD_CLASS}>{row.replacement ? `${row.replacement.courier} ${row.replacement.awb}` : "-"}</td>
+                <td className={TD_CLASS}>{formatAdminDate(row.requestedAt)}</td>
+                <td className={TD_CLASS}>
+                  <ReturnActions
+                    orderNumber={order.orderNumber}
+                    refundable={paidOnline}
+                    row={{
+                      id: row.id,
+                      kind: row.kind,
+                      state: row.state,
+                      refundMode: row.refundMode,
+                      refundReference: row.refundReference,
+                      refundDuePaise: row.refund?.amountPaise ?? null,
+                      exchangeSize: row.exchangeSize,
+                    }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {order.status === "delivered" ? (
+          <AdminReturnForm orderNumber={order.orderNumber} skus={order.items.map((item) => item.sku)} />
+        ) : null}
+        {order.status === "rto" && !rtoRecorded ? (
+          <RtoReceiveForm orderNumber={order.orderNumber} skus={order.items.map((item) => item.sku)} />
+        ) : null}
       </Section>
 
       {order.refundable && payment ? (

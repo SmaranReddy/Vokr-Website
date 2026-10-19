@@ -83,6 +83,7 @@ model ProductVariant {
   cartItems    CartItem[]
   reservations InventoryReservation[]
   orderItems   OrderItem[]
+  exchangeRequests ReturnRequest[]
 
   @@unique([productId, colorway, sizeLabel])
   @@index([productId, status])
@@ -642,6 +643,7 @@ model Order {
   items   OrderItem[]
   history OrderStatusHistory[]
   emails  EmailLog[]
+  returns ReturnRequest[]
 
   @@index([userId, placedAt])
   @@index([status, placedAt])
@@ -674,6 +676,8 @@ model OrderItem {
   cgstPaise         Int @map("cgst_paise")
   sgstPaise         Int @map("sgst_paise")
   igstPaise         Int @map("igst_paise")
+
+  returns ReturnRequest[]
 
   @@index([orderId])
   @@map("order_items")
@@ -775,4 +779,119 @@ model AuditLog {
   @@index([entity, entityId, createdAt])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10 — returns, exchanges and failed deliveries (RTO). See
+// Vokr-Implementation-Plan.md §5 PHASE 10, tasks 1, 6, 7, and
+// `src/server/returns/`, the only writer.
+// ---------------------------------------------------------------------------
+
+/// `return` and `exchange` are customer requests on a delivered order;
+/// `rto` records a failed delivery coming back to the warehouse.
+enum ReturnKind {
+  return
+  exchange
+  rto
+
+  @@map("return_kind")
+}
+
+/// `requested → approved | rejected`, `approved → received`,
+/// `received → completed`. `rto` rows are written `completed` when the
+/// parcel is received. `rejected` and `completed` are terminal.
+enum ReturnState {
+  requested
+  approved
+  rejected
+  received
+  completed
+
+  @@map("return_state")
+}
+
+/// A reason code, never free text: the request holds no personal data.
+enum ReturnReason {
+  size_fit
+  defective
+  not_as_described
+  changed_mind
+  other
+  /// Failed delivery (RTO rows only).
+  undelivered
+
+  @@map("return_reason")
+}
+
+/// How the money for a received return goes back.
+/// - `full_order_queued`: every unit of the order came back and the order
+///   charged nothing but goods — the order's existing full-refund path
+///   (`payment_issues`) refunds the captured amount.
+/// - `manual_due`: anything less. The amount is recorded here, an operator
+///   refunds it in the Razorpay dashboard and records the refund id. It is
+///   deliberately **not** a `payment_issues` row: that path closes on a
+///   processed refund of the issue's amount and would mark the whole
+///   payment and order refunded.
+enum ReturnRefundMode {
+  full_order_queued
+  manual_due
+
+  @@map("return_refund_mode")
+}
+
+/// One return, exchange or RTO line against one order item (plan §5 Phase
+/// 10, task 1). Invariants, enforced under the order's row lock and backed
+/// by the constraints in the migration:
+/// - returned + exchanged units of an item (rows not `rejected`) never
+///   exceed what was bought;
+/// - one open (`requested`/`approved`/`received`) request per item, and at
+///   most one `rto` row per item (partial unique indexes);
+/// - stock comes back at most once (`restocked_at`, set by the
+///   `approved → received` step only);
+/// - the refunds recorded across an order never exceed its captured payment.
+model ReturnRequest {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  orderItemId String    @map("order_item_id") @db.Uuid
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+
+  kind     ReturnKind
+  state    ReturnState  @default(requested)
+  reason   ReturnReason
+  quantity Int
+
+  /// Exchange only: the replacement — same product and colourway, same
+  /// price as paid, another size.
+  requestedVariantId String?         @map("requested_variant_id") @db.Uuid
+  requestedVariant   ProductVariant? @relation(fields: [requestedVariantId], references: [id], onDelete: Restrict)
+
+  /// `guest`, `user:<app_users.id>` or `admin:<app_users.id>`.
+  requestedBy String @map("requested_by")
+
+  /// Quality check at receipt; refunds and exchanges need a pass.
+  qcPassed    Boolean?  @map("qc_passed")
+  restockedAt DateTime? @map("restocked_at") @db.Timestamptz(6)
+
+  refundMode      ReturnRefundMode? @map("refund_mode")
+  refundDuePaise  Int?              @map("refund_due_paise")
+  /// The Razorpay refund id an operator recorded for a `manual_due` refund.
+  refundReference String?           @map("refund_reference")
+
+  replacementCourier      String?   @map("replacement_courier")
+  replacementAwb          String?   @map("replacement_awb")
+  replacementDispatchedAt DateTime? @map("replacement_dispatched_at") @db.Timestamptz(6)
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  decidedAt   DateTime? @map("decided_at") @db.Timestamptz(6)
+  receivedAt  DateTime? @map("received_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@index([orderId, createdAt])
+  @@index([orderItemId])
+  @@index([state, createdAt])
+  @@map("return_requests")
 }

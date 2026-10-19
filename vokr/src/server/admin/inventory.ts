@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { Prisma } from "@/generated/prisma/client";
+
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { invalidateCatalogCache } from "@/server/catalog/service";
 import { prisma } from "@/server/db/client";
@@ -35,43 +37,67 @@ export async function adjustInventory(
   input: AdjustInventoryInput,
   requestId?: string,
 ): Promise<{ quantityOnHand: number; quantityReserved: number }> {
-  const result = await runLockingTransaction("admin.adjust", async (tx) => {
-    const [row] = await tx.$queryRaw<{ quantity_on_hand: number; quantity_reserved: number }[]>`
-      SELECT quantity_on_hand, quantity_reserved FROM inventory
-       WHERE variant_id = ${input.variantId}::uuid
-         FOR UPDATE
-    `;
-    if (!row) throw new NotFoundError("No stock record for that variant.");
-    if (row.quantity_on_hand !== input.expectedOnHand) {
-      throw new ConflictError(
-        `Stock changed since you loaded it (on hand is now ${row.quantity_on_hand}). Reload and try again.`,
-      );
-    }
-    const next = row.quantity_on_hand + input.delta;
-    if (next < 0) throw new ValidationError("On-hand stock cannot go below zero.");
-    if (next < row.quantity_reserved) {
-      throw new ConflictError(
-        `${row.quantity_reserved} unit(s) are held by checkouts in progress; on hand cannot go below that.`,
-      );
-    }
-    await tx.$executeRaw`
-      UPDATE inventory SET quantity_on_hand = ${next}::int, updated_at = now()
-       WHERE variant_id = ${input.variantId}::uuid
-    `;
-    await writeAudit(tx, {
-      actor,
-      action: "inventory.adjust",
-      entity: "inventory",
-      entityId: input.variantId,
-      before: { quantityOnHand: row.quantity_on_hand, quantityReserved: row.quantity_reserved },
-      after: { quantityOnHand: next, quantityReserved: row.quantity_reserved, delta: input.delta },
-      reason: input.reason,
-      requestId,
-    });
-    return { quantityOnHand: next, quantityReserved: row.quantity_reserved };
-  });
+  const result = await runLockingTransaction("admin.adjust", (tx) =>
+    applyStockChange(tx, { ...input, actor, requestId }),
+  );
   invalidateCatalogCache();
   return result;
+}
+
+/**
+ * The adjustment itself, inside the caller's transaction: lock the stock
+ * row, refuse a stale `expectedOnHand` (when given), never below zero or
+ * the units held by live checkouts, write the audit row. Returns and RTO
+ * restocks call it too (`src/server/returns/`), so every stock change an
+ * operator causes is the same audited step. The caller invalidates the
+ * catalog cache after commit.
+ */
+export async function applyStockChange(
+  tx: Prisma.TransactionClient,
+  input: {
+    variantId: string;
+    delta: number;
+    expectedOnHand?: number;
+    reason: string;
+    actor: string;
+    requestId?: string;
+    /** Extra audit context, e.g. the return it came from. Never PII. */
+    context?: Record<string, string>;
+  },
+): Promise<{ quantityOnHand: number; quantityReserved: number }> {
+  const [row] = await tx.$queryRaw<{ quantity_on_hand: number; quantity_reserved: number }[]>`
+    SELECT quantity_on_hand, quantity_reserved FROM inventory
+     WHERE variant_id = ${input.variantId}::uuid
+       FOR UPDATE
+  `;
+  if (!row) throw new NotFoundError("No stock record for that variant.");
+  if (input.expectedOnHand !== undefined && row.quantity_on_hand !== input.expectedOnHand) {
+    throw new ConflictError(
+      `Stock changed since you loaded it (on hand is now ${row.quantity_on_hand}). Reload and try again.`,
+    );
+  }
+  const next = row.quantity_on_hand + input.delta;
+  if (next < 0) throw new ValidationError("On-hand stock cannot go below zero.");
+  if (next < row.quantity_reserved) {
+    throw new ConflictError(
+      `${row.quantity_reserved} unit(s) are held by checkouts in progress; on hand cannot go below that.`,
+    );
+  }
+  await tx.$executeRaw`
+    UPDATE inventory SET quantity_on_hand = ${next}::int, updated_at = now()
+     WHERE variant_id = ${input.variantId}::uuid
+  `;
+  await writeAudit(tx, {
+    actor: input.actor,
+    action: "inventory.adjust",
+    entity: "inventory",
+    entityId: input.variantId,
+    before: { quantityOnHand: row.quantity_on_hand, quantityReserved: row.quantity_reserved },
+    after: { quantityOnHand: next, quantityReserved: row.quantity_reserved, delta: input.delta, ...(input.context ?? {}) },
+    reason: input.reason,
+    requestId: input.requestId,
+  });
+  return { quantityOnHand: next, quantityReserved: row.quantity_reserved };
 }
 
 export interface AdminStockRow {

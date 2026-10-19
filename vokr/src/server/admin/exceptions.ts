@@ -1,6 +1,7 @@
 import { EmailStatus, OrderStatus, PaymentIssueState } from "@/generated/prisma/enums";
 import { prisma } from "@/server/db/client";
 import { findOrderOrphans } from "@/server/orders/reconcile";
+import { listReturnsNeedingAction } from "@/server/returns/service";
 
 /**
  * The 2 a.m. screen (plan §5 Phase 12, task 8): every inconsistency class
@@ -13,7 +14,7 @@ const LIMIT = 100;
 
 export async function loadExceptions(now: Date = new Date()) {
   const stuckBefore = new Date(now.getTime() - STUCK_ORDER_HOURS * 60 * 60 * 1000);
-  const [orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders] = await Promise.all([
+  const [orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders, openReturns] = await Promise.all([
     findOrderOrphans(),
     prisma.paymentIssue.findMany({
       where: { state: { in: [PaymentIssueState.open, PaymentIssueState.refund_initiated, PaymentIssueState.manual_review] } },
@@ -50,8 +51,9 @@ export async function loadExceptions(now: Date = new Date()) {
       orderBy: { placedAt: "asc" },
       take: LIMIT,
     }),
+    listReturnsNeedingAction(),
   ]);
-  return { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders };
+  return { orphans, paymentIssues, failedEmails, webhookErrors, stuckOrders, openReturns };
 }
 
 export type AdminExceptions = Awaited<ReturnType<typeof loadExceptions>>;

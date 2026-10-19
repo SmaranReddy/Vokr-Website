@@ -28,6 +28,7 @@ type Guard =
   | "signature" // HMAC-verified Razorpay webhook
   | "scheduler-oidc" // Cloud Scheduler OIDC token verified in-app
   | "guest-lookup" // lookupGuestOrder(): limits, uniform errors, uniform timing
+  | "guest-return" // requestReturnAsGuest()/listReturnsAsGuest(): strict body, per-IP limit, then lookupGuestOrder()
   | "admin"; // handleAdmin(): verified admin or 404, session age, per-admin rate limit, audit in the service
 
 const GUARD_PATTERNS: Record<Guard, RegExp> = {
@@ -39,6 +40,7 @@ const GUARD_PATTERNS: Record<Guard, RegExp> = {
   signature: /handleRazorpayWebhook\(/,
   "scheduler-oidc": /handleMaintenanceRequest\(/,
   "guest-lookup": /lookupGuestOrder\(/,
+  "guest-return": /requestReturnAsGuest\(|listReturnsAsGuest\(/,
   admin: /handleAdmin\(\s*request,/,
 };
 
@@ -54,7 +56,11 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/admin/exports/shiprocket": { methods: ["GET"], guards: ["admin", "strict-body"], why: "Admin only (proxy + handler 404 otherwise); decrypts PII, so the export is audit-logged with its order numbers." },
   "/api/admin/inventory/adjust": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; row-locked, expected on-hand, never below held units; audit row in the same transaction." },
   "/api/admin/orders/[orderNumber]/refund": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only, signed in within 15 min, order number retyped; full refund of the captured amount via the idempotent payment-issue path; audited." },
+  "/api/admin/orders/[orderNumber]/rto": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; order must be `rto`; one decision per item, restock only after a passed check, once per item (unique index); audited with each stock change." },
+  "/api/admin/orders/[orderNumber]/returns": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; records a customer's emailed/phoned return or exchange through the same checks as the guest request (delivered, 30-day window, units left, one open per item, same-price exchange); audited in the same transaction. No stock or money moves." },
   "/api/admin/orders/[orderNumber]/reveal": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; the PII reveal is audit-logged before the data is returned." },
+  "/api/admin/returns/[returnId]": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; approve/reject, receive (QC + restock once, guarded by the state change), ship an exchange's replacement (stock under lock); audited. No money moves here." },
+  "/api/admin/returns/[returnId]/refund": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only, signed in within 15 min, order number retyped; whole-order return queues the existing full refund, anything less is recorded as due — never above the capture; no Razorpay call." },
   "/api/admin/orders/[orderNumber]/transition": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; the shared order state machine (no `refunded` by assertion); audited." },
   "/api/auth/callback": { methods: ["GET"], guards: [], why: "OAuth code exchange; Supabase verifies the code and PKCE verifier." },
   "/api/auth/confirm": { methods: ["GET"], guards: [], why: "Email-link token_hash verified by Supabase; signup type only." },
@@ -79,6 +85,8 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/marketing/newsletter": { methods: ["POST"], guards: ["rate-limit", "strict-body"], why: "Public form; rate limited." },
   "/api/orders/[orderNumber]": { methods: ["GET"], guards: ["ordering-gate", "signed-in"], why: "Ownership in the query; another customer's order is the same 404." },
   "/api/orders/lookup": { methods: ["POST"], guards: ["ordering-gate", "guest-lookup"], why: "Limits, uniform errors and timing, constant-time email check inside lookupGuestOrder." },
+  "/api/returns/lookup": { methods: ["POST"], guards: ["ordering-gate", "guest-return"], why: "Behind the guest order lookup (limits, uniform 404/429, timing floor); returns only that order's own requests, no RTO or operator detail." },
+  "/api/returns/request": { methods: ["POST"], guards: ["ordering-gate", "guest-return"], why: "Strict body (reason codes, no free text), per-IP limit, then the guest order lookup; eligibility and quantity checked under the order lock with a DB trigger backstop." },
   "/api/orders": { methods: ["GET"], guards: ["ordering-gate", "signed-in"], why: "Only the caller's orders; cursor follows only their own." },
   "/api/payments/razorpay/order": { methods: ["POST"], guards: ["ordering-gate", "session", "rate-limit", "strict-body"], why: "Amount only from the pricing snapshot; an `amount` field is a 400." },
   "/api/payments/status": { methods: ["GET"], guards: ["ordering-gate", "session", "strict-body"], why: "Read-only; ownership 404; never accepts the browser callback's payment details." },
