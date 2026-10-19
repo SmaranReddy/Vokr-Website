@@ -57,13 +57,26 @@ not delivery failures and keep their untagged `warn` line.
 the sender is not allowed; `timeout`, `network` or 5xx → Brevo side,
 usually transient.
 
-## State (reported from the plan's §0 Checkpoint, 17 Oct 2026)
+## State (verified read-only, 19 Oct 2026)
 
-- `BREVO_API_KEY` v1 in Secret Manager, mounted on Cloud Run
-  (`BREVO_API_KEY_READY=true`) since `vokr-00038-877`; sender
-  `support@vokr.shop` active, `vokr.shop` authenticated.
-- Both forms are therefore live against Brevo. The sections below are the
-  original setup record (11 Sep 2026), kept for key rotation.
+- **Verified:** Secret Manager `BREVO_API_KEY` has one enabled version
+  (created 17 Oct 2026 05:08Z), and the serving service `vokr` mounts it
+  (`BREVO_API_KEY=BREVO_API_KEY:latest`). Both forms call Brevo for real.
+- **Verified (Cloud Logging, `vokr`, since 17 Oct):** one live contact-form
+  submission, `POST /api/marketing/contact` → **200** at 17 Oct 2026 13:11Z,
+  meaning Brevo **accepted** the send (the route answers 200 only on a 2xx from
+  Brevo). No newsletter submissions; no form failures logged.
+- **Not verified:** that the message **arrived** in the `support@vokr.shop`
+  inbox. A 2xx from Brevo is acceptance, not delivery, and a verified sender
+  is not proof the mailbox exists (Zoho, `email.md`).
+- **Owner, one step:** submit the contact form on vokr.shop once
+  (`/support-contact`) and confirm the message reaches the real support
+  inbox, with your address as Reply-To. If it does not arrive, check the
+  Brevo dashboard → Transactional → Logs for that send.
+- The sections below are the original setup record (11 Sep 2026), kept for
+  key rotation. Sender `support@vokr.shop` active and `vokr.shop`
+  authenticated are as reported by the plan, not re-checked here (needs the
+  Brevo dashboard).
 
 ## What is required — all on the Brevo side, then one variable
 
