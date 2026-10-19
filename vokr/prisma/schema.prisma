@@ -138,6 +138,8 @@ model AppUser {
   addresses        Address[]
   checkoutSessions CheckoutSession[]
   orders           Order[]
+  consentRecords   ConsentRecord[]
+  privacyRequests  DataSubjectRequest[]
 
   @@map("app_users")
 }
@@ -775,4 +777,103 @@ model AuditLog {
   @@index([entity, entityId, createdAt])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 17 — DPDP. `consent_records` (append-only) and
+// `data_subject_requests` (erasure requests, executed only after an
+// operator approves a dry-run). See `src/server/privacy/*` and
+// `docs/privacy/data-inventory.md`.
+// ---------------------------------------------------------------------------
+
+/// What a consent record is for. Purpose-specific, never a blanket flag
+/// (plan §9): one row per purpose per event.
+enum ConsentPurpose {
+  /// Creating an account, which the terms state is acceptance of the
+  /// Terms and the Privacy Policy.
+  account_terms
+  /// The footer newsletter: marketing email from Brevo.
+  marketing_email
+
+  @@map("consent_purpose")
+}
+
+enum ConsentAction {
+  granted
+  withdrawn
+
+  @@map("consent_action")
+}
+
+/// Proof of consent (plan §5 Phase 17, tasks 1–2). **Append-only** — a
+/// trigger refuses UPDATE, and DELETE unless the retention purge opts in
+/// for its own transaction; withdrawal is a new row. A newsletter
+/// subscriber has no account, so the subject is identified by a SHA-256
+/// of the normalised email (pseudonymised, not anonymised); `user_id` is
+/// set when the subject is signed in. The IP is stored only as a digest.
+model ConsentRecord {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String?  @map("user_id") @db.Uuid
+  user   AppUser? @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  subjectHash   String         @map("subject_hash")
+  purpose       ConsentPurpose
+  action        ConsentAction
+  /// The Privacy Policy version shown (its "last updated" label).
+  policyVersion String         @map("policy_version")
+  /// Where it was given, e.g. `signup_form`, `newsletter_form`.
+  source        String
+  ipHash        String?        @map("ip_hash")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([subjectHash, purpose, createdAt])
+  @@index([userId, createdAt])
+  @@map("consent_records")
+}
+
+enum DataSubjectRequestKind {
+  erasure
+
+  @@map("data_subject_request_kind")
+}
+
+/// `requested → approved → completed`, or `rejected`. Nothing is erased
+/// on request: an operator reviews a dry-run report and approves, and
+/// execution is further gated by `ERASURE_EXECUTION_ENABLED`.
+enum DataSubjectRequestState {
+  requested
+  approved
+  rejected
+  completed
+
+  @@map("data_subject_request_state")
+}
+
+/// A data-subject request (plan §5 Phase 17, task 1). Holds no PII: the
+/// subject is the account id; reports are counts only.
+model DataSubjectRequest {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  userId String  @map("user_id") @db.Uuid
+  user   AppUser @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  kind  DataSubjectRequestKind
+  state DataSubjectRequestState @default(requested)
+
+  /// `admin:<id>` of the operator who approved or rejected it.
+  decidedBy      String?  @map("decided_by")
+  decisionReason String?  @map("decision_reason")
+  /// Counts of what was (or would be) anonymised and retained.
+  report         Json?
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  decidedAt   DateTime? @map("decided_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@index([state, createdAt])
+  @@index([userId])
+  @@map("data_subject_requests")
 }
