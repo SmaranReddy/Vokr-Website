@@ -54,3 +54,6 @@ next-env.d.ts
 /.claude/
 /.windsurf/
 /skills-lock.json
+
+# local admin browser test output (screenshots, traces)
+/e2e/admin/.artifacts
