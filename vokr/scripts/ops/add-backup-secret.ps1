@@ -18,7 +18,9 @@ param(
   [Parameter(Mandatory = $true)]
   [ValidateSet("BACKUP_DATABASE_URL", "R2_BACKUP_ACCESS_KEY_ID", "R2_BACKUP_SECRET_ACCESS_KEY")]
   [string]$Name,
-  [string]$Project = "vokr-website"
+  [string]$Project = "vokr-website",
+  # Ask for the value at a hidden prompt instead of reading the clipboard.
+  [switch]$Prompt
 )
 $ErrorActionPreference = "Stop"
 # gcloud writes warnings (and "not found") to stderr; in Windows PowerShell 5.1
@@ -34,8 +36,13 @@ function Invoke-Gcloud {
 }
 
 Add-Type -AssemblyName System.Windows.Forms
-$value = [System.Windows.Forms.Clipboard]::GetText().Trim()
-if ([string]::IsNullOrEmpty($value)) { throw "The clipboard is empty. Copy the value first." }
+if ($Prompt) {
+  $secure = Read-Host -AsSecureString "Paste $Name (input is hidden), then Enter"
+  $value = [System.Net.NetworkCredential]::new("", $secure).Password.Trim()
+} else {
+  $value = [System.Windows.Forms.Clipboard]::GetText().Trim()
+}
+if ([string]::IsNullOrEmpty($value)) { throw "No value given. Nothing stored." }
 
 switch ($Name) {
   "BACKUP_DATABASE_URL" {
@@ -67,6 +74,6 @@ try {
   Write-Host "Stored $Name version $($added.Out)."
 } finally {
   if (Test-Path $tmp) { Remove-Item -Force $tmp }
-  [System.Windows.Forms.Clipboard]::Clear()
+  if (-not $Prompt) { [System.Windows.Forms.Clipboard]::Clear() }
   $value = $null
 }

@@ -245,7 +245,11 @@ age-keygen -o vokr-backup.key      # prints "Public key: age1…"
 Keep `vokr-backup.key` offline (password manager + one printed copy).
 Never upload it anywhere. The `age1…` public line becomes `BACKUP_AGE_RECIPIENT`.
 
-### 2. Store the three secrets (PowerShell, from the clipboard; nothing is echoed)
+### 2. Store the three secrets (PowerShell; nothing is echoed)
+
+Preferred: run in a normal PowerShell window with `-Prompt` — a hidden prompt, no clipboard
+(`powershell -NoProfile -STA -File scripts/ops/add-backup-secret.ps1 -Name <NAME> -Prompt`).
+The clipboard mode below is fragile: copying anything else (e.g. the command) replaces the value.
 
 ```powershell
 cd vokr
