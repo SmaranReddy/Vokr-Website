@@ -357,6 +357,25 @@ describe("credit notes (CGST Act s.34)", () => {
     await expect(loadInvoice(notRefunded.orderNumber, {}, "credit_note")).rejects.toBeInstanceOf(NotFoundError);
   });
 
+  // PR #49's returns leave an invoiced order `returned` / `rto` until the
+  // full refund lands, and a partial (`manual_due`) refund leaves it
+  // `delivered` with the payment still captured. None of those may get a
+  // credit note: only a full refund has a decided amount (the whole invoice).
+  // A partial-refund credit note needs the CA's rule first (PR #38 body).
+  it("credits nothing while an invoiced order is only returned, back to origin, or partly refunded", async () => {
+    const now = new Date("2093-10-01T00:00:00Z");
+    const ids: string[] = [];
+    for (const status of [OrderStatus.delivered, OrderStatus.returned, OrderStatus.rto]) {
+      const order = await placedOrder();
+      await prisma.$transaction((tx) => issueInvoice(tx, order.orderId, { seller: SELLER, now: new Date("2093-05-01T00:00:00Z") }));
+      await prisma.order.update({ where: { id: order.orderId }, data: { status }, select: { id: true } });
+      await expect(prisma.$transaction((tx) => issueCreditNote(tx, order.orderId, { now }))).resolves.toBeNull();
+      ids.push(order.orderId);
+    }
+    await issuePendingCreditNotes(now);
+    expect(await prisma.creditNote.count({ where: { orderId: { in: ids } } })).toBe(0);
+  });
+
   it("a credit note cannot be edited", async () => {
     const order = await invoicedRefundedOrder();
     await prisma.$transaction((tx) => issueCreditNote(tx, order.orderId, { now: new Date("2093-09-01T00:00:00Z") }));
