@@ -57,3 +57,6 @@ next-env.d.ts
 
 # local admin browser test output (screenshots, traces)
 /e2e/admin/.artifacts
+
+# load-test run state (variant ids, deadlock baselines)
+/load-tests/.runs

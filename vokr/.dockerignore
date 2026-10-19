@@ -10,6 +10,7 @@ node_modules
 
 # tests and reference artefacts never shipped to production
 e2e
+load-tests
 coverage
 test-results
 playwright-report

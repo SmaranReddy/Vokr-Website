@@ -2,7 +2,7 @@
 # Log-based alerting for Vokr (plan §5 Phase 15). Idempotent.
 #
 #   bash scripts/ops/setup-log-alerts.sh                 # metrics only (safe, no notifications)
-#   bash scripts/ops/setup-log-alerts.sh --channel <ID>  # + one alert policy per metric
+#   bash scripts/ops/setup-log-alerts.sh --channel <ID>  # + the alert policies (apply-alert-policies.sh --apply)
 #
 # <ID> is a Cloud Monitoring notification channel, e.g. created with
 #   gcloud beta monitoring channels create --project vokr-website \
@@ -29,10 +29,12 @@ METRICS=(
   "vokr_amount_mismatch|(textPayload:\"reason=amount_mismatch\" OR textPayload:\"AMOUNT_MISMATCH_UNRECORDED\")|A payment whose amount does not match its order (issue opened in manual review, or could not be recorded)"
   "vokr_reconcile_failed|textPayload:\"RECONCILE_FAILED\"|An order Razorpay could not be read for during reconciliation"
   "vokr_email_failed|textPayload:\"EMAIL_FAILED\"|A transactional email failed or the Brevo account refused the queue"
+  "vokr_form_delivery_failed|textPayload:\"FORM_DELIVERY_FAILED\"|The contact or newsletter form could not be delivered to Brevo (rejected, timeout, network, not configured)"
   "vokr_email_volume|textPayload:\"EMAIL_VOLUME\"|Daily email volume reached the 200 warning or the 290 stop"
   "vokr_credit_note_failed|textPayload:\"CREDIT_NOTE_FAILED\"|A GST credit note could not be issued"
   "vokr_admin_gate_error|textPayload:\"ADMIN_GATE_ERROR\"|The admin gate failed for a reason other than not-an-admin"
   "vokr_maintenance_not_ok|textPayload:\"[jobs/maintenance] finished ok=false\"|A maintenance run (every 5 min) did not finish cleanly"
+  "vokr_maintenance_finished|textPayload:\"[jobs/maintenance] finished ok=\"|Every finished maintenance run; its absence (vokr_maintenance_absent policy) means the Scheduler or service stopped"
 )
 
 for entry in "${METRICS[@]}"; do
@@ -51,33 +53,6 @@ if [ -z "$CHANNEL" ]; then
   exit 0
 fi
 
-existing=$(gcloud alpha monitoring policies list --project "$PROJECT" --format="value(displayName)" 2>/dev/null || true)
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
-for entry in "${METRICS[@]}"; do
-  IFS='|' read -r name _ description <<<"$entry"
-  display="Vokr: $name"
-  if grep -qxF "$display" <<<"$existing"; then echo "policy exists: $display"; continue; fi
-  cat >"$tmp" <<JSON
-{
-  "displayName": "$display",
-  "documentation": { "content": "$description. Runbooks: vokr/docs/infrastructure/alerting.md", "mimeType": "text/markdown" },
-  "combiner": "OR",
-  "conditions": [{
-    "displayName": "$name > 0 in 5 min",
-    "conditionThreshold": {
-      "filter": "metric.type=\"logging.googleapis.com/user/$name\" AND resource.type=\"cloud_run_revision\"",
-      "aggregations": [{ "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }],
-      "comparison": "COMPARISON_GT",
-      "thresholdValue": 0,
-      "duration": "0s",
-      "trigger": { "count": 1 }
-    }
-  }],
-  "alertStrategy": { "autoClose": "86400s" },
-  "notificationChannels": ["$CHANNEL"]
-}
-JSON
-  gcloud alpha monitoring policies create --project "$PROJECT" --policy-from-file="$tmp" >/dev/null
-  echo "created policy: $display"
-done
+# Policies (and the /api/health uptime check) are defined one per file in
+# scripts/ops/alert-policies/ and created by apply-alert-policies.sh.
+exec bash "$(dirname "$0")/apply-alert-policies.sh" --apply --channel "$CHANNEL"

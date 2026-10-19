@@ -1,0 +1,1 @@
+﻿{"samples":447,"intervalMs":100,"samplesWithLockWaiters":0,"maxConcurrentLockWaiters":0}
