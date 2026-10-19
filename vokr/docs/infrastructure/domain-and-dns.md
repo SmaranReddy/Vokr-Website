@@ -295,5 +295,6 @@ writes).** Supersedes the "pending" lines above.
 
 So the Worker (`vokr-edge`) is serving production and `run.app` is no
 longer bypassable for anything but the health check. Still open: the
-Phase 16 WAF/bot rules (`vokr/infra/cloudflare/waf-rules.md`, not applied)
+Phase 16 WAF/bot rules (`vokr/infra/cloudflare/waf-rules.md`; custom rules
+1, 2, 4, 5 applied 19 Oct 2026, rule 3 and Bot Fight Mode deferred)
 and the optional CAA records.

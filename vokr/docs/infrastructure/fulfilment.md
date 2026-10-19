@@ -22,8 +22,12 @@ Code: `src/server/admin/*`, `src/app/admin/**`, `src/app/api/admin/**`,
 - A **refund** needs a sign-in within the last **15 minutes** (the API
   answers 401 "Sign in again to confirm this action").
 - 120 admin API calls per minute per admin.
-- Defence in depth still owed: a Cloudflare WAF rule restricting `/admin*`
-  and `/api/admin*` (Phase 20; needs the D9 cutover).
+- Cloudflare WAF rule `vokr-2` (live 19 Oct 2026) puts a managed challenge
+  in front of `/admin*` and `/api/admin*`. Solve it once per 30 minutes
+  (Cloudflare's default clearance). If a form says "Request failed (403)."
+  after the page sat open, the challenge stopped it before the server —
+  nothing was changed; reload the page, pass the check, and retry. See
+  `infra/cloudflare/waf-rules.md` → "Rule 2 and the admin pages".
 
 ### Granting the first admin (owner, production SQL)
 
