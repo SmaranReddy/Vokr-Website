@@ -37,15 +37,31 @@ METRICS=(
   "vokr_maintenance_finished|textPayload:\"[jobs/maintenance] finished ok=\"|Every finished maintenance run; its absence (vokr_maintenance_absent policy) means the Scheduler or service stopped"
 )
 
+# The backup workflow (.github/workflows/backup.yml) runs in GitHub Actions,
+# not Cloud Run: it writes its heartbeat with `gcloud logging write
+# vokr-backup …`, which lands on the `global` resource in its own log.
+JOB_BASE="logName=\"projects/$PROJECT/logs/vokr-backup\""
+JOB_METRICS=(
+  "vokr_backup_failed|textPayload:\"BACKUP_FAILED\"|A scheduled database backup run failed (dump, encryption, upload or read-back verification)"
+  "vokr_backup_ok|textPayload:\"BACKUP_OK\"|Every verified backup (COMPLETE marker read back); its absence (vokr_backup_absent policy) means backups stopped"
+)
+
+upsert() { # name base filter description
+  if gcloud logging metrics describe "$1" --project "$PROJECT" >/dev/null 2>&1; then
+    gcloud logging metrics update "$1" --project "$PROJECT" --description="$4" --log-filter="$2 AND $3" >/dev/null
+    echo "updated metric $1"
+  else
+    gcloud logging metrics create "$1" --project "$PROJECT" --description="$4" --log-filter="$2 AND $3" >/dev/null
+    echo "created metric $1"
+  fi
+}
 for entry in "${METRICS[@]}"; do
   IFS='|' read -r name filter description <<<"$entry"
-  if gcloud logging metrics describe "$name" --project "$PROJECT" >/dev/null 2>&1; then
-    gcloud logging metrics update "$name" --project "$PROJECT" --description="$description" --log-filter="$BASE AND $filter" >/dev/null
-    echo "updated metric $name"
-  else
-    gcloud logging metrics create "$name" --project "$PROJECT" --description="$description" --log-filter="$BASE AND $filter" >/dev/null
-    echo "created metric $name"
-  fi
+  upsert "$name" "$BASE" "$filter" "$description"
+done
+for entry in "${JOB_METRICS[@]}"; do
+  IFS='|' read -r name filter description <<<"$entry"
+  upsert "$name" "$JOB_BASE" "$filter" "$description"
 done
 
 if [ -z "$CHANNEL" ]; then

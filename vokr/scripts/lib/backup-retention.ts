@@ -3,24 +3,36 @@
  * decides what gets deleted is unit-tested rather than trusted.
  *
  * A backup is one R2 "folder": `db/<YYYYMMDDTHHMMSSZ>/…` (the dump, its
- * checksum file and manifest). Policy, newest wins inside each bucket:
+ * checksum file, manifest and the `COMPLETE` marker). A folder counts as a
+ * backup only once its `COMPLETE` marker exists — the marker is written
+ * last, after every object was read back and its SHA-256 matched — so a run
+ * that died mid-upload is never "the newest backup", never satisfies the
+ * prune guard and never feeds the freshness alert.
+ *
+ * Policy for complete backups, newest wins inside each bucket:
  *   - every backup from the last `hourlyHours` (default 48 h — the 6-hourly
  *     runs of the last two days)
  *   - the newest backup of each UTC day for `dailyDays` days (default 14)
  *   - the newest backup of each ISO week for `weeklyWeeks` weeks (default 8)
  *   - always the newest backup, whatever its age, so a stalled schedule can
  *     never prune the last good copy
+ * Incomplete folders are left alone for `incompleteGraceHours` (default
+ * 24 h — a run may still be uploading) and then deleted as debris.
  * Anything else is deleted. A key that does not parse is never deleted.
  */
 export interface RetentionPolicy {
   hourlyHours: number;
   dailyDays: number;
   weeklyWeeks: number;
+  incompleteGraceHours: number;
 }
 
-export const DEFAULT_RETENTION: RetentionPolicy = { hourlyHours: 48, dailyDays: 14, weeklyWeeks: 8 };
+export const DEFAULT_RETENTION: RetentionPolicy = { hourlyHours: 48, dailyDays: 14, weeklyWeeks: 8, incompleteGraceHours: 24 };
 
 export const BACKUP_PREFIX = "db/";
+
+/** Written last; its presence is what makes a folder a backup. */
+export const COMPLETE_MARKER = "COMPLETE";
 
 const STAMP = /^db\/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z\//;
 
@@ -38,6 +50,8 @@ export function parseBackupTime(key: string): Date | null {
   return Number.isNaN(at.getTime()) ? null : at;
 }
 
+const folderOf = (key: string) => key.slice(0, key.indexOf("/", BACKUP_PREFIX.length) + 1);
+
 function isoWeek(at: Date): string {
   const day = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
   const weekday = day.getUTCDay() || 7;
@@ -47,31 +61,55 @@ function isoWeek(at: Date): string {
   return `${day.getUTCFullYear()}-W${week}`;
 }
 
+/** The newest folder that has its `COMPLETE` marker, or null. */
+export function newestCompleteBackup(keys: readonly string[]): { folder: string; at: Date } | null {
+  let newest: { folder: string; at: Date } | null = null;
+  for (const key of keys) {
+    const at = parseBackupTime(key);
+    if (!at || key !== `${folderOf(key)}${COMPLETE_MARKER}`) continue;
+    if (!newest || at > newest.at) newest = { folder: folderOf(key), at };
+  }
+  return newest;
+}
+
 export interface RetentionPlan {
   keepFolders: string[];
   deleteFolders: string[];
   deleteKeys: string[];
+  /** Folders without a `COMPLETE` marker, kept or deleted, for the run log. */
+  incompleteFolders: string[];
 }
 
 export function planRetention(keys: readonly string[], now: Date, policy: RetentionPolicy = DEFAULT_RETENTION): RetentionPlan {
   const folders = new Map<string, Date>();
+  const complete = new Set<string>();
   for (const key of keys) {
     const at = parseBackupTime(key);
-    if (at) folders.set(key.slice(0, key.indexOf("/", BACKUP_PREFIX.length) + 1), at);
+    if (!at) continue;
+    folders.set(folderOf(key), at);
+    if (key === `${folderOf(key)}${COMPLETE_MARKER}`) complete.add(folderOf(key));
   }
   const newestFirst = [...folders.entries()].sort((a, b) => b[1].getTime() - a[1].getTime());
   const keep = new Set<string>();
-  if (newestFirst[0]) keep.add(newestFirst[0][0]);
 
   const hour = 3_600_000;
   const day = 24 * hour;
   const seenDays = new Set<string>();
   const seenWeeks = new Set<string>();
+  let newestKept = false;
   for (const [folder, at] of newestFirst) {
     const age = now.getTime() - at.getTime();
     if (age < 0) {
       keep.add(folder); // from the future: a clock problem, not something to prune
       continue;
+    }
+    if (!complete.has(folder)) {
+      if (age <= policy.incompleteGraceHours * hour) keep.add(folder); // may still be uploading
+      continue;
+    }
+    if (!newestKept) {
+      newestKept = true;
+      keep.add(folder);
     }
     if (age <= policy.hourlyHours * hour) keep.add(folder);
     const dayKey = at.toISOString().slice(0, 10);
@@ -91,9 +129,7 @@ export function planRetention(keys: readonly string[], now: Date, policy: Retent
   return {
     keepFolders: newestFirst.map(([folder]) => folder).filter((folder) => keep.has(folder)),
     deleteFolders,
-    deleteKeys: keys.filter((key) => {
-      const at = parseBackupTime(key);
-      return at !== null && doomed.has(key.slice(0, key.indexOf("/", BACKUP_PREFIX.length) + 1));
-    }),
+    deleteKeys: keys.filter((key) => parseBackupTime(key) !== null && doomed.has(folderOf(key))),
+    incompleteFolders: newestFirst.map(([folder]) => folder).filter((folder) => !complete.has(folder)),
   };
 }
