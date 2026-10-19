@@ -317,6 +317,63 @@ Cloud Run, excluding the network.
   instance, and the comparison of keep-warm off vs on (task 7), were **not**
   measured: that would mean disabling keep-warm in production. It needs staging.
 
+## Hot queries: `EXPLAIN (ANALYZE, BUFFERS)`, local, 19 Oct 2026 (task 9)
+
+**Environment: local Compose Postgres 17, database `vokr_load`, after `ANALYZE`.**
+The tables hold the real seed plus load-test fixtures: 37 products, 59 variants,
+526 carts and checkout sessions, 786 cart items, 91 reservations. That is
+larger than production today (5 products, 27 variants, no orders), but tiny
+for Postgres. The SQL is what the code issues: the catalog queries were
+captured from Prisma's query log, and the reservation SQL is copied from
+`src/server/inventory/holds.ts` and `src/server/jobs/expire-reservations.ts`.
+The `FOR UPDATE` plan ran inside a transaction that was rolled back.
+
+| # | Query (where) | Default plan | Exec ms | Index used when seq scan is disabled |
+|---|---|---|---|---|
+| Q1 | Catalog products, `status='active' ORDER BY name` (`catalog/service.ts`) | Seq Scan + Sort | 0.045 | **none.** No index on `products.status` |
+| Q2 | Catalog variants, `product_id IN (…) ORDER BY position` | Seq Scan + Sort | 0.063 | `product_variants_product_id_colorway_size_label_key` |
+| Q3 | Catalog inventory, `variant_id IN (…)` | Seq Scan | 0.029 | `inventory_pkey` |
+| Q4 | Open cart for a guest (`cart/service.ts`) | Index Scan `carts_one_open_per_guest_session` | 1.006 | same |
+| Q5 | Reservation lock, `FOR UPDATE OF i` (`holds.ts`) | LockRows ← Nested Loop/Hash Join; Seq Scan on `inventory`/`product_variants`, `products_pkey` | 0.183 | `inventory_pkey`, `product_variants_pkey`, `products_pkey` |
+| Q6 | Units held elsewhere (`holds.ts`) | Seq Scan `inventory_reservations` → `checkout_sessions_pkey` | 0.081 | `inventory_reservations_held_expires_at_idx` (partial, `state='held'`) |
+| Q7 | Expiry candidates (`expire-reservations.ts`) | Seq Scan + Sort/Unique | 0.032 | `inventory_reservations_held_expires_at_idx` |
+
+**Reading:**
+- Every hot query runs in under 1.1 ms.
+- The sequential scans are the planner's correct choice at this size: each
+  table fits in a page or two. The question that matters is whether an index
+  path exists for growth. One does for every query except Q1.
+- **Q1 is not worth an index.** The catalog is 5 products and is served from
+  the 60 s in-process cache (R18), so Q1 runs at most once a minute per instance.
+- Q6 and Q7 use the partial index on live holds. Its size is bounded by holds
+  in flight, not by order history, so it stays small as orders grow.
+- Nothing here changes the R10 reading: the reservation lock (Q5) takes about 0.2 ms.
+- **Not measured:** the same plans on Supabase (pooler, real data, shared
+  CPU). Production SQL was not run.
+
+## R18 catalog cache and bytes per fetch: local, 19 Oct 2026
+
+**Environment: local**, real `listProducts()` against `vokr_load`, with
+Prisma query logging on.
+- **A cache miss issues exactly 3 queries** (Q1–Q3). An immediate second
+  `listProducts()` issued **no** SQL and returned in under 1 ms: a cache hit.
+- Single-flight (concurrent misses → one query) is covered by the existing
+  `TtlCache` unit test, and was not re-measured here.
+- **Bytes per cache miss, real 5-product / 27-variant seed only:**
+  - row data (`pg_column_size`): products 520 B + variants 2,935 B + inventory 1,293 B = **~4.7 KB**;
+  - as JSON text, ~9.9 KB. The Postgres wire protocol adds per-row and
+    per-field framing on top of the row data, so **~5–10 KB per miss** is the
+    honest range. This was not captured on the wire.
+- **Egress estimate, not a measurement:** with a 60 s TTL each instance misses
+  at most once a minute.
+  - One warm instance: ≈ 1,440 misses/day × ~10 KB ≈ **14 MB/day ≈ 0.43 GB/month**.
+  - Three instances always busy (the `max-instances=3` ceiling): ≈ **1.3 GB/month**.
+  - Both are inside Supabase's 5 GB uncached egress.
+  - Excluded: `/api/health` (one tiny query per probe), cart/checkout traffic
+    (ordering is off) and Supabase Auth.
+- R18 at the launch gate still needs **measured** Supabase egress per pageview
+  from staging or the Supabase usage page, not this estimate.
+
 ## Database-level R10 (existing, for comparison)
 
 `src/server/inventory/__tests__/concurrent-buyers.integration.test.ts`:
@@ -328,7 +385,7 @@ the reservation transaction itself, not HTTP.
 
 - R10 Razorpay round-trip (order + webhook) over HTTP, and R10 on Cloud Run (see above)
 - Razorpay-delay test (task 5)
-- Cloud Run vCPU-seconds and Supabase bytes per pageview (task 6, R18)
+- Cloud Run vCPU-seconds and **measured** Supabase bytes per pageview (task 6, R18). Bytes per catalog miss measured locally above
 - cold start: first-request latency, keep-warm off vs on (task 7, needs staging). Start-to-ready measured above
 - Core Web Vitals in the field (CrUX). Lab values measured above; cart and checkout pages not measured (ordering off)
-- `EXPLAIN ANALYZE` of hot queries (task 9)
+- `EXPLAIN ANALYZE` on Supabase (done locally above, task 9)
