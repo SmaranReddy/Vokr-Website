@@ -43,6 +43,8 @@ interface HeadingDeviations {
   removed?: string[];
   /** Legacy heading text → its replacement. */
   renamed?: Record<string, string>;
+  /** Legacy heading text → the tag it now renders as (same text). */
+  retagged?: Record<string, string>;
 }
 
 const REVIEWS_EMPTY_STATE =
@@ -105,7 +107,11 @@ function applyHeadingDeviations(
   headings: { tag: string; text: string }[],
   deviations: HeadingDeviations = {},
 ): { tag: string; text: string }[] {
-  const all = [...(deviations.removed ?? []), ...Object.keys(deviations.renamed ?? {})];
+  const all = [
+    ...(deviations.removed ?? []),
+    ...Object.keys(deviations.renamed ?? {}),
+    ...Object.keys(deviations.retagged ?? {}),
+  ];
   for (const text of all) {
     expect(
       headings.some((h) => h.text === text),
@@ -114,7 +120,10 @@ function applyHeadingDeviations(
   }
   return headings
     .filter((h) => !deviations.removed?.includes(h.text))
-    .map((h) => ({ ...h, text: deviations.renamed?.[h.text] ?? h.text }));
+    .map((h) => ({
+      tag: deviations.retagged?.[h.text] ?? h.tag,
+      text: deviations.renamed?.[h.text] ?? h.text,
+    }));
 }
 
 interface FidelityCase {
@@ -283,7 +292,14 @@ const CASES: FidelityCase[] = [
       ),
     ],
   },
-  { route: "/reviews", legacyFile: "reviews.html", deviations: [REVIEWS_DEVIATION] },
+  {
+    route: "/reviews",
+    legacyFile: "reviews.html",
+    deviations: [REVIEWS_DEVIATION],
+    // The legacy page had no h1; on /reviews its section heading is the
+    // page's main heading (production audit, 20 Oct 2026). PDPs keep h2.
+    headingDeviations: { retagged: { "Ratings and Reviews": "h1" } },
+  },
   // The 5 dynamic PDP routes (task 5) — name/price/sizes come from the
   // live Phase 2 catalog (seeded to mirror the legacy prices exactly).
   {
