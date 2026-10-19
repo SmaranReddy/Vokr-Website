@@ -47,8 +47,10 @@ export function SiteFooter() {
               <ul>
                 {group.links.map((link) => (
                   <li key={link.href} className="mb-[11px]">
+                    {/* No viewport prefetch: ~20 footer routes cost ~130 KB per homepage view (R21). */}
                     <Link
                       href={link.href}
+                      prefetch={false}
                       className="text-[13.5px] text-white/60 hover:text-white"
                     >
                       {link.label}
@@ -64,10 +66,10 @@ export function SiteFooter() {
         <div className="flex flex-col items-start gap-3 border-t border-white/10 pt-5.5 text-xs text-white/60 narrow:flex-row narrow:flex-wrap narrow:items-center narrow:justify-between">
           <span>&copy; 2026 VOKR INC.</span>
           <div className="flex gap-5">
-            <Link href="/terms" className="hover:text-white">
+            <Link href="/terms" prefetch={false} className="hover:text-white">
               Terms &amp; Conditions
             </Link>
-            <Link href="/privacy-policy" className="hover:text-white">
+            <Link href="/privacy-policy" prefetch={false} className="hover:text-white">
               Privacy Policy
             </Link>
           </div>

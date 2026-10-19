@@ -121,6 +121,7 @@ export async function proxy(request: NextRequest) {
   const csp = contentSecurityPolicy(clientEnv.NEXT_PUBLIC_SUPABASE_URL, {
     nonce: createNonce(),
     dev: process.env.NODE_ENV === "development",
+    assetBaseUrl: clientEnv.NEXT_PUBLIC_ASSET_BASE_URL,
   });
   if (verdict === "refused") {
     return new NextResponse("Not found", {

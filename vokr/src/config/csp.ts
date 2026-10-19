@@ -43,10 +43,14 @@ export interface CspOptions {
   nonce: string;
   /** `next dev` needs `'unsafe-eval'` (React rebuilds server error stacks with it). */
   dev?: boolean;
+  /** Phase 14: an absolute asset base (the R2 domain) becomes an image origin; `/img` is already 'self'. */
+  assetBaseUrl?: string;
 }
 
-export function contentSecurityPolicy(supabaseUrl: string | undefined, { nonce, dev = false }: CspOptions): string {
+export function contentSecurityPolicy(supabaseUrl: string | undefined, { nonce, dev = false, assetBaseUrl }: CspOptions): string {
   const supabase = supabaseUrl ? [supabaseUrl.replace(/\/+$/, "")] : [];
+  // Phase 14: an absolute asset base (the R2 domain) is an image origin; `/img` is already 'self'.
+  const assets = assetBaseUrl && /^https:\/\//.test(assetBaseUrl) ? [new URL(assetBaseUrl).origin] : [];
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
     "script-src": [
@@ -58,7 +62,7 @@ export function contentSecurityPolicy(supabaseUrl: string | undefined, { nonce, 
       ...(dev ? ["'unsafe-eval'"] : []),
     ],
     "style-src": ["'self'", "'unsafe-inline'"],
-    "img-src": ["'self'", "data:", "blob:", "https://cdn.shopify.com", "https://cdn.razorpay.com"],
+    "img-src": ["'self'", "data:", "blob:", "https://cdn.shopify.com", "https://cdn.razorpay.com", ...assets],
     "font-src": ["'self'", "data:"],
     "connect-src": ["'self'", ...supabase, ...RAZORPAY],
     "frame-src": ["https://api.razorpay.com", "https://checkout.razorpay.com"],

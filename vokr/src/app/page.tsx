@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ResponsiveImage } from "@/components/ui/responsive-image";
 import { createMetadata } from "@/lib/metadata";
 import { Accordion, type AccordionItemData } from "@/components/marketing/accordion";
 import { FitQuizModal } from "@/components/marketing/fit-quiz-modal";
@@ -73,6 +74,9 @@ const TECH_CARDS = [
     title: "Lightweight Foam",
     body: "A lightweight foam midsole cushions your feet for unparalleled comfort.",
     img: "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/Antimicrobial_lining.jpg?v=1777482622",
+    // D7: configured, this slot shows index (7).html's outsole photograph
+    // (DOM #8) — which its alt describes — instead of a second copy of the lining.
+    imageId: "outsole-detail" as const,
     alt: "Vokr outsole detail close-up",
   },
   {
@@ -139,11 +143,14 @@ export default function Home() {
           </Link>
         </div>
         <div className="order-1 min-h-[300px] bg-surface-2 wide:order-2 wide:min-h-0">
-          {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-          <img
-            src="https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639"
+          {/* D7: the configured image is index (7).html's overhead photograph, which this alt already describes. */}
+          <ResponsiveImage
+            id="model-x-white-overhead"
+            legacySrc="https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639"
             alt="Vokr Model x — White overhead pair view"
+            sizes="(min-width: 1024px) 50vw, 100vw"
             className="h-full w-full object-cover"
+            priority
           />
         </div>
       </section>
@@ -172,10 +179,12 @@ export default function Home() {
       {/* EXPLORE EVERY DAY */}
       <section className="grid grid-cols-1 border-t border-border wide:grid-cols-2">
         <div className="min-h-[280px] bg-surface-2 wide:min-h-[500px]">
-          {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-          <img
-            src="https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772"
+          {/* D7: as the hero. */}
+          <ResponsiveImage
+            id="model-x-black-overhead"
+            legacySrc="https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_White_PDP_Side.jpg?v=1778601772"
             alt="Vokr Model x — Black overhead pair view"
+            sizes="(min-width: 1024px) 50vw, 100vw"
             className="h-full w-full object-cover"
           />
         </div>
@@ -272,8 +281,7 @@ export default function Home() {
             ].map((product) => (
               <div key={product.href}>
                 <Link href={product.href} className="mb-3 block aspect-square overflow-hidden rounded-2xl bg-surface-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-                  <img src={product.img} alt={product.alt} className="h-full w-full object-cover" />
+                  <ResponsiveImage legacySrc={product.img} alt={product.alt} sizes="(min-width: 1024px) 33vw, 100vw" className="h-full w-full object-cover" />
                 </Link>
                 <p className="mb-1 text-sm font-bold">{product.name}</p>
                 <p className="mb-3 text-sm text-muted">{product.desc}</p>
@@ -310,10 +318,11 @@ export default function Home() {
             {TECH_CARDS.map((card) => (
               <div key={card.title}>
                 <div className="mb-4 aspect-square overflow-hidden rounded-2xl bg-border">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-                  <img
-                    src={card.img}
+                  <ResponsiveImage
+                    id={card.imageId}
+                    legacySrc={card.img}
                     alt={card.alt}
+                    sizes="(min-width: 1024px) 33vw, 100vw"
                     className="h-full w-full object-cover"
                   />
                 </div>
@@ -437,8 +446,7 @@ export default function Home() {
                 index >= 3 ? "hidden wide:block" : index >= 2 ? "hidden narrow:block" : ""
               }`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-              <img src={item.img} alt={item.alt} className="h-full w-full object-cover" />
+              <ResponsiveImage legacySrc={item.img} alt={item.alt} sizes="(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw" className="h-full w-full object-cover" />
             </div>
           ))}
         </div>

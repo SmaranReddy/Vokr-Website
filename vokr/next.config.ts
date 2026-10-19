@@ -20,7 +20,12 @@ const nextConfig: NextConfig = {
 
   /** Security headers on every response (plan §5 Phase 16, task 1) — see `src/config/security-headers.ts`. */
   async headers() {
-    return [{ source: "/:path*", headers: [...SECURITY_HEADERS] }];
+    return [
+      { source: "/:path*", headers: [...SECURITY_HEADERS] },
+      // Phase 14: `public/img` names are content-hashed (`scripts/assets/build-images.ts`),
+      // so a file never changes under its name — cache it everywhere, forever.
+      { source: "/img/:file*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    ];
   },
 };
 
