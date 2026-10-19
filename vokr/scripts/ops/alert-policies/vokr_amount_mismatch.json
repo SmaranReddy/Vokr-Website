@@ -1,0 +1,36 @@
+{
+  "displayName": "Vokr: vokr_amount_mismatch",
+  "severity": "CRITICAL",
+  "documentation": {
+    "content": "Never auto-refunded; must be refunded by hand. Runbook: vokr/docs/infrastructure/alerting.md",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "vokr_amount_mismatch > 0 in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/vokr_amount_mismatch\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "notificationChannels": [
+    "${NOTIFICATION_CHANNEL}"
+  ]
+}
