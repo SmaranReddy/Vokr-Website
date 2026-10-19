@@ -31,7 +31,7 @@ interface Policy {
 }
 
 const script = readFileSync(path.join(OPS, "setup-log-alerts.sh"), "utf8");
-const metrics = [...script.matchAll(/^\s*"(vokr_[a-z_]+)\|(.+?)\|/gm)].map(([, name, filter]) => ({ name, filter }));
+const metrics = [...script.matchAll(/^\s*"(vokr_[a-z_]+)\|(.+?)\|/gm)].map((match) => ({ name: match[1] ?? "", filter: match[2] ?? "" }));
 const policyFiles = readdirSync(POLICIES).filter((file) => file.startsWith("vokr_") && file.endsWith(".json"));
 const policies = policyFiles.map((file) => ({ file, policy: JSON.parse(readFileSync(path.join(POLICIES, file), "utf8")) as Policy }));
 
@@ -46,7 +46,7 @@ const source = sourceFiles(SRC).map((file) => readFileSync(file, "utf8")).join("
 
 function metricOf(policy: Policy): string | undefined {
   const condition = policy.conditions[0];
-  const filter = condition.conditionThreshold?.filter ?? condition.conditionAbsent?.filter ?? "";
+  const filter = condition?.conditionThreshold?.filter ?? condition?.conditionAbsent?.filter ?? "";
   return /logging\.googleapis\.com\/user\/(vokr_[a-z_]+)/.exec(filter)?.[1];
 }
 
@@ -69,7 +69,7 @@ describe("alert policies", () => {
       const metric = metricOf(policy);
       if (metric === undefined) {
         expect(file).toBe("vokr_uptime_health.json");
-        expect(policy.conditions[0].conditionThreshold?.filter).toContain("${UPTIME_CHECK_ID}");
+        expect(policy.conditions[0]?.conditionThreshold?.filter).toContain("${UPTIME_CHECK_ID}");
       } else {
         expect(names.has(metric), `${file} → ${metric}`).toBe(true);
       }
@@ -97,7 +97,7 @@ describe("alert policies", () => {
 
   it("every tag a metric matches is still written by the application", () => {
     for (const { name, filter } of metrics) {
-      for (const [, tag] of filter.matchAll(/textPayload:\\"(.+?)\\"/g)) {
+      for (const tag of [...filter.matchAll(/textPayload:\\"(.+?)\\"/g)].map((match) => match[1] ?? "")) {
         // `reason=amount_mismatch` is written as `reason=${reason}` with the value a literal elsewhere.
         const keyValue = /^([a-z_]+)=([a-z_]+)$/.exec(tag);
         const written = keyValue
@@ -115,10 +115,10 @@ describe("alert policies", () => {
 
   it("test-fire-alerts.sh has a synthetic line matching every count-based metric's filter", () => {
     const fire = readFileSync(path.join(OPS, "test-fire-alerts.sh"), "utf8");
-    const lines = [...fire.matchAll(/^\s*"(vokr_[a-z_]+)\|(.+)"$/gm)].map(([, metric, text]) => ({ metric, text: text.replace(/\\"/g, '"') }));
+    const lines = [...fire.matchAll(/^\s*"(vokr_[a-z_]+)\|(.+)"$/gm)].map((match) => ({ metric: match[1] ?? "", text: (match[2] ?? "").replace(/\\"/g, '"') }));
     for (const { name, filter } of metrics) {
       if (name === "vokr_maintenance_finished") continue; // watched for absence, fired by pausing the Scheduler
-      const tags = [...filter.matchAll(/textPayload:\\"(.+?)\\"/g)].map(([, tag]) => tag);
+      const tags = [...filter.matchAll(/textPayload:\\"(.+?)\\"/g)].map((match) => match[1] ?? "");
       const mine = lines.filter(({ metric }) => metric === name);
       expect(mine.length, name).toBeGreaterThan(0);
       for (const { text } of mine) {
