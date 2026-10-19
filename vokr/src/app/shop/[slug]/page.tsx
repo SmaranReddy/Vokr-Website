@@ -5,7 +5,7 @@ import { ResponsiveImage } from "@/components/ui/responsive-image";
 import { createMetadata } from "@/lib/metadata";
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { NotFoundError } from "@/lib/errors";
-import { getProductBySlug, listProducts } from "@/server/catalog";
+import { getProductBySlug } from "@/server/catalog";
 import { PDP_CONTENT } from "@/config/pdp-content";
 import { PdpPurchasePanel } from "@/components/shop/pdp-purchase-panel";
 import { ReviewsSummary } from "@/components/shop/reviews-summary";
@@ -19,29 +19,16 @@ import { ReviewsSummary } from "@/components/shop/reviews-summary";
  */
 
 /**
- * Which sizes are sold out is stock, and stock moves. The page is
- * regenerated at most every 60 s — the catalog cache's own TTL — instead
- * of keeping the build's stock forever. It is a display only: adding to
- * the cart re-checks stock, and the reservation's row lock (Phase 8) is
- * the check no page, cache or browser can get past.
+ * Rendered per request, like every page: the enforced CSP carries a fresh
+ * nonce (`src/proxy.ts`, root layout `connection()`), which an ISR page
+ * cannot carry. `revalidate` + `generateStaticParams` made a slug that was
+ * not prerendered (any build without database access, i.e. CI) render
+ * on demand as ISR, hit `connection()` and answer 500
+ * (`DYNAMIC_SERVER_USAGE`, smoke test of run 39239227462). Stock freshness
+ * is unchanged: the catalog cache's 60 s TTL bounds it, and adding to the
+ * cart re-checks stock under the reservation's row lock (Phase 8).
  */
-export const revalidate = 60;
-
-/**
- * Pre-populates the 5 launch slugs at build time when the database is
- * reachable. Falls back to an empty list — not a build failure — when it
- * isn't: `dynamicParams` defaults to `true`, so every slug still renders
- * correctly on first request, on demand. A transient build-time DB hiccup
- * has no business taking every other already-built page down with it.
- */
-export async function generateStaticParams() {
-  try {
-    const products = await listProducts();
-    return products.map((product) => ({ slug: product.slug }));
-  } catch {
-    return [];
-  }
-}
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
