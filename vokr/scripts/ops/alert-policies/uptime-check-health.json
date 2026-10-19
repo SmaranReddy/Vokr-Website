@@ -1,0 +1,29 @@
+{
+  "displayName": "vokr-health",
+  "monitoredResource": {
+    "type": "uptime_url",
+    "labels": {
+      "host": "vokr.shop"
+    }
+  },
+  "httpCheck": {
+    "path": "/api/health",
+    "port": 443,
+    "useSsl": true,
+    "validateSsl": true,
+    "requestMethod": "GET",
+    "acceptedResponseStatusCodes": [
+      {
+        "statusValue": 200
+      }
+    ]
+  },
+  "contentMatchers": [
+    {
+      "content": "\"status\":\"ok\"",
+      "matcher": "CONTAINS_STRING"
+    }
+  ],
+  "period": "300s",
+  "timeout": "10s"
+}

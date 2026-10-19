@@ -1,0 +1,36 @@
+{
+  "displayName": "Vokr: vokr_credit_note_failed",
+  "severity": "ERROR",
+  "documentation": {
+    "content": "A refunded invoice has no credit note (GST record). Runbook: vokr/docs/infrastructure/alerting.md",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "vokr_credit_note_failed > 0 in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/vokr_credit_note_failed\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "notificationChannels": [
+    "${NOTIFICATION_CHANNEL}"
+  ]
+}
