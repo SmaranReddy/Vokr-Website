@@ -1,0 +1,227 @@
+{
+  "model-x-white-black-side": {
+    "hash": "602c45a1c5",
+    "width": 2000,
+    "height": 2000,
+    "widths": [
+      480,
+      800,
+      1200,
+      1600
+    ],
+    "originalBytes": 228439,
+    "bytes": {
+      "480": {
+        "avif": 4287,
+        "webp": 7272
+      },
+      "800": {
+        "avif": 11414,
+        "webp": 21962
+      },
+      "1200": {
+        "avif": 24360,
+        "webp": 50702
+      },
+      "1600": {
+        "avif": 50094,
+        "webp": 88804
+      }
+    }
+  },
+  "model-001-black-side": {
+    "hash": "33d282bf2d",
+    "width": 2000,
+    "height": 2000,
+    "widths": [
+      480,
+      800,
+      1200,
+      1600
+    ],
+    "originalBytes": 228752,
+    "bytes": {
+      "480": {
+        "avif": 3945,
+        "webp": 6630
+      },
+      "800": {
+        "avif": 10847,
+        "webp": 20636
+      },
+      "1200": {
+        "avif": 25031,
+        "webp": 49768
+      },
+      "1600": {
+        "avif": 54220,
+        "webp": 87916
+      }
+    }
+  },
+  "white-side": {
+    "hash": "633e8d5998",
+    "width": 2000,
+    "height": 2000,
+    "widths": [
+      480,
+      800,
+      1200,
+      1600
+    ],
+    "originalBytes": 203350,
+    "bytes": {
+      "480": {
+        "avif": 3559,
+        "webp": 6204
+      },
+      "800": {
+        "avif": 9506,
+        "webp": 19074
+      },
+      "1200": {
+        "avif": 18332,
+        "webp": 40968
+      },
+      "1600": {
+        "avif": 42481,
+        "webp": 70736
+      }
+    }
+  },
+  "antimicrobial-lining": {
+    "hash": "731c93b5a6",
+    "width": 1254,
+    "height": 1254,
+    "widths": [
+      400,
+      800,
+      1200
+    ],
+    "originalBytes": 258632,
+    "bytes": {
+      "400": {
+        "avif": 10083,
+        "webp": 20824
+      },
+      "800": {
+        "avif": 37490,
+        "webp": 64988
+      },
+      "1200": {
+        "avif": 66238,
+        "webp": 107970
+      }
+    }
+  },
+  "stretch-laces": {
+    "hash": "490ce4fa7a",
+    "width": 4128,
+    "height": 4128,
+    "widths": [
+      400,
+      800,
+      1200
+    ],
+    "originalBytes": 1227730,
+    "bytes": {
+      "400": {
+        "avif": 11914,
+        "webp": 23804
+      },
+      "800": {
+        "avif": 41296,
+        "webp": 70220
+      },
+      "1200": {
+        "avif": 73359,
+        "webp": 114754
+      }
+    }
+  },
+  "model-x-white-overhead": {
+    "hash": "35501d56a9",
+    "width": 3000,
+    "height": 3750,
+    "widths": [
+      480,
+      800,
+      1200,
+      1600
+    ],
+    "originalBytes": 2513651,
+    "bytes": {
+      "480": {
+        "avif": 4142,
+        "webp": 3822
+      },
+      "800": {
+        "avif": 8696,
+        "webp": 8816
+      },
+      "1200": {
+        "avif": 17233,
+        "webp": 19064
+      },
+      "1600": {
+        "avif": 25140,
+        "webp": 30784
+      }
+    }
+  },
+  "model-x-black-overhead": {
+    "hash": "f18770a025",
+    "width": 3000,
+    "height": 3750,
+    "widths": [
+      480,
+      800,
+      1200,
+      1600
+    ],
+    "originalBytes": 2615153,
+    "bytes": {
+      "480": {
+        "avif": 4888,
+        "webp": 5024
+      },
+      "800": {
+        "avif": 11174,
+        "webp": 13242
+      },
+      "1200": {
+        "avif": 23108,
+        "webp": 26764
+      },
+      "1600": {
+        "avif": 33272,
+        "webp": 42136
+      }
+    }
+  },
+  "outsole-detail": {
+    "hash": "e6aa73b3c2",
+    "width": 1220,
+    "height": 1220,
+    "widths": [
+      400,
+      800,
+      1200
+    ],
+    "originalBytes": 1796471,
+    "bytes": {
+      "400": {
+        "avif": 10918,
+        "webp": 17182
+      },
+      "800": {
+        "avif": 26690,
+        "webp": 39090
+      },
+      "1200": {
+        "avif": 46136,
+        "webp": 60090
+      }
+    }
+  }
+}
