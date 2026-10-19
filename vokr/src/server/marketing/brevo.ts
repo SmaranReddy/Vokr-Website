@@ -176,9 +176,9 @@ export const BLOCKLIST_MAX_PAGES = 5;
 /**
  * Whether Brevo's transactional blocklist holds the support inbox.
  *
- * Brevo answers `POST /smtp/email` with 2xx and decides delivery later, and
- * a blocklisted recipient is dropped after that 2xx — so the form would say
- * "Thanks" while nothing arrives. On 17 Oct 2026 Zoho rejected `support@`
+ * Brevo answers `POST /smtp/email` with 2xx and decides delivery later; a
+ * blocklisted recipient is expected to be dropped after that 2xx — so the
+ * form would say "Thanks" while nothing arrives. On 17 Oct 2026 Zoho rejected `support@`
  * with `550 5.1.1 User does not exist` after the form had reported success;
  * Brevo then blocklisted the address. The list has no per-recipient filter
  * (`senders` matches the original sender, not the blocked contact), so it
