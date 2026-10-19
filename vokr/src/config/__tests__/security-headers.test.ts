@@ -7,7 +7,11 @@ import { SECURITY_HEADERS } from "../security-headers";
 describe("security headers", () => {
   it("apply to every path", async () => {
     const rules = await nextConfig.headers?.();
-    expect(rules).toEqual([{ source: "/:path*", headers: [...SECURITY_HEADERS] }]);
+    expect(rules).toEqual([
+      { source: "/:path*", headers: [...SECURITY_HEADERS] },
+      // Phase 14: content-hashed self-hosted photographs only; adds caching, never removes a security header.
+      { source: "/img/:file*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    ]);
   });
 
   it("HSTS is one year, without includeSubDomains or preload (owner decision)", () => {

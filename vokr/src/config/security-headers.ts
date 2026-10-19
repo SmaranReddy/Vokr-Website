@@ -21,7 +21,7 @@ import { contentSecurityPolicy } from "./csp";
 export const SECURITY_HEADERS: readonly { key: string; value: string }[] = [
   {
     key: "Content-Security-Policy-Report-Only",
-    value: contentSecurityPolicy(process.env.NEXT_PUBLIC_SUPABASE_URL),
+    value: contentSecurityPolicy(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_ASSET_BASE_URL),
   },
   { key: "Strict-Transport-Security", value: "max-age=31536000" },
   { key: "X-Content-Type-Options", value: "nosniff" },

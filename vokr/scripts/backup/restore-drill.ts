@@ -44,7 +44,7 @@ function arg(name: string): string | undefined {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
-function run(command: string, args: string[], options: { env?: NodeJS.ProcessEnv; input?: string } = {}) {
+function run(command: string, args: string[], options: { env?: Record<string, string>; input?: string } = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", env: { ...process.env, ...options.env }, input: options.input, maxBuffer: 64 * 1024 * 1024 });
   return { status: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }

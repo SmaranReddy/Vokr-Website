@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
+import { ResponsiveImage } from "@/components/ui/responsive-image";
 import { createMetadata } from "@/lib/metadata";
 import { formatPaiseAsRupees } from "@/lib/currency";
 import { NotFoundError } from "@/lib/errors";
@@ -85,11 +86,12 @@ export default async function ProductPage({
       <section className="px-5 py-12 sm:py-16">
         <div className="mx-auto grid max-w-[1100px] grid-cols-1 gap-8 sm:grid-cols-2 sm:gap-15">
           <div className="aspect-square overflow-hidden rounded-2xl bg-surface-2">
-            {/* eslint-disable-next-line @next/next/no-img-element -- legacy CDN asset, migrated as-is until Phase 14 (R21). */}
-            <img
-              src={content.heroImage}
+            <ResponsiveImage
+              legacySrc={content.heroImage}
               alt={content.heroAlt}
+              sizes="(min-width: 1100px) 520px, (min-width: 640px) 50vw, 100vw"
               className="h-full w-full object-cover"
+              priority
             />
           </div>
           <div>

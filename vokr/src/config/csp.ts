@@ -22,14 +22,16 @@ const RAZORPAY = [
 
 export const CSP_REPORT_PATH = "/api/csp-report";
 
-export function contentSecurityPolicy(supabaseUrl: string | undefined): string {
+export function contentSecurityPolicy(supabaseUrl: string | undefined, assetBaseUrl?: string): string {
   const supabase = supabaseUrl ? [supabaseUrl.replace(/\/+$/, "")] : [];
+  // Phase 14: an absolute asset base (the R2 domain) is an image origin; `/img` is already 'self'.
+  const assets = assetBaseUrl && /^https:\/\//.test(assetBaseUrl) ? [new URL(assetBaseUrl).origin] : [];
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
     // Next.js inlines its bootstrap scripts; nonces replace this when enforcing.
     "script-src": ["'self'", "'unsafe-inline'", "https://checkout.razorpay.com"],
     "style-src": ["'self'", "'unsafe-inline'"],
-    "img-src": ["'self'", "data:", "blob:", "https://cdn.shopify.com", "https://cdn.razorpay.com"],
+    "img-src": ["'self'", "data:", "blob:", "https://cdn.shopify.com", "https://cdn.razorpay.com", ...assets],
     "font-src": ["'self'", "data:"],
     "connect-src": ["'self'", ...supabase, ...RAZORPAY],
     "frame-src": ["https://api.razorpay.com", "https://checkout.razorpay.com"],
