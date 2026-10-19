@@ -27,7 +27,23 @@ with the unchanged visitor-facing message and a `requestId`:
 | `timeout`        | Brevo did not answer (headers **and** body) within `FORM_TIMEOUT_MS` = 8 s |
 | `network`        | DNS/connection/TLS failure                                                 |
 | `rejected`       | Any other HTTP status from Brevo (401 bad key, 403 IP/sender, 4xx, 5xx)    |
+| `recipient_blocked` | Contact form only: `support@vokr.shop` is on Brevo's transactional blocklist — no email is sent |
+| `unconfirmed`    | Contact form only: Brevo answered 2xx without a `messageId`                |
 | `unexpected`     | A bug or anything else thrown on the way (also logged with its stack)      |
+
+**Blocklist check (20 Oct 2026).** Brevo accepts a send with 2xx and decides
+delivery afterwards; a blocklisted recipient is expected to be dropped after
+that 2xx, so the visitor would see "Thanks" for a message that never arrives.
+On 17 Oct 2026 Zoho rejected `support@vokr.shop` with `550 5.1.1 User does
+not exist`; Brevo hard-bounced and blocklisted it. Before each contact send
+the route now reads `GET /v3/smtp/blockedContacts` (paged, at most 5 × 100
+entries; a longer list fails open with a `warn` line) and refuses with
+`recipient_blocked` if the support inbox is on it. The read and the send
+share the one 8 s budget. A bounce that happens *after* Brevo accepted a
+send still cannot be seen by the request — that needs the inbox to exist.
+Unblock only after the Zoho mailbox/alias is confirmed receiving:
+`DELETE /v3/smtp/blockedContacts/support%40vokr.shop` or Brevo →
+Transactional → Contacts → Blocked.
 
 The **contact** send is one attempt only, no retry: it has no idempotency key, so a
 retry could deliver the same message twice. The **newsletter** call is an

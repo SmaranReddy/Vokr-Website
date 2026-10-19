@@ -11,6 +11,8 @@ const env = { BREVO_API_KEY: "xkeysib-unit-test-secret" as string | undefined };
 vi.mock("@/lib/env", () => ({ requireServerEnv: () => env }));
 
 const {
+  BLOCKLIST_MAX_PAGES,
+  BLOCKLIST_PAGE_SIZE,
   FORM_DELIVERY_FAILED_TAG,
   FORM_TIMEOUT_MS,
   FormDeliveryError,
@@ -187,11 +189,30 @@ describe("subscribeToNewsletter", () => {
 });
 
 describe("sendContactMessage", () => {
-  it("relays the message to the support inbox with the visitor as reply-to", async () => {
-    const fetchImpl = mockFetch(async () => reply(201, JSON.stringify({ messageId: "<m@smtp-relay.brevo.com>" })));
+  const ACCEPTED = () => reply(201, JSON.stringify({ messageId: "<m@smtp-relay.brevo.com>" }));
+  const EMPTY_BLOCKLIST = () => reply(200, JSON.stringify({ contacts: [], count: 0 }));
+
+  /** Answers the blocklist GET with `blocklist` and the send POST with `send`. */
+  function routedFetch(
+    send: () => Response | Promise<Response>,
+    blocklist: (url: string) => Response | Promise<Response> = EMPTY_BLOCKLIST,
+  ) {
+    return mockFetch(async (url) => (url.includes("/smtp/blockedContacts") ? blocklist(url) : send()));
+  }
+  const sends = (fetchImpl: ReturnType<typeof mockFetch>) =>
+    fetchImpl.mock.calls.filter(([url]) => String(url).endsWith("/smtp/email")) as [string, RequestInit][];
+
+  it("checks the blocklist, then relays the message to the support inbox with the visitor as reply-to", async () => {
+    const fetchImpl = routedFetch(ACCEPTED);
     await expect(sendContactMessage(VISITOR, { fetchImpl })).resolves.toBeUndefined();
 
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [blockUrl, blockInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(blockUrl).toBe("https://api.brevo.com/v3/smtp/blockedContacts?limit=100&offset=0");
+    expect(blockInit.method).toBe("GET");
+    expect(blockInit.body).toBeUndefined();
+    expect((blockInit.headers as Record<string, string>)["api-key"]).toBe("xkeysib-unit-test-secret");
+
+    const [url, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
     expect(url).toBe("https://api.brevo.com/v3/smtp/email");
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(String(init.body))).toEqual({
@@ -203,14 +224,74 @@ describe("sendContactMessage", () => {
     });
   });
 
+  it("a blocklisted support inbox is `recipient_blocked` and no email is sent (Brevo would 2xx and drop it)", async () => {
+    const fetchImpl = routedFetch(ACCEPTED, () =>
+      reply(200, JSON.stringify({ contacts: [{ email: "Support@Vokr.shop", reason: { code: "hardBounce" } }], count: 1 })),
+    );
+    const error = await failure(sendContactMessage(VISITOR, { fetchImpl }));
+    expect(error).toMatchObject({
+      reason: "recipient_blocked",
+      status: 500,
+      message: "Could not send your message. Please try again.",
+    });
+    expect(sends(fetchImpl)).toHaveLength(0);
+  });
+
+  it("pages through the blocklist until it finds the inbox", async () => {
+    const others = Array.from({ length: 100 }, (_, i) => ({ email: `bounced-${i}@example.com` }));
+    const fetchImpl = routedFetch(ACCEPTED, (url) =>
+      reply(
+        200,
+        JSON.stringify(
+          url.includes("offset=0") ? { contacts: others, count: 101 } : { contacts: [{ email: "support@vokr.shop" }], count: 101 },
+        ),
+      ),
+    );
+    expect((await failure(sendContactMessage(VISITOR, { fetchImpl }))).reason).toBe("recipient_blocked");
+    expect(fetchImpl.mock.calls[1]?.[0]).toContain("offset=100");
+    expect(sends(fetchImpl)).toHaveLength(0);
+  });
+
+  it("a blocklist longer than the cap fails open with a warn line that names no one", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const others = Array.from({ length: BLOCKLIST_PAGE_SIZE }, (_, i) => ({ email: `bounced-${i}@example.com` }));
+    const fetchImpl = routedFetch(ACCEPTED, () => reply(200, JSON.stringify({ contacts: others, count: 10_000 })));
+    await expect(sendContactMessage(VISITOR, { fetchImpl })).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(BLOCKLIST_MAX_PAGES + 1);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(String(warn.mock.calls[0]?.[0])).not.toMatch(/@/);
+  });
+
+  it("an unreadable blocklist (HTTP error or non-JSON) fails, and no email is sent", async () => {
+    for (const blocklist of [() => reply(401, ECHOING_BODY), () => reply(200, "<html>oops</html>")]) {
+      const fetchImpl = routedFetch(ACCEPTED, blocklist);
+      expect((await failure(sendContactMessage(VISITOR, { fetchImpl }))).reason).toBe("rejected");
+      expect(sends(fetchImpl)).toHaveLength(0);
+    }
+  });
+
+  it("a 2xx without a messageId is `unconfirmed`, never success", async () => {
+    for (const body of ["", "{}", JSON.stringify({ messageId: "" }), "not json"]) {
+      const fetchImpl = routedFetch(() => reply(201, body));
+      expect(await failure(sendContactMessage(VISITOR, { fetchImpl }))).toMatchObject({
+        reason: "unconfirmed",
+        providerStatus: 201,
+      });
+    }
+  });
+
   it("400 duplicate_parameter is NOT success for a contact message", async () => {
-    const fetchImpl = mockFetch(async () => reply(400, JSON.stringify({ code: "duplicate_parameter" })));
+    const fetchImpl = routedFetch(() => reply(400, JSON.stringify({ code: "duplicate_parameter" })));
     expect(await failure(sendContactMessage(VISITOR, { fetchImpl }))).toMatchObject({ reason: "rejected", providerStatus: 400 });
   });
 
   it("rejection, timeout and network failure all fail with the visitor-facing message", async () => {
-    const rejected = await failure(sendContactMessage(VISITOR, { fetchImpl: mockFetch(async () => reply(403, ECHOING_BODY)) }));
-    expect(rejected).toMatchObject({ reason: "rejected", providerStatus: 403, message: "Could not send your message. Please try again." });
+    const rejected = await failure(sendContactMessage(VISITOR, { fetchImpl: routedFetch(() => reply(403, ECHOING_BODY)) }));
+    expect(rejected).toMatchObject({
+      reason: "rejected",
+      providerStatus: 403,
+      message: "Could not send your message. Please try again.",
+    });
 
     vi.useFakeTimers();
     const pending = failure(sendContactMessage(VISITOR, { fetchImpl: hangingFetch() }));
@@ -218,14 +299,33 @@ describe("sendContactMessage", () => {
     expect((await pending).reason).toBe("timeout");
     vi.useRealTimers();
 
-    const network = await failure(sendContactMessage(VISITOR, { fetchImpl: mockFetch(async () => Promise.reject(new Error("socket hang up"))) }));
+    const network = await failure(
+      sendContactMessage(VISITOR, { fetchImpl: routedFetch(() => Promise.reject(new Error("socket hang up"))) }),
+    );
     expect(network.reason).toBe("network");
   });
 
-  it("makes exactly one attempt (no retry that could duplicate the message)", async () => {
-    const fetchImpl = mockFetch(async () => reply(503, ""));
+  it("the blocklist read and the send share one timeout budget", async () => {
+    vi.useFakeTimers();
+    const hang = hangingFetch();
+    const fetchImpl = mockFetch(async (url, init) =>
+      url.includes("/smtp/blockedContacts")
+        ? new Promise<Response>((resolve) => setTimeout(() => resolve(EMPTY_BLOCKLIST()), FORM_TIMEOUT_MS - 1_000))
+        : hang(url, init),
+    );
+    let settled = false;
+    const pending = failure(sendContactMessage(VISITOR, { fetchImpl })).finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(FORM_TIMEOUT_MS);
+    expect(settled).toBe(true);
+    expect((await pending).reason).toBe("timeout");
+  });
+
+  it("makes exactly one send attempt (no retry that could duplicate the message)", async () => {
+    const fetchImpl = routedFetch(() => reply(503, ""));
     await failure(sendContactMessage(VISITOR, { fetchImpl }));
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(sends(fetchImpl)).toHaveLength(1);
   });
 });
 
@@ -256,6 +356,20 @@ describe("logFormError", () => {
     ]);
     const output = allOutput(spies);
     for (const secret of ["xkeysib-unit-test-secret", VISITOR.email, VISITOR.name, VISITOR.message, "Key not found"]) {
+      expect(output).not.toContain(secret);
+    }
+  });
+
+  it("a blocklisted inbox logs reason=recipient_blocked and nothing about the visitor", async () => {
+    const fetchImpl = mockFetch(async () => reply(200, JSON.stringify({ contacts: [{ email: "support@vokr.shop" }], count: 1 })));
+    const error = await failure(sendContactMessage(VISITOR, { fetchImpl }));
+    const spies = captureConsole();
+    logFormError("contact", "req-9999aaaa", error);
+    expect(spies.error.mock.calls).toEqual([
+      [`[marketing/contact] ${FORM_DELIVERY_FAILED_TAG} {"form":"contact","reason":"recipient_blocked","requestId":"req-9999aaaa"}`],
+    ]);
+    const output = allOutput(spies);
+    for (const secret of ["xkeysib-unit-test-secret", VISITOR.email, VISITOR.name, VISITOR.message]) {
       expect(output).not.toContain(secret);
     }
   });

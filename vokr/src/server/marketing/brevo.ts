@@ -32,7 +32,13 @@ export const FORM_TIMEOUT_MS = 8_000;
 export const FORM_DELIVERY_FAILED_TAG = "FORM_DELIVERY_FAILED";
 
 export type FormName = "newsletter" | "contact";
-export type FormFailureReason = "not_configured" | "timeout" | "network" | "rejected";
+export type FormFailureReason =
+  | "not_configured"
+  | "timeout"
+  | "network"
+  | "rejected"
+  | "recipient_blocked"
+  | "unconfirmed";
 
 export class FormDeliveryError extends InternalError {
   constructor(
@@ -72,11 +78,12 @@ function requireBrevoApiKey(failureMessage: string): string {
 }
 
 /**
- * One POST to Brevo, bounded by the timeout end to end (the body is read
- * inside it too). Resolves with the status and body text of any HTTP
- * response; a network failure or timeout throws {@link FormDeliveryError}.
+ * One request to Brevo (a POST when `payload` is given, else a GET),
+ * bounded by the timeout end to end (the body is read inside it too).
+ * Resolves with the status and body text of any HTTP response; a network
+ * failure or timeout throws {@link FormDeliveryError}.
  */
-async function postToBrevo(
+async function callBrevo(
   path: string,
   payload: unknown,
   failureMessage: string,
@@ -88,13 +95,17 @@ async function postToBrevo(
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? FORM_TIMEOUT_MS);
   try {
     const response = await fetchImpl(`${BREVO_API_BASE}${path}`, {
-      method: "POST",
-      headers: {
-        "api-key": apiKey,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify(payload),
+      ...(payload === undefined
+        ? { method: "GET", headers: { "api-key": apiKey, accept: "application/json" } }
+        : {
+            method: "POST",
+            headers: {
+              "api-key": apiKey,
+              "content-type": "application/json",
+              accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+          }),
       signal: controller.signal,
     });
     const body = await response.text();
@@ -142,7 +153,7 @@ export async function subscribeToNewsletter(email: string, options: BrevoFormOpt
 }
 
 async function newsletterAttempt(email: string, options: BrevoFormOptions): Promise<void> {
-  const response = await postToBrevo("/contacts", { email, updateEnabled: true }, NEWSLETTER_FAILED, options);
+  const response = await callBrevo("/contacts", { email, updateEnabled: true }, NEWSLETTER_FAILED, options);
 
   // 201/204 = created/updated, 400 duplicate_parameter = already subscribed — all success.
   if (response.ok) return;
@@ -158,23 +169,88 @@ export interface ContactMessage {
   message: string;
 }
 
-/** Relays the support-contact form as a transactional email to the support inbox. */
+export const SUPPORT_INBOX = "support@vokr.shop";
+export const BLOCKLIST_PAGE_SIZE = 100;
+export const BLOCKLIST_MAX_PAGES = 5;
+
+/**
+ * Whether Brevo's transactional blocklist holds the support inbox.
+ *
+ * Brevo answers `POST /smtp/email` with 2xx and decides delivery later, and
+ * a blocklisted recipient is dropped after that 2xx — so the form would say
+ * "Thanks" while nothing arrives. On 17 Oct 2026 Zoho rejected `support@`
+ * with `550 5.1.1 User does not exist` after the form had reported success;
+ * Brevo then blocklisted the address. The list has no per-recipient filter
+ * (`senders` matches the original sender, not the blocked contact), so it
+ * is paged; a list longer than the cap is not fully checked and fails open,
+ * with a warn line, rather than taking the form down.
+ */
+async function isSupportInboxBlocked(options: BrevoFormOptions, deadline: number): Promise<boolean> {
+  for (let page = 0; page < BLOCKLIST_MAX_PAGES; page++) {
+    const response = await callBrevo(
+      `/smtp/blockedContacts?limit=${BLOCKLIST_PAGE_SIZE}&offset=${page * BLOCKLIST_PAGE_SIZE}`,
+      undefined,
+      CONTACT_FAILED,
+      { ...options, timeoutMs: Math.max(0, deadline - Date.now()) },
+    );
+    if (!response.ok) {
+      throw new FormDeliveryError(CONTACT_FAILED, "rejected", response.status, providerCodeOf(response.body));
+    }
+    let listing: { contacts?: { email?: unknown }[]; count?: unknown } = {};
+    try {
+      listing = JSON.parse(response.body) ?? {};
+    } catch {
+      throw new FormDeliveryError(CONTACT_FAILED, "rejected", response.status);
+    }
+    const contacts = Array.isArray(listing.contacts) ? listing.contacts : [];
+    if (contacts.some((c) => typeof c.email === "string" && c.email.toLowerCase() === SUPPORT_INBOX)) return true;
+    const count = typeof listing.count === "number" ? listing.count : 0;
+    if ((page + 1) * BLOCKLIST_PAGE_SIZE >= count) return false;
+  }
+  console.warn(
+    `[marketing/contact] Brevo blocklist longer than ${BLOCKLIST_MAX_PAGES * BLOCKLIST_PAGE_SIZE} entries; support inbox not fully checked`,
+  );
+  return false;
+}
+
+/**
+ * Relays the support-contact form as a transactional email to the support
+ * inbox. Succeeds only when the inbox is not blocklisted and Brevo accepts
+ * the email with a `messageId`; the blocklist read and the send share one
+ * {@link FORM_TIMEOUT_MS} budget. A bounce Brevo learns of only after
+ * accepting cannot be seen here — that needs the inbox to exist.
+ */
 export async function sendContactMessage(input: ContactMessage, options: BrevoFormOptions = {}): Promise<void> {
-  const response = await postToBrevo(
+  const deadline = Date.now() + (options.timeoutMs ?? FORM_TIMEOUT_MS);
+  if (await isSupportInboxBlocked(options, deadline)) {
+    throw new FormDeliveryError(CONTACT_FAILED, "recipient_blocked");
+  }
+
+  const response = await callBrevo(
     "/smtp/email",
     {
-      sender: { name: "Vokr Support Form", email: "support@vokr.shop" },
-      to: [{ email: "support@vokr.shop" }],
+      sender: { name: "Vokr Support Form", email: SUPPORT_INBOX },
+      to: [{ email: SUPPORT_INBOX }],
       replyTo: { email: input.email, name: input.name },
       subject: `Contact form: ${input.name}`,
       textContent: input.message,
     },
     CONTACT_FAILED,
-    options,
+    { ...options, timeoutMs: Math.max(0, deadline - Date.now()) },
   );
 
-  if (response.ok) return;
-  throw new FormDeliveryError(CONTACT_FAILED, "rejected", response.status, providerCodeOf(response.body));
+  if (!response.ok) {
+    throw new FormDeliveryError(CONTACT_FAILED, "rejected", response.status, providerCodeOf(response.body));
+  }
+  let messageId: unknown;
+  try {
+    messageId = (JSON.parse(response.body) as { messageId?: unknown } | null)?.messageId;
+  } catch {
+    messageId = undefined;
+  }
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    throw new FormDeliveryError(CONTACT_FAILED, "unconfirmed", response.status);
+  }
 }
 
 /**
