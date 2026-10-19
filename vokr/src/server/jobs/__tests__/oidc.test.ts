@@ -136,6 +136,18 @@ describe("handleMaintenanceRequest", () => {
     orders: { status: "ok", result: { paidSessionsWithoutOrder: 0, capturedPaymentsUnaccounted: 0, ordersWithoutCapture: 0 } },
     emails: { status: "not_configured" },
     pruning: { status: "ok", result: { rateLimitCounters: 0, webhookEvents: 0, reservations: 0, emailLog: 0 } },
+    retention: {
+      status: "ok",
+      result: {
+        mode: "report",
+        guestSessionsPastRetention: 0,
+        abandonedCartsPastRetention: 0,
+        checkoutContactEmailsPastRetention: 0,
+        auditLogOlderThanOneYear: 0,
+        consentRecordsPastRetention: 0,
+        checkoutContactEmailsCleared: 0,
+      },
+    },
   };
 
   it("runs the job for the scheduler's token", async () => {
