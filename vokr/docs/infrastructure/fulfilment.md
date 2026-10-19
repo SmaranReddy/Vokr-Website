@@ -88,8 +88,10 @@ and, for an exchange, the size wanted. `POST /api/returns/lookup` shows
 their requests. Both sit behind the guest order lookup (same limits, same
 uniform "couldn't find" answer, same timing floor) and the ordering gate.
 The form is on the Order Status page, under the tracker result of a
-delivered order (copy DRAFT — owner sign-off before ordering opens). There
-is no operator "create on behalf" screen. Refused automatically: an order not delivered, past
+delivered order (copy DRAFT — owner sign-off before ordering opens).
+A customer who asks by email or phone: order page → *Record a return or
+exchange* (delivered orders only; `POST /api/admin/orders/[n]/returns`) —
+the same checks, your note of how they asked, audit-logged. Refused automatically: an order not delivered, past
 30 days, more units than bought, a second open request for the same item,
 an exchange to a size priced differently (return and reorder instead).
 
@@ -98,8 +100,8 @@ waiting is also on the Exceptions page.
 
 1. **Requested → approve or reject.** Approving does not create a label:
    **return labels are not built** (needs the Shiprocket account; Shiprocket
-   API is deferred). Book the reverse pickup in the Shiprocket panel and
-   email the customer yourself.
+   API is deferred). Create the return in the Shiprocket panel — see
+   *Shiprocket return pickups* below — and email the customer yourself.
 2. **Approved → mark received** when the parcel arrives: tick *passed
    quality check*, and *put back into sellable stock* if it can be sold
    again. Restocking happens exactly once (the step cannot be repeated) and
@@ -141,8 +143,40 @@ waiting is also on the Exceptions page.
 account), RTO re-ship charge (D11), COD refunds by bank transfer or store
 credit (D11 + D1's ledger), credit notes for partial refunds and any
 invoice for an exchange (CA review, PR #38), return/refund emails (copy not
-approved; the outbox is one email per order per template, so they need a
-per-return key), the operator create-on-behalf screen.
+approved; and `email_log` is `UNIQUE(order_id, template)` — one email per
+order per template — so per-return emails need a migration on that live
+table: a `return_id` key, deliberately not bundled into this PR).
+
+### Shiprocket return pickups (manual, until the API trigger)
+
+No return-order CSV export is built: Shiprocket publishes no return-order
+upload header we could verify (searched 19 Oct 2026; its support articles
+describe creating returns in the panel), and an invented header would be
+rejected or, worse, accepted wrongly. Shiprocket's help centre describes
+two panel routes:
+- **From the delivered order** (preferred): Orders → *Delivered* → the order
+  → create return. It reuses the forward order's address and items.
+- **A manual return order** (Returns → Add return order) for anything else.
+
+Either way, once Shiprocket assigns the reverse AWB, note it in the
+approval note or the customer email; Vokr does not store reverse AWBs
+(nothing reads them until the API exists). Return QC at the warehouse is
+the *mark received* step above, never Shiprocket's own QC flag.
+
+### Courier status → Vokr action (verify names against your panel)
+
+Shiprocket's tracking labels as shown in its panel; confirm the exact
+wording on the first real shipments and correct this table if it differs.
+
+| Shiprocket shows | Do in Vokr |
+|---|---|
+| Pickup scheduled / Picked up / In transit / Out for delivery | Nothing — the order is already `shipped` |
+| Delivered | Order → **delivered**, the same day — the 30-day window counts from when you record it, so a late entry lengthens it |
+| Undelivered (attempt failed) | Nothing yet; Shiprocket re-attempts. Contact the customer if it repeats |
+| RTO initiated | Order → **rto** |
+| RTO delivered (back at the warehouse) | **RTO received**: per item QC + restock |
+| Lost / damaged in transit | Not modelled: raise a claim in Shiprocket. Re-ship or refund is an owner decision (no published policy) |
+| Return (reverse) picked up / delivered to you | The return's **mark received** when the parcel is opened and checked |
 
 ## Refunds
 
