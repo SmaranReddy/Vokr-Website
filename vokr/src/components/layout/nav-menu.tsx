@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { HEADER_NAV_GROUPS } from "@/config/nav";
 
@@ -13,6 +13,17 @@ import { HEADER_NAV_GROUPS } from "@/config/nav";
  */
 export function NavMenu() {
   const [open, setOpen] = useState(false);
+
+  // Escape-to-close, the same as the cart drawer. Without it a keyboard
+  // user who opens the panel can only leave it by tabbing to "Close menu".
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   return (
     <>
