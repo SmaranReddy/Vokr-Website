@@ -26,6 +26,8 @@ function order(overrides: Partial<GuestOrderView> = {}): GuestOrderView {
     codFeePaise: 0,
     totalPaise: 999_500,
     shipTo: { city: "Pune", state: "Maharashtra", pincode: "411001" },
+    invoiceNumber: null,
+    creditNoteNumber: null,
     ...overrides,
   };
 }
@@ -67,6 +69,15 @@ describe("OrderLookup", () => {
     expect(current.getAttribute("aria-current")).toBe("step");
     expect(screen.getByText(/Model x · IN 8 · Qty 1/)).toBeTruthy();
     expect(screen.getByText(/Shipping to Pune, Maharashtra 411001/)).toBeTruthy();
+  });
+
+  it("never links tax documents for a guest (those routes need the account)", async () => {
+    reply = { status: 200, body: { order: order({ status: "shipped", invoiceNumber: "VK/2627/000001" }) } };
+    render(<OrderLookup />);
+    await submit();
+
+    expect(await screen.findByText("VK-10234")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Tax invoice/ })).toBeNull();
   });
 
   it("an order that left the tracker says what happened instead", async () => {

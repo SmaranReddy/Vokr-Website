@@ -69,6 +69,14 @@ const serverSchema = z.object({
   CHECKOUT_FLAT_SHIPPING_FEE_PAISE: optionalString,
   CHECKOUT_COD_HANDLING_FEE_PAISE: optionalString,
 
+  // The seller as printed on tax invoices (R11) — decision D3 (legal
+  // entity, GSTIN, registered address). The registered state is
+  // CHECKOUT_SELLER_STATE above. Unset, an order cannot be invoiced and
+  // therefore cannot ship (`src/server/invoices/`). No placeholders.
+  INVOICE_SELLER_LEGAL_NAME: optionalString,
+  INVOICE_SELLER_GSTIN: optionalString,
+  INVOICE_SELLER_ADDRESS: optionalString,
+
   // Phase 8: who may call `POST /api/jobs/maintenance` (Cloud Scheduler
   // job 3). Not secrets — the OIDC token's audience (the job's URL) and the
   // scheduler's service-account email. Unset, the endpoint refuses every

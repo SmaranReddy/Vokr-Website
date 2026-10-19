@@ -1,6 +1,7 @@
 import { invalidateCatalogCache } from "@/server/catalog";
 import type { TransactionalEmailClient } from "@/server/email/brevo";
 import { sendPendingEmails, type EmailOutboxReport } from "@/server/email/outbox";
+import { issuePendingCreditNotes, type CreditNoteReport } from "@/server/invoices/credit-notes";
 import { findOrderOrphans, type OrderReconciliationReport } from "@/server/orders/reconcile";
 import { resolvePaymentIssues, type PaymentIssueReport } from "@/server/payments/late-payment";
 import type { RazorpayClient, RazorpayRefundClient } from "@/server/payments/razorpay";
@@ -31,6 +32,8 @@ export interface MaintenanceReport {
   orders: Step<OrderReconciliationReport>;
   /** The email outbox (plan §5 Phase 11). `not_configured` without a Brevo key; pending rows wait. */
   emails: Step<EmailOutboxReport>;
+  /** GST credit notes for refunded, invoiced orders (R11). Never in the payment path. */
+  creditNotes: Step<CreditNoteReport>;
   pruning: Step<PruneReport>;
 }
 
@@ -96,6 +99,9 @@ export async function runMaintenance(
     ? await step("emails", () => sendPendingEmails(email))
     : { status: "not_configured" };
 
+  // After late payments, so a refund closed this run gets its credit note this run.
+  const creditNotes = await step("creditNotes", () => issuePendingCreditNotes());
+
   const pruning = await step("pruning", pruneExpiredRows);
 
   const ok =
@@ -107,7 +113,9 @@ export async function runMaintenance(
     (latePayments.status !== "ok" || latePayments.result.errors === 0) &&
     orders.status === "ok" &&
     emails.status !== "error" &&
+    creditNotes.status === "ok" &&
+    creditNotes.result.errors === 0 &&
     pruning.status === "ok";
-  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, emails, pruning })}`);
-  return { ok, reconciliation, expiry, latePayments, orders, emails, pruning };
+  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, emails, creditNotes, pruning })}`);
+  return { ok, reconciliation, expiry, latePayments, orders, emails, creditNotes, pruning };
 }

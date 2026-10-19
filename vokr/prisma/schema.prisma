@@ -642,6 +642,8 @@ model Order {
   items   OrderItem[]
   history OrderStatusHistory[]
   emails  EmailLog[]
+  invoice    Invoice?
+  creditNote CreditNote?
 
   @@index([userId, placedAt])
   @@index([status, placedAt])
@@ -775,4 +777,79 @@ model AuditLog {
   @@index([entity, entityId, createdAt])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+/// Per-financial-year invoice serial (plan §5 Phase 9, task 8; R11). A row
+/// is incremented with `INSERT … ON CONFLICT DO UPDATE … RETURNING` inside
+/// the transaction that issues the invoice: concurrent issuers serialise on
+/// the row, and a rolled-back issue rolls the counter back too — so serials
+/// are gap-free, which a Postgres sequence cannot promise.
+model InvoiceCounter {
+  /// `invoice` or `credit_note` — each document type has its own series.
+  series        String
+  /// `2026-27` (April–March, Asia/Kolkata).
+  financialYear String @map("financial_year")
+  lastSerial    Int    @map("last_serial")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@id([series, financialYear])
+  @@map("invoice_counters")
+}
+
+/// One tax invoice per order, issued when the order ships (CGST Act s.31:
+/// at removal of the goods), never re-numbered and never edited (a trigger
+/// refuses UPDATE). Everything an invoice prints comes from the order's
+/// own immutable snapshot plus `seller` — the seller details as configured
+/// at issue time — so it renders identically for the 8-year retention
+/// period. Format and fields: `src/server/invoices/`; pending CA review.
+model Invoice {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  orderId String @unique @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  /// `VK/2627/000001` — ≤ 16 characters, unique per financial year (CGST Rules, r.46(b)).
+  invoiceNumber String @unique @map("invoice_number")
+  financialYear String @map("financial_year")
+  serial        Int
+
+  /// `{ legalName, gstin, address, state, stateCode }` at issue time. Business, not personal, data.
+  seller Json
+
+  issuedAt DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+
+  creditNote CreditNote?
+
+  @@unique([financialYear, serial])
+  @@map("invoices")
+}
+
+/// The GST credit note for a full refund of an invoiced order (CGST Act
+/// s.34; CGST Rules r.53 — pending CA review). Issued by the maintenance
+/// job once the order is `refunded` — never inside the payment path, so it
+/// can never fail the recording of a refund. Copies the seller from the
+/// invoice it cancels, references that invoice, and is immutable.
+model CreditNote {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  orderId String @unique @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  invoiceId String  @unique @map("invoice_id") @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  /// `VKC/2627/000001` — its own series, per financial year of issue.
+  creditNoteNumber String @unique @map("credit_note_number")
+  financialYear    String @map("financial_year")
+  serial           Int
+
+  /// Copied from the invoice's seller snapshot.
+  seller Json
+  reason String
+
+  issuedAt DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+
+  @@unique([financialYear, serial])
+  @@map("credit_notes")
 }

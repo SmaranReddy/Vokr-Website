@@ -18,7 +18,12 @@ export function formatOrderDate(iso: string): string {
 }
 
 /** One order, as both guest lookup and signed-in history show it. */
-export function OrderCard({ order }: { order: OrderView }) {
+/**
+ * `showDocuments`: link the tax invoice / credit note. Only the signed-in
+ * history passes it — those routes serve the account's own orders, so a
+ * guest-lookup link would be a dead end.
+ */
+export function OrderCard({ order, showDocuments = false }: { order: OrderView; showDocuments?: boolean }) {
   const step = TRACKER.indexOf(order.status as (typeof TRACKER)[number]);
   return (
     <section aria-label={`Order ${order.orderNumber}`} className="mb-10 border border-border p-5">
@@ -60,6 +65,28 @@ export function OrderCard({ order }: { order: OrderView }) {
       <p className="mt-2 text-xs text-muted">
         Shipping to {order.shipTo.city}, {order.shipTo.state} {order.shipTo.pincode}
       </p>
+      {showDocuments && order.invoiceNumber ? (
+        <p className="mt-2 flex flex-wrap gap-x-4 text-xs">
+          <a
+            className="underline"
+            href={`/api/orders/${encodeURIComponent(order.orderNumber)}/invoice`}
+            target="_blank"
+            rel="noopener"
+          >
+            Tax invoice {order.invoiceNumber}
+          </a>
+          {order.creditNoteNumber ? (
+            <a
+              className="underline"
+              href={`/api/orders/${encodeURIComponent(order.orderNumber)}/invoice?type=credit-note`}
+              target="_blank"
+              rel="noopener"
+            >
+              Credit note {order.creditNoteNumber}
+            </a>
+          ) : null}
+        </p>
+      ) : null}
     </section>
   );
 }

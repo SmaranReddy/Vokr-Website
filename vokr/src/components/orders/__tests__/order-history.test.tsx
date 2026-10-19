@@ -110,6 +110,35 @@ describe("OrderDetail", () => {
     expect((await screen.findByText("Shipped")).getAttribute("aria-current")).toBe("step");
   });
 
+  it("links the order's own tax invoice and credit note when they exist", async () => {
+    replies["/api/orders/VK-10004"] = [
+      {
+        status: 200,
+        body: {
+          order: {
+            orderNumber: "VK-10004",
+            status: "refunded",
+            placedAt: "2026-10-15T10:00:00.000Z",
+            timeline: [],
+            items: [{ productName: "Model x", sizeLabel: "IN 8", colorway: "Black", quantity: 1, lineSubtotalPaise: 999_500 }],
+            subtotalPaise: 999_500,
+            shippingPaise: 0,
+            codFeePaise: 0,
+            totalPaise: 999_500,
+            shipTo: { city: "Pune", state: "Maharashtra", pincode: "411001" },
+            invoiceNumber: "VK/2627/000001",
+            creditNoteNumber: "VKC/2627/000001",
+          },
+        },
+      },
+    ];
+    render(<OrderDetail orderNumber="VK-10004" />);
+    const invoice = await screen.findByRole("link", { name: "Tax invoice VK/2627/000001" });
+    expect(invoice.getAttribute("href")).toBe("/api/orders/VK-10004/invoice");
+    const credit = screen.getByRole("link", { name: "Credit note VKC/2627/000001" });
+    expect(credit.getAttribute("href")).toBe("/api/orders/VK-10004/invoice?type=credit-note");
+  });
+
   it("someone else's (or no such) order is 'not found on your account'", async () => {
     replies["/api/orders/VK-10009"] = [{ status: 404, body: { error: { code: "NOT_FOUND" } } }];
     render(<OrderDetail orderNumber="VK-10009" />);

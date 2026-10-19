@@ -5,6 +5,7 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { decryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
 import { enqueueOrderShipped } from "@/server/email/outbox";
+import { issueInvoice } from "@/server/invoices/issue";
 import { transitionOrder } from "@/server/orders/create";
 import { normalizeOrderNumber } from "@/server/orders/lookup";
 import { isValidOrderTransition } from "@/server/orders/state-machine";
@@ -136,6 +137,8 @@ export async function getAdminOrder(orderNumberInput: string) {
       courier: true,
       awb: true,
       shippedAt: true,
+      invoice: { select: { invoiceNumber: true, issuedAt: true } },
+      creditNote: { select: { creditNoteNumber: true, issuedAt: true } },
       items: {
         select: {
           sku: true,
@@ -289,14 +292,18 @@ export async function adminTransitionOrder(
     const changed = await transitionOrder(tx, { orderId: order.id, to: input.to, actor, note: input.note });
     if (!changed) return { changed: false, status: input.to };
 
-    let shipment: { courier: string; awb: string } | undefined;
+    let shipment: { courier: string; awb: string; invoiceNumber: string } | undefined;
     if (shipping && input.courier && input.awb) {
-      shipment = { courier: input.courier, awb: input.awb };
       await tx.order.update({
         where: { id: order.id },
-        data: { ...shipment, shippedAt: new Date() },
+        data: { courier: input.courier, awb: input.awb, shippedAt: new Date() },
         select: { id: true },
       });
+      // The tax invoice is issued at removal of the goods (R11), in this
+      // transaction: if it cannot be issued (seller details unset, a
+      // snapshot that does not reconcile), the order does not ship either.
+      const { invoiceNumber } = await issueInvoice(tx, order.id);
+      shipment = { courier: input.courier, awb: input.awb, invoiceNumber };
       await enqueueOrderShipped(tx, order.id);
     }
     await writeAudit(tx, {
