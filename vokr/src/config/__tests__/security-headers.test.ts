@@ -7,7 +7,15 @@ import { SECURITY_HEADERS } from "../security-headers";
 describe("security headers", () => {
   it("apply to every path", async () => {
     const rules = await nextConfig.headers?.();
-    expect(rules).toEqual([{ source: "/:path*", headers: [...SECURITY_HEADERS] }]);
+    expect(rules).toEqual([
+      { source: "/:path*", headers: [...SECURITY_HEADERS] },
+      // Phase 14: content-hashed self-hosted photographs only; adds caching, never removes a security header.
+      { source: "/img/:file*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    ]);
+  });
+
+  it("the CSP is not static: the proxy sets it per request, with a nonce", () => {
+    expect(SECURITY_HEADERS.some((header) => /content-security-policy/i.test(header.key))).toBe(false);
   });
 
   it("HSTS is one year, without includeSubDomains or preload (owner decision)", () => {

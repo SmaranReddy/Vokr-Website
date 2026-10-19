@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// The enforced CSP has no 'unsafe-eval' (src/config/csp.ts). zod's JIT
+// probes `new Function("")` on first parse — caught, but still reported as
+// a violation — so the browser bundle, which reaches zod only through this
+// file, runs it jitless. Server parsing is unchanged.
+if (typeof window !== "undefined") z.config({ jitless: true });
+
 /**
  * The client-safe half of `src/lib/env.ts`, split into its own module
  * (Phase 3) so that browser-only code (e.g. `src/lib/supabase-browser.ts`)
@@ -24,6 +30,11 @@ export const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: optionalUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalString,
   NEXT_PUBLIC_RAZORPAY_KEY_ID: optionalString,
+  // Phase 14 (R21): where the re-encoded photographs live — `/img` (the
+  // self-hosted copies in `public/img`) or the R2 asset domain. Unset or
+  // empty keeps the legacy `cdn.shopify.com` URLs. Build-time, like every
+  // NEXT_PUBLIC_* value. See `src/lib/images.ts`.
+  NEXT_PUBLIC_ASSET_BASE_URL: z.union([z.literal(""), z.url(), z.string().regex(/^\/[a-z0-9/_-]*[a-z0-9]$/)]).optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientSchema>;
@@ -88,6 +99,7 @@ const CLIENT_ENV_SOURCE: Record<string, string | undefined> = {
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   NEXT_PUBLIC_RAZORPAY_KEY_ID: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+  NEXT_PUBLIC_ASSET_BASE_URL: process.env.NEXT_PUBLIC_ASSET_BASE_URL,
 };
 
 const client = parseEnvSection(

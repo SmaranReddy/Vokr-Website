@@ -54,3 +54,12 @@ next-env.d.ts
 /.claude/
 /.windsurf/
 /skills-lock.json
+
+# Phase 14 image pipeline work dir (originals + encoded outputs; never committed)
+/.asset-work/
+
+# local admin browser test output (screenshots, traces)
+/e2e/admin/.artifacts
+
+# load-test run state (variant ids, deadlock baselines)
+/load-tests/.runs
