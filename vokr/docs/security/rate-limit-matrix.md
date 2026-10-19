@@ -2,7 +2,9 @@
 
 Application layer, read from the code on 19 Oct 2026 (`assertWithinRateLimit` /
 `consumeRateLimit`, Postgres `rate_limit_counters`, keys SHA-256 hashed).
-The edge layer is `infra/cloudflare/waf-rules.md` (**not applied yet**).
+The edge layer is `infra/cloudflare/waf-rules.md` (custom rules live since
+19 Oct 2026; the edge **rate-limit** rule 3 is deferred — the Free plan
+cannot match on method — so the limits below are the only ones today).
 
 "Plan target" is the Phase 16 table. A deviation is listed, not silently
 changed: tightening a live limit is a reviewed decision (see the bottom).
