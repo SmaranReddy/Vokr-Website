@@ -285,7 +285,7 @@ writes).** Supersedes the "pending" lines above.
 | NS | `frank` / `millie.ns.cloudflare.com`: **the cutover happened**; the zone is authoritative |
 | A / AAAA apex, `www` | Cloudflare anycast (`104.21.19.33`, `172.67.184.239`, two `2606:4700:` AAAA), proxied |
 | MX / SPF / Zoho + Brevo TXT | Zoho `mx`/`mx2`/`mx3.zoho.in` 10/20/30, `v=spf1 include:zoho.in ~all`, verification TXTs present |
-| CAA | **none**: any CA may issue. Optional hardening: `0 issue "letsencrypt.org"` + `0 issue "pki.goog"` (Cloudflare's CAs), a DNS change for the owner |
+| CAA | **none**: any CA may issue. Optional hardening (owner, DNS change): add CAA only per Cloudflare's own CAA guidance for Universal SSL, which issues from several CAs. A too-narrow CAA set blocks certificate renewal, so do not hand-pick CAs |
 | TLS | TLS 1.3, Let's Encrypt `YE2` edge certificate, valid to 12 Jan 2027 |
 | `http://vokr.shop/` | `301` → `https://vokr.shop/` |
 | Edge headers | `Server: cloudflare`, `CF-Ray`; `x-request-id` = the Cf-Ray, so the request carried the Worker's origin-auth header |
