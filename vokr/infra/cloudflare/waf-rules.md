@@ -86,9 +86,11 @@ against the admin client code:
   `src/components/admin/use-admin-post.ts` (stock adjust, transition,
   refund, PII reveal), plus two Shiprocket CSV download links (top-level
   navigations).
-- `cf_clearance` lasts **30 minutes** by default (Security → Settings →
-  Challenge Passage; XHR gets an extra hour per Cloudflare's docs), while
-  an admin session lasts 8 hours (`ADMIN_SESSION_MAX_AGE_S`). An operator
+- `cf_clearance` lasts **30 minutes** by Cloudflare's default (Security →
+  Settings → Challenge Passage; this zone's value was not readable with
+  the token used). Cloudflare's docs add an hour for XmlHTTP requests and
+  do not say whether `fetch()` counts. Either way it is far shorter than
+  an admin session (8 hours, `ADMIN_SESSION_MAX_AGE_S`). An operator
   who leaves a page open past the clearance and then submits a form gets a
   challenge instead of the API.
 - A challenged `fetch()` gets `403`, `content-type: text/html`,
@@ -112,9 +114,11 @@ So it fails safe but with an unclear message. Recommendation, in order:
    `response.headers.get("cf-mitigated") === "challenge"`, show "Security
    check expired — reload the page, then try again. Nothing was changed."
    (the detection Cloudflare documents for fetch/XHR).
-3. Optional, owner's call: once the operator has stable addresses, set
-   `ADMIN_IPS` to switch rule 2 to the block variant (but it then blocks
-   the operator on any other network, e.g. mobile data). Raising Challenge
+3. Owner's call, and still owed: Phase 12's security requirement is a
+   block outside a restricted set of IPs, which the challenge is not (anyone
+   can pass it). Once the operator has stable addresses, set `ADMIN_IPS` to
+   switch rule 2 to the block variant (it then blocks the operator on any
+   other network, e.g. mobile data). Raising Challenge
    Passage is a zone setting and applies to every challenge, so it is not
    recommended for this alone.
 
