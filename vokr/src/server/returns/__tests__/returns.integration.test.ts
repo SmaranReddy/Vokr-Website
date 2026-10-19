@@ -11,7 +11,7 @@ import {
   ReturnRefundMode,
   ReturnState,
 } from "@/generated/prisma/enums";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, RateLimitError, ValidationError } from "@/lib/errors";
 import { adminTransitionOrder, getAdminOrder, requestOrderRefund } from "@/server/admin/orders";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
 import { prisma } from "@/server/db/client";
@@ -281,6 +281,20 @@ describe("the guest request (task 7: no login, enumeration-resistant)", () => {
     await expect(
       listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: "x@y.example" } }, FAST),
     ).rejects.toThrow(LOOKUP_NOT_FOUND_MESSAGE);
+  });
+
+  it("its own per-IP limit refuses the 11th request in an hour, before the lookup, recording nothing", async () => {
+    const order = await delivered();
+    const caller = ip();
+    // Ten guesses at unknown numbers: under the lookup's own per-IP (20) and per-number limits.
+    for (let i = 0; i < 10; i += 1) {
+      const guess = guestBody(order, { orderNumber: `VK-9${Math.floor(Math.random() * 1e8)}` });
+      await expect(requestReturnAsGuest({ ip: caller, body: guess }, FAST)).rejects.toThrow(LOOKUP_NOT_FOUND_MESSAGE);
+    }
+    await expect(requestReturnAsGuest({ ip: caller, body: guestBody(order) }, FAST)).rejects.toBeInstanceOf(RateLimitError);
+    expect(await prisma.returnRequest.count({ where: { orderId: order.orderId } })).toBe(0);
+    // Another caller is unaffected.
+    await expect(requestReturnAsGuest({ ip: ip(), body: guestBody(order) }, FAST)).resolves.toMatchObject({ state: "requested" });
   });
 });
 
@@ -671,6 +685,39 @@ describe("exchanges", () => {
     await prisma.inventory.update({ where: { variantId: nine }, data: { quantityOnHand: 0 }, select: { variantId: true } });
     await expect(dispatchReplacement(ACTOR, request.id, { courier: "Delhivery", awb: "EXCH12345" })).rejects.toThrow("out of stock");
     expect(await returnRow(request.id)).toMatchObject({ state: ReturnState.received, replacementAwb: null });
+  });
+
+  it("never ships a replacement out of units a live checkout holds", async () => {
+    const order = await delivered();
+    const line = order.lines[0]!;
+    await prisma.productVariant.update({ where: { id: line.variantId }, data: { sizeLabel: "IN 8" }, select: { id: true } });
+    const nine = await siblingSize(line.variantId, "IN 9", 1);
+    const request = await createReturnRequest(order.orderNumber, { sku: line.sku, quantity: 1, kind: "exchange", reason: "size_fit", exchangeSize: "IN 9", requestedBy: "guest" });
+    await approve(request.id);
+    await receivePassed(request.id);
+    // The only IN 9 is now held by someone else's checkout.
+    await prisma.inventory.update({ where: { variantId: nine }, data: { quantityReserved: 1 }, select: { variantId: true } });
+    await expect(dispatchReplacement(ACTOR, request.id, { courier: "Delhivery", awb: "EXCH12345" })).rejects.toThrow("out of stock");
+    expect(await stockOf(nine)).toMatchObject({ quantityOnHand: 1, quantityReserved: 1 });
+    await prisma.inventory.update({ where: { variantId: nine }, data: { quantityReserved: 0 }, select: { variantId: true } });
+  });
+
+  it("two concurrent dispatches ship one replacement and take its stock once", async () => {
+    const order = await delivered();
+    const line = order.lines[0]!;
+    await prisma.productVariant.update({ where: { id: line.variantId }, data: { sizeLabel: "IN 8" }, select: { id: true } });
+    const nine = await siblingSize(line.variantId, "IN 9", 2);
+    const request = await createReturnRequest(order.orderNumber, { sku: line.sku, quantity: 1, kind: "exchange", reason: "size_fit", exchangeSize: "IN 9", requestedBy: "guest" });
+    await approve(request.id);
+    await receivePassed(request.id);
+    const results = await Promise.allSettled([
+      dispatchReplacement(ACTOR, request.id, { courier: "Delhivery", awb: "EXCHA1234" }),
+      dispatchReplacement(ACTOR, request.id, { courier: "Delhivery", awb: "EXCHB1234" }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({ reason: expect.any(ConflictError) });
+    expect((await stockOf(nine)).quantityOnHand).toBe(1);
+    expect((await auditActions(order.orderId)).filter((action) => action === "return.replacement_dispatched")).toHaveLength(1);
   });
 });
 
