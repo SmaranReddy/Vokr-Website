@@ -76,6 +76,15 @@ const ORDER_STATUS_DEVIATIONS: Deviation[] = [
   { legacy: "by email and SMS the moment", migrated: "by email the moment" },
 ];
 
+// The homepage "Contact Us" accordion and /support-contact listed a
+// placeholder phone number and a chat that does not exist; both were
+// removed (production audit, 20 Oct 2026), not replaced.
+const CONTACT_DEVIATIONS: Deviation[] = [
+  { legacy: "Phone +91 80 0000 0000 Hours", migrated: "Hours" },
+  { legacy: "IST Chat Available on this page during business hours", migrated: "IST" },
+];
+const CONTACT_REMOVED_HEADINGS = ["Phone", "Chat"];
+
 // The /support-faq page answered "Yes"
 // to a subscription plan that does not exist.
 const FAQ_SUBSCRIPTION_DEVIATION: Deviation = {
@@ -164,8 +173,9 @@ const CASES: FidelityCase[] = [
         migrated: "",
       },
       ...ORDER_STATUS_DEVIATIONS,
+      ...CONTACT_DEVIATIONS,
     ],
-    headingDeviations: { removed: ["What our customers say"] },
+    headingDeviations: { removed: ["What our customers say", ...CONTACT_REMOVED_HEADINGS] },
   },
   {
     route: "/terms",
@@ -200,7 +210,12 @@ const CASES: FidelityCase[] = [
     deviations: [FAQ_SUBSCRIPTION_DEVIATION],
   },
   { route: "/support-help", legacyFile: "support-help.html" },
-  { route: "/support-contact", legacyFile: "support-contact.html" },
+  {
+    route: "/support-contact",
+    legacyFile: "support-contact.html",
+    deviations: CONTACT_DEVIATIONS,
+    headingDeviations: { removed: CONTACT_REMOVED_HEADINGS },
+  },
   {
     route: "/about-vokr",
     legacyFile: "about-vokr.html",
