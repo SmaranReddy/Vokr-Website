@@ -9,6 +9,7 @@ import {
 } from "@/server/net/origin-auth";
 import { checkCrossSite, siteOriginFrom } from "@/server/net/csrf";
 import { ADMIN_PATH } from "@/server/admin/paths";
+import { contentSecurityPolicy, createNonce, CSP_HEADER } from "@/config/csp";
 import {
   assignRequestId,
   REQUEST_ID_HEADER,
@@ -38,6 +39,7 @@ function nextWithOriginVerdict(
   request: NextRequest,
   verdict: Exclude<OriginCheck, "refused">,
   requestId: string,
+  csp: string,
 ) {
   const headers = new Headers(request.headers);
   if (verdict === "trusted") {
@@ -47,23 +49,29 @@ function nextWithOriginVerdict(
   }
   // Always overwritten, never passed through (Phase 15, task 5).
   headers.set(REQUEST_ID_HEADER, requestId);
+  // Next.js reads the nonce from the request's CSP while rendering and
+  // stamps it on its scripts; the browser enforces the response's copy.
+  // Both come from the one nonce made at the top of `proxy()`, including
+  // when the session refresh below rebuilds this response.
+  headers.set(CSP_HEADER, csp);
   const response = NextResponse.next({ request: { headers } });
   response.headers.set(RESPONSE_REQUEST_ID_HEADER, requestId);
+  response.headers.set(CSP_HEADER, csp);
   return response;
 }
 
 /**
  * The admin surface (plan §5 Phase 12). Gated here, before anything
- * renders: a page's own `notFound()` would arrive after the root
- * `loading.tsx` shell has streamed with HTTP 200, so only the proxy can
- * give a non-admin a real 404 (Security: "an unauthenticated request
- * receives 404, not a login redirect"). Route handlers and pages check
- * again themselves.
+ * renders, so a non-admin gets a real 404 without the admin page ever
+ * running (Security: "an unauthenticated request receives 404, not a
+ * login redirect"). (The root `loading.tsx` that once made a page's own
+ * `notFound()` arrive after an HTTP 200 was removed in Phase 16.) Route
+ * handlers and pages check again themselves.
  */
-function adminNotFound(requestId: string) {
+function adminNotFound(requestId: string, csp: string) {
   return new NextResponse("Not found", {
     status: 404,
-    headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId, "cache-control": "no-store" },
+    headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId, [CSP_HEADER]: csp, "cache-control": "no-store" },
   });
 }
 
@@ -109,10 +117,15 @@ export async function proxy(request: NextRequest) {
   // (local/dev/preview, no Worker in front) always passes.
   const verdict = checkOrigin(request, originAuthSecret);
   const requestId = assignRequestId(request.headers, verdict === "trusted");
+  // Phase 16, task 2: one nonce per request, generated once.
+  const csp = contentSecurityPolicy(clientEnv.NEXT_PUBLIC_SUPABASE_URL, {
+    nonce: createNonce(),
+    dev: process.env.NODE_ENV === "development",
+  });
   if (verdict === "refused") {
     return new NextResponse("Not found", {
       status: 404,
-      headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId },
+      headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId, [CSP_HEADER]: csp },
     });
   }
 
@@ -121,11 +134,11 @@ export async function proxy(request: NextRequest) {
   if (checkCrossSite(request, siteOrigin) === "refused") {
     return NextResponse.json(
       { error: { code: "CROSS_SITE_REQUEST", message: "Cross-site requests are not allowed.", requestId } },
-      { status: 403, headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId } },
+      { status: 403, headers: { [RESPONSE_REQUEST_ID_HEADER]: requestId, [CSP_HEADER]: csp } },
     );
   }
 
-  let response = nextWithOriginVerdict(request, verdict, requestId);
+  let response = nextWithOriginVerdict(request, verdict, requestId, csp);
   const isAdminPath = ADMIN_PATH.test(request.nextUrl.pathname);
 
   if (!isAdminPath && SKIP_SESSION_REFRESH.test(request.nextUrl.pathname)) {
@@ -135,7 +148,7 @@ export async function proxy(request: NextRequest) {
   const url = clientEnv.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
-    if (isAdminPath) return adminNotFound(requestId);
+    if (isAdminPath) return adminNotFound(requestId, csp);
     // Supabase not configured yet (e.g. a clean checkout before Phase 3
     // secrets are supplied) — pass the request through unauthenticated
     // rather than failing every page.
@@ -149,7 +162,7 @@ export async function proxy(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
         });
-        response = nextWithOriginVerdict(request, verdict, requestId);
+        response = nextWithOriginVerdict(request, verdict, requestId, csp);
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options);
         });
@@ -171,7 +184,7 @@ export async function proxy(request: NextRequest) {
       if (code !== "NOT_FOUND" && code !== "UNAUTHORIZED") {
         console.error(`[admin] ADMIN_GATE_ERROR request=${requestId}`, error);
       }
-      return adminNotFound(requestId);
+      return adminNotFound(requestId, csp);
     }
     response.headers.set("cache-control", "no-store");
     return response;

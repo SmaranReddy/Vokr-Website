@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// The enforced CSP has no 'unsafe-eval' (src/config/csp.ts). zod's JIT
+// probes `new Function("")` on first parse — caught, but still reported as
+// a violation — so the browser bundle, which reaches zod only through this
+// file, runs it jitless. Server parsing is unchanged.
+if (typeof window !== "undefined") z.config({ jitless: true });
+
 /**
  * The client-safe half of `src/lib/env.ts`, split into its own module
  * (Phase 3) so that browser-only code (e.g. `src/lib/supabase-browser.ts`)

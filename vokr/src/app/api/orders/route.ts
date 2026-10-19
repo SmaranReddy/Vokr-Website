@@ -7,6 +7,7 @@ import { applyCookies, type CookieWrite } from "@/server/auth/supabase";
 import { assertOrderingEnabled } from "@/server/cart/ordering-gate";
 import { listUserOrders } from "@/server/orders/history";
 import { requestIdOf } from "@/server/net/request-id";
+import { assertOrderReadAllowed } from "@/server/orders/rate-limit";
 
 /** `GET /api/orders` — the signed-in customer's orders, newest first (plan §5 Phase 9, task 7). `?before=VK-…` pages back. */
 export async function GET(request: NextRequest) {
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
     assertOrderingEnabled();
     const user = await requireUser(request);
     cookiesToSet = user.cookiesToSet;
+    await assertOrderReadAllowed(user.userId);
     const before = request.nextUrl.searchParams.get("before") ?? undefined;
     const page = await listUserOrders(user.userId, { before });
     return applyCookies(NextResponse.json(page, { headers: { "cache-control": "no-store" } }), cookiesToSet);
