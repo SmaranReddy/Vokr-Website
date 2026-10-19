@@ -10,6 +10,10 @@ describe("security headers", () => {
     expect(rules).toEqual([{ source: "/:path*", headers: [...SECURITY_HEADERS] }]);
   });
 
+  it("the CSP is not static: the proxy sets it per request, with a nonce", () => {
+    expect(SECURITY_HEADERS.some((header) => /content-security-policy/i.test(header.key))).toBe(false);
+  });
+
   it("HSTS is one year, without includeSubDomains or preload (owner decision)", () => {
     const hsts = SECURITY_HEADERS.find((header) => header.key === "Strict-Transport-Security")?.value;
     expect(hsts).toBe("max-age=31536000");

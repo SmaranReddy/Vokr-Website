@@ -1,4 +1,5 @@
 import { Geist_Mono, Inter } from "next/font/google";
+import { connection } from "next/server";
 import "@/styles/globals.css";
 import { CartDrawer } from "@/components/cart/cart-drawer";
 import { CartProvider } from "@/components/cart/cart-provider";
@@ -27,7 +28,14 @@ export const metadata = createMetadata({
   },
 });
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/**
+ * Every page renders per request: the enforced CSP carries a fresh nonce
+ * (`src/proxy.ts`), and Next.js can only stamp it on its scripts while
+ * rendering — a page prerendered at build time would ship un-nonced
+ * scripts the browser then blocks.
+ */
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  await connection();
   return (
     <html
       lang="en"

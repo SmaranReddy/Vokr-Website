@@ -13,16 +13,11 @@
  * - `Permissions-Policy`: no camera, microphone, geolocation, USB or
  *   sensors; Payment Request only for this site and Razorpay Checkout.
  *
- * Content-Security-Policy is report-only for now (`csp.ts`): violations go
- * to `/api/csp-report`, nothing is blocked.
+ * Content-Security-Policy is not here: it carries a per-request nonce, so
+ * `src/proxy.ts` sets it on every response (`csp.ts`).
  */
-import { contentSecurityPolicy } from "./csp";
 
 export const SECURITY_HEADERS: readonly { key: string; value: string }[] = [
-  {
-    key: "Content-Security-Policy-Report-Only",
-    value: contentSecurityPolicy(process.env.NEXT_PUBLIC_SUPABASE_URL),
-  },
   { key: "Strict-Transport-Security", value: "max-age=31536000" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

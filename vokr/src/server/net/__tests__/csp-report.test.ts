@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { contentSecurityPolicy, CSP_REPORT_PATH } from "@/config/csp";
+import { contentSecurityPolicy, createNonce, CSP_REPORT_PATH } from "@/config/csp";
 
 import { LogBudget, MAX_REPORT_BYTES, MAX_VIOLATIONS_PER_REPORT, parseCspReport, readCapped, safeUrl } from "../csp-report";
 
-/** Plan §5 Phase 16, task 2: report-only CSP and the endpoint that receives its reports. */
+/** Plan §5 Phase 16, task 2: the enforced, nonce-based CSP and the endpoint that receives its reports. */
 
 describe("contentSecurityPolicy", () => {
-  const policy = contentSecurityPolicy("https://abc.supabase.co/");
+  const policy = contentSecurityPolicy("https://abc.supabase.co/", { nonce: "bm9uY2U=" });
 
   it.each([
     "default-src 'self'",
@@ -28,8 +28,30 @@ describe("contentSecurityPolicy", () => {
     expect(policy).not.toMatch(/(?:^|\s)(?:\*|https:)(?:\s|;|$)/);
   });
 
+  it("scripts need the request's nonce; strict-dynamic lets nonced scripts load others", () => {
+    const scripts = /script-src ([^;]*)/.exec(policy)?.[1].split(" ") ?? [];
+    expect(scripts).toEqual(expect.arrayContaining(["'self'", "'nonce-bm9uY2U='", "'strict-dynamic'"]));
+    // Kept only as the CSP Level 2 fallback: a browser that understands the nonce ignores it.
+    expect(scripts.indexOf("'unsafe-inline'")).toBeGreaterThan(scripts.indexOf("'nonce-bm9uY2U='"));
+    expect(scripts).not.toContain("'unsafe-eval'");
+  });
+
+  it("styles carry no nonce, which would disable 'unsafe-inline' for React style attributes", () => {
+    expect(policy).toMatch(/style-src 'self' 'unsafe-inline'(?:;|$)/);
+  });
+
+  it("'unsafe-eval' only in development", () => {
+    expect(contentSecurityPolicy(undefined, { nonce: "x", dev: true })).toMatch(/script-src [^;]*'unsafe-eval'/);
+  });
+
+  it("nonces are 128 random bits and never repeat", () => {
+    const nonces = new Set(Array.from({ length: 200 }, () => createNonce()));
+    expect(nonces.size).toBe(200);
+    for (const nonce of nonces) expect(atob(nonce)).toHaveLength(16);
+  });
+
   it("without a Supabase URL configured, connect-src still stands", () => {
-    expect(contentSecurityPolicy(undefined)).toMatch(/connect-src 'self' https:\/\/checkout\.razorpay\.com/);
+    expect(contentSecurityPolicy(undefined, { nonce: "bm9uY2U=" })).toMatch(/connect-src 'self' https:\/\/checkout\.razorpay\.com/);
   });
 });
 
