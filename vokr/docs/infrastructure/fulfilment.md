@@ -131,3 +131,21 @@ request with a reason, and that reveal is itself audited.
 Shiprocket API; COD lifecycle and remittance (D11); returns/exchange
 request flow for customers (Phase 10 task 7); RTO re-ship charge;
 `/admin` WAF rule (D9); invoices (D2/D3).
+
+## Admin browser test (local only)
+
+`e2e/admin/admin.spec.ts` drives `/admin` in Chromium with a real Supabase
+session from a **local** stack. Never point it at production. Last run on
+19 Oct 2026: **4/4 passed**.
+
+1. `npx supabase start` (Docker), then `npx supabase status -o env` for `API_URL` and `ANON_KEY`.
+2. Delete earlier test users, or sign-up answers with its neutral
+   "confirmation link is on its way" message and the spec fails:
+   `docker exec supabase_db_vokr psql -U postgres -c "DELETE FROM auth.users WHERE email LIKE '%@e2e.test'"`.
+3. Create a fresh `vokr_admin_e2e` on Compose Postgres, then run `prisma migrate deploy`,
+   `prisma db seed` and `tsx e2e/admin/seed.ts 3`, with `DATABASE_URL` pointing at it.
+4. `npm run build` with `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` from step 1 and
+   `NEXT_PUBLIC_SITE_URL=http://localhost:3003`. Then start
+   `.next/standalone/server.js` on port 3003, after copying `.next/static` and `public`.
+5. `ADMIN_E2E_BASE_URL=http://localhost:3003 ADMIN_E2E_DATABASE_URL=<step 3> npx playwright test -c playwright.admin.config.ts`
+6. `npx supabase stop`.
