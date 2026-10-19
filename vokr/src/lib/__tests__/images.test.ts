@@ -49,8 +49,9 @@ describe("responsive images (Phase 14, R21)", () => {
   });
 
   it("the CSP admits an absolute asset origin, and nothing for /img or unset", () => {
-    expect(contentSecurityPolicy(undefined, "https://assets.vokr.shop/img")).toMatch(/img-src [^;]*https:\/\/assets\.vokr\.shop(?!\/)/);
-    expect(contentSecurityPolicy(undefined, "/img")).toBe(contentSecurityPolicy(undefined));
-    expect(contentSecurityPolicy(undefined, "http://insecure.example")).toBe(contentSecurityPolicy(undefined));
+    const nonce = "test-nonce";
+    expect(contentSecurityPolicy(undefined, { nonce, assetBaseUrl: "https://assets.vokr.shop/img" })).toMatch(/img-src [^;]*https:\/\/assets\.vokr\.shop(?!\/)/);
+    expect(contentSecurityPolicy(undefined, { nonce, assetBaseUrl: "/img" })).toBe(contentSecurityPolicy(undefined, { nonce }));
+    expect(contentSecurityPolicy(undefined, { nonce, assetBaseUrl: "http://insecure.example" })).toBe(contentSecurityPolicy(undefined, { nonce }));
   });
 });

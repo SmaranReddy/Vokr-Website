@@ -1,0 +1,36 @@
+{
+  "displayName": "Vokr: vokr_maintenance_not_ok",
+  "severity": "ERROR",
+  "documentation": {
+    "content": "A 5-minute maintenance run did not finish cleanly; its report names the step. Runbook: vokr/docs/infrastructure/alerting.md",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "vokr_maintenance_not_ok > 0 in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/vokr_maintenance_not_ok\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "notificationChannels": [
+    "${NOTIFICATION_CHANNEL}"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "displayName": "Vokr: vokr_maintenance_absent",
+  "severity": "ERROR",
+  "documentation": {
+    "content": "No maintenance run has finished for 20 minutes (Scheduler `vokr-maintenance` runs every 5 min). Holds stop expiring and payments stop reconciling. Check the Scheduler job and the service. Runbook: vokr/docs/infrastructure/alerting.md",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "no vokr_maintenance_finished for 20 min",
+      "conditionAbsent": {
+        "filter": "metric.type=\"logging.googleapis.com/user/vokr_maintenance_finished\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "duration": "1200s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "notificationChannels": [
+    "${NOTIFICATION_CHANNEL}"
+  ]
+}

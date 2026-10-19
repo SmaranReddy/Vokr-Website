@@ -1,0 +1,40 @@
+{
+  "displayName": "Vokr: uptime /api/health",
+  "severity": "CRITICAL",
+  "documentation": {
+    "content": "`https://vokr.shop/api/health` failed from two or more checker regions for 5 minutes: the storefront is likely down for everyone. Check Cloud Run revisions, Cloudflare, Supabase. Runbook: vokr/docs/infrastructure/alerting.md",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "health check failing in >= 2 regions",
+      "conditionThreshold": {
+        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${UPTIME_CHECK_ID}\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "600s",
+            "perSeriesAligner": "ALIGN_NEXT_OLDER",
+            "crossSeriesReducer": "REDUCE_COUNT_FALSE",
+            "groupByFields": [
+              "resource.label.project_id",
+              "resource.label.host"
+            ]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "notificationChannels": [
+    "${NOTIFICATION_CHANNEL}"
+  ]
+}
