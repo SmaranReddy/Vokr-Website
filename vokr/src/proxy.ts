@@ -62,11 +62,11 @@ function nextWithOriginVerdict(
 
 /**
  * The admin surface (plan §5 Phase 12). Gated here, before anything
- * renders: a page's own `notFound()` would arrive after the root
- * `loading.tsx` shell has streamed with HTTP 200, so only the proxy can
- * give a non-admin a real 404 (Security: "an unauthenticated request
- * receives 404, not a login redirect"). Route handlers and pages check
- * again themselves.
+ * renders, so a non-admin gets a real 404 without the admin page ever
+ * running (Security: "an unauthenticated request receives 404, not a
+ * login redirect"). (The root `loading.tsx` that once made a page's own
+ * `notFound()` arrive after an HTTP 200 was removed in Phase 16.) Route
+ * handlers and pages check again themselves.
  */
 function adminNotFound(requestId: string, csp: string) {
   return new NextResponse("Not found", {

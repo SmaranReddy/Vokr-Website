@@ -29,7 +29,7 @@ describe("contentSecurityPolicy", () => {
   });
 
   it("scripts need the request's nonce; strict-dynamic lets nonced scripts load others", () => {
-    const scripts = /script-src ([^;]*)/.exec(policy)?.[1].split(" ") ?? [];
+    const scripts = /script-src ([^;]*)/.exec(policy)?.[1]?.split(" ") ?? [];
     expect(scripts).toEqual(expect.arrayContaining(["'self'", "'nonce-bm9uY2U='", "'strict-dynamic'"]));
     // Kept only as the CSP Level 2 fallback: a browser that understands the nonce ignores it.
     expect(scripts.indexOf("'unsafe-inline'")).toBeGreaterThan(scripts.indexOf("'nonce-bm9uY2U='"));
