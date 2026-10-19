@@ -10,6 +10,8 @@ export interface AppUserRecord {
   id: string;
   email: string;
   createdAt: Date;
+  /** Set once the account is erased (plan §5 Phase 17); the session layer then treats the caller as signed out. */
+  deletedAt: Date | null;
 }
 
 /**
@@ -32,6 +34,6 @@ export async function getOrCreateAppUser({
     where: { id },
     create: { id, email },
     update: {},
-    select: { id: true, email: true, createdAt: true },
+    select: { id: true, email: true, createdAt: true, deletedAt: true },
   });
 }

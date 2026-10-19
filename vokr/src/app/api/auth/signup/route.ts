@@ -15,7 +15,9 @@ import {
   createRouteSupabaseClient,
   type CookieWrite,
 } from "@/server/auth/supabase";
+import { ConsentPurpose } from "@/generated/prisma/enums";
 import { getClientIp } from "@/server/net/client-ip";
+import { recordConsent } from "@/server/privacy/consent";
 import { assertWithinRateLimit } from "@/server/rate-limit";
 import { requestIdOf } from "@/server/net/request-id";
 
@@ -70,6 +72,11 @@ export async function POST(request: NextRequest) {
         "That password has appeared in a known data breach. Choose a different one.",
       );
     }
+
+    // Creating an account is acceptance of the Terms and Privacy Policy
+    // (terms §1). Recorded before the account exists, so there is never an
+    // account without its record (plan §5 Phase 17, task 2).
+    await recordConsent({ email, purpose: ConsentPurpose.account_terms, source: "signup_form", ip });
 
     // `siteConfig.url` rather than the raw env var: an unset
     // NEXT_PUBLIC_SITE_URL would otherwise build a relative

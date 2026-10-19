@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { ValidationError, toErrorResponse } from "@/lib/errors";
 import { logServerError } from "@/lib/log";
+import { ConsentPurpose } from "@/generated/prisma/enums";
 import { getClientIp } from "@/server/net/client-ip";
+import { recordConsent } from "@/server/privacy/consent";
 import { subscribeToNewsletter } from "@/server/marketing/brevo";
 import { assertWithinRateLimit } from "@/server/rate-limit";
 import { requestIdOf } from "@/server/net/request-id";
@@ -25,6 +27,9 @@ export async function POST(request: NextRequest) {
       throw new ValidationError("Enter a valid email address.");
     }
 
+    // Subscribing is consent to marketing email; recorded first, so no
+    // subscription exists without its record (plan §5 Phase 17, task 2).
+    await recordConsent({ email: parsed.data.email, purpose: ConsentPurpose.marketing_email, source: "newsletter_form", ip });
     await subscribeToNewsletter(parsed.data.email);
     return NextResponse.json({ message: "You're on the list." });
   } catch (error) {

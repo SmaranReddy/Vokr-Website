@@ -5,6 +5,7 @@ import { findOrderOrphans, type OrderReconciliationReport } from "@/server/order
 import { resolvePaymentIssues, type PaymentIssueReport } from "@/server/payments/late-payment";
 import type { RazorpayClient, RazorpayRefundClient } from "@/server/payments/razorpay";
 import { reconcileClosedOrders, reconcilePendingPayments } from "@/server/payments/reconcile";
+import { applyRetention, type RetentionReport } from "@/server/privacy/retention";
 
 import { expireReservations, type ExpiryReport } from "./expire-reservations";
 import { pruneExpiredRows, type PruneReport } from "./prune";
@@ -32,6 +33,8 @@ export interface MaintenanceReport {
   /** The email outbox (plan §5 Phase 11). `not_configured` without a Brevo key; pending rows wait. */
   emails: Step<EmailOutboxReport>;
   pruning: Step<PruneReport>;
+  /** DPDP retention (plan §5 Phase 17, task 8): counts only unless `RETENTION_PURGE_ENABLED`. */
+  retention: Step<RetentionReport>;
 }
 
 async function step<T>(name: string, run: () => Promise<T>): Promise<Step<T>> {
@@ -97,6 +100,7 @@ export async function runMaintenance(
     : { status: "not_configured" };
 
   const pruning = await step("pruning", pruneExpiredRows);
+  const retention = await step("retention", () => applyRetention());
 
   const ok =
     reconciliation.status !== "error" &&
@@ -107,7 +111,8 @@ export async function runMaintenance(
     (latePayments.status !== "ok" || latePayments.result.errors === 0) &&
     orders.status === "ok" &&
     emails.status !== "error" &&
-    pruning.status === "ok";
-  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, emails, pruning })}`);
-  return { ok, reconciliation, expiry, latePayments, orders, emails, pruning };
+    pruning.status === "ok" &&
+    retention.status === "ok";
+  console.info(`[jobs/maintenance] finished ok=${ok} ${JSON.stringify({ reconciliation, expiry, latePayments, orders, emails, pruning, retention })}`);
+  return { ok, reconciliation, expiry, latePayments, orders, emails, pruning, retention };
 }
