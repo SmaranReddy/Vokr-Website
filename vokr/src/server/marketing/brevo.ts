@@ -111,8 +111,37 @@ async function postToBrevo(
 const NEWSLETTER_FAILED = "Could not complete the newsletter signup.";
 const CONTACT_FAILED = "Could not send your message. Please try again.";
 
+/**
+ * The newsletter call is an upsert (`updateEnabled: true`), so repeating it
+ * cannot create a second contact: it gets one retry for a transient failure
+ * (timeout, network, 429, 5xx), never for a definite refusal (other 4xx).
+ * Two shorter attempts plus the pause stay inside the contact form's single
+ * {@link FORM_TIMEOUT_MS} budget, so the visitor waits no longer.
+ */
+export const NEWSLETTER_ATTEMPTS = 2;
+export const NEWSLETTER_ATTEMPT_TIMEOUT_MS = 3_800;
+export const NEWSLETTER_RETRY_DELAY_MS = 300;
+
+function isTransient(error: FormDeliveryError): boolean {
+  if (error.reason === "timeout" || error.reason === "network") return true;
+  const status = error.providerStatus ?? 0;
+  return error.reason === "rejected" && (status === 429 || status >= 500);
+}
+
 /** Adds (or updates) a contact on the Brevo list backing the footer signup form. */
 export async function subscribeToNewsletter(email: string, options: BrevoFormOptions = {}): Promise<void> {
+  const attemptOptions = { ...options, timeoutMs: options.timeoutMs ?? NEWSLETTER_ATTEMPT_TIMEOUT_MS };
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await newsletterAttempt(email, attemptOptions);
+    } catch (error) {
+      if (!(error instanceof FormDeliveryError) || !isTransient(error) || attempt >= NEWSLETTER_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, NEWSLETTER_RETRY_DELAY_MS));
+    }
+  }
+}
+
+async function newsletterAttempt(email: string, options: BrevoFormOptions): Promise<void> {
   const response = await postToBrevo("/contacts", { email, updateEnabled: true }, NEWSLETTER_FAILED, options);
 
   // 201/204 = created/updated, 400 duplicate_parameter = already subscribed — all success.

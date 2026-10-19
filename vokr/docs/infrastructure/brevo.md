@@ -29,8 +29,11 @@ with the unchanged visitor-facing message and a `requestId`:
 | `rejected`       | Any other HTTP status from Brevo (401 bad key, 403 IP/sender, 4xx, 5xx)    |
 | `unexpected`     | A bug or anything else thrown on the way (also logged with its stack)      |
 
-One attempt only, no retry: the contact send has no idempotency key, so a
-retry could deliver the same message twice. A **timed-out contact send may
+The **contact** send is one attempt only, no retry: it has no idempotency key, so a
+retry could deliver the same message twice. The **newsletter** call is an
+upsert (`updateEnabled: true`), so it is retried **once** on a transient failure
+(timeout, network, 429, 5xx; never another 4xx): two 3.8 s attempts plus a
+300 ms pause, inside the same 8 s budget. A **timed-out contact send may
 still have been delivered** — if the visitor retries, the support inbox can
 get a duplicate. Malformed JSON is a 400 (it used to be a 500 whose log
 line quoted part of the body).

@@ -10,8 +10,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const env = { BREVO_API_KEY: "xkeysib-unit-test-secret" as string | undefined };
 vi.mock("@/lib/env", () => ({ requireServerEnv: () => env }));
 
-const { FORM_DELIVERY_FAILED_TAG, FORM_TIMEOUT_MS, FormDeliveryError, logFormError, sendContactMessage, subscribeToNewsletter } =
-  await import("../brevo");
+const {
+  FORM_DELIVERY_FAILED_TAG,
+  FORM_TIMEOUT_MS,
+  FormDeliveryError,
+  NEWSLETTER_ATTEMPTS,
+  NEWSLETTER_ATTEMPT_TIMEOUT_MS,
+  NEWSLETTER_RETRY_DELAY_MS,
+  logFormError,
+  sendContactMessage,
+  subscribeToNewsletter,
+} = await import("../brevo");
 const { RateLimitError, ValidationError } = await import("@/lib/errors");
 
 const VISITOR = { name: "Asha Visitor", email: "asha.visitor@example.com", message: "My order VK-10001 has a torn insole." };
@@ -121,7 +130,8 @@ describe("subscribeToNewsletter", () => {
       return new Response(body, { status: 200 });
     });
     const pending = failure(subscribeToNewsletter(VISITOR.email, { fetchImpl, timeoutMs: 1_000 }));
-    await vi.advanceTimersByTimeAsync(1_000);
+    // Two attempts (a stall is transient) and the pause between them.
+    await vi.advanceTimersByTimeAsync(2 * 1_000 + NEWSLETTER_RETRY_DELAY_MS);
     expect((await pending).reason).toBe("timeout");
   });
 
@@ -132,6 +142,40 @@ describe("subscribeToNewsletter", () => {
     const error = await failure(subscribeToNewsletter(VISITOR.email, { fetchImpl }));
     expect(error.reason).toBe("network");
     expect(error.cause).toBeUndefined();
+  });
+
+  it("a transient failure (503, 429, timeout, network) is retried once, and a recovery is success", async () => {
+    for (const first of [() => reply(503), () => reply(429), () => Promise.reject(new TypeError("fetch failed"))]) {
+      let calls = 0;
+      const fetchImpl = mockFetch(async () => (++calls === 1 ? first() : reply(201)));
+      await expect(subscribeToNewsletter(VISITOR.email, { fetchImpl })).resolves.toBeUndefined();
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("a definite refusal (400, 401, 403) is not retried", async () => {
+    for (const status of [400, 401, 403]) {
+      const fetchImpl = mockFetch(async () => reply(status, JSON.stringify({ code: "invalid_parameter" })));
+      expect((await failure(subscribeToNewsletter(VISITOR.email, { fetchImpl }))).providerStatus).toBe(status);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("gives up after the attempt cap, reporting the last failure", async () => {
+    const fetchImpl = mockFetch(async () => reply(502));
+    expect(await failure(subscribeToNewsletter(VISITOR.email, { fetchImpl }))).toMatchObject({ reason: "rejected", providerStatus: 502 });
+    expect(fetchImpl).toHaveBeenCalledTimes(NEWSLETTER_ATTEMPTS);
+  });
+
+  it("all attempts together still fit the single-request budget the visitor waits for", async () => {
+    expect(NEWSLETTER_ATTEMPTS).toBe(2);
+    expect(NEWSLETTER_ATTEMPTS * NEWSLETTER_ATTEMPT_TIMEOUT_MS + NEWSLETTER_RETRY_DELAY_MS).toBeLessThanOrEqual(FORM_TIMEOUT_MS);
+    vi.useFakeTimers();
+    const fetchImpl = hangingFetch();
+    const pending = failure(subscribeToNewsletter(VISITOR.email, { fetchImpl }));
+    await vi.advanceTimersByTimeAsync(FORM_TIMEOUT_MS);
+    expect((await pending).reason).toBe("timeout");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("no key is `not_configured` and makes no request", async () => {
