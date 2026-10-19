@@ -111,6 +111,7 @@ test.describe("an admin", () => {
 
   test("works the whole panel", async ({ page }) => {
     const [first, second, third] = await orderNumbers();
+    if (!first || !second || !third) throw new Error("seed: expected three orders");
     expect(third, "seed at least 3 confirmed orders with e2e/admin/seed.ts").toBeTruthy();
     await signIn(page, ADMIN);
 
@@ -159,7 +160,7 @@ test.describe("an admin", () => {
     await page.getByRole("button", { name: "Change status" }).click();
     await expect.poll(async () => (await sql<{ status: string }>("SELECT status FROM orders WHERE order_number = $1", [second]))[0]?.status).toBe("preparing");
     await page.goto("/admin/orders");
-    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: /shiprocket csv \(preparing\)/i }).click()]);
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "preparing orders", exact: true }).click()]);
     const csv = readFileSync((await download.path())!, "utf8");
     expect(csv.split(/\r?\n/)[0]).toContain("*Order Id");
     expect(csv).toContain(second);
@@ -182,7 +183,9 @@ test.describe("an admin", () => {
     await page.goto("/admin/inventory");
     await page.screenshot({ path: `${SHOTS}/05-inventory.png`, fullPage: true });
     const change = page.getByLabel(/^Change for /).first();
-    const sku = ((await change.getAttribute("aria-label")) ?? (await page.locator("label", { has: change }).innerText())).match(/VK-[A-Z0-9-]+|[A-Z0-9-]{6,}/)?.[0];
+    const label = await page.locator("label").filter({ hasText: /^Change for / }).first().innerText();
+    const sku = label.match(/^Change for (\S+)/)?.[1];
+    expect(sku).toBeTruthy();
     const before = (await sql<{ quantity_on_hand: number }>("SELECT i.quantity_on_hand FROM inventory i JOIN product_variants v ON v.id = i.variant_id WHERE v.sku = $1", [sku]))[0]?.quantity_on_hand;
     await change.fill("4");
     await page.getByLabel(/^Reason for /).first().fill("e2e: launch stock");
@@ -199,8 +202,9 @@ test.describe("an admin", () => {
 
     // Every action carries this admin as the actor.
     const actors = await sql<{ actor: string }>("SELECT DISTINCT actor FROM audit_log");
-    const [{ id }] = await sql<{ id: string }>("SELECT id FROM app_users WHERE email = $1", [ADMIN.email]);
-    expect(actors.map((row) => row.actor)).toContain(`admin:${id}`);
+    const [admin] = await sql<{ id: string }>("SELECT id FROM app_users WHERE email = $1", [ADMIN.email]);
+    if (!admin) throw new Error("admin app_users row missing");
+    expect(actors.map((row) => row.actor)).toContain(`admin:${admin.id}`);
   });
 
   test("losing the flag closes the panel at once", async ({ page }) => {
