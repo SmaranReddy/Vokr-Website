@@ -240,6 +240,83 @@ Buyer data is synthetic (`@load.invalid`). The 5-buyer smoke runs are not includ
   per-IP limits (20 reservations / 60 mutations per 5 min) get 429. That was
   not exercised here, because every buyer had its own IP as in production.
 
+## Production, read-only, small samples: 19 Oct 2026
+
+**Environment: production `vokr.shop`, Cloudflare-fronted, revision
+`vokr-00044-2c4` (1 vCPU / 512 MiB, max 3 instances).** These are **not load
+tests.** They are small sequential samples: 9 Lighthouse runs, 30 `curl` GETs,
+and Cloud Run logs read with `gcloud logging read` (read-only). There were no
+mutations and no cart or checkout calls, and nothing was changed (min-instances untouched).
+Measured from one client machine, so network latency to Cloudflare is included.
+
+### Core Web Vitals (lab): Lighthouse 12.6.1, mobile profile, 3 runs per page
+
+Simulated mobile throttling (Lighthouse default: slow 4G, 4× CPU). These are
+lab values, not field CrUX data. The site has too little traffic for CrUX.
+
+| Page | Perf score | FCP ms | LCP ms | TBT ms | CLS | Speed Index ms | Server response ms | Transferred KB (images / JS / HTML) | Requests |
+|---|---|---|---|---|---|---|---|---|---|
+| `/` | 70 / 85 / 83 | 2062 / 1899 / 2308 | **4804 / 3978 / 3141** | 357 / 58 / 245 | 0 / 0.062 / 0 | 4103 / 2038 / 4857 | 237 / 217 / 1015 | ~1,895 (1,601 / 164 / 16) | 29 |
+| `/shop/model-x` | 86 / 86 / 86 | 1782 / 1903 / 1828 | **4056 / 4014 / 3930** | 56 / 47 / 77 | 0 | 2230 / 2126 / 2139 | 276 / 279 / 274 | ~1,889 (1,612 / 165 / 9) | 28 |
+| `/support-faq` | 96 / 98 / 98 | 1749 / 1810 / 1937 | 2583 / 2180 / 1937 | 25 / 37 / 50 | 0 | 1749 / 2169 / 2475 | 170 / 301 / 474 | ~1,883 (1,601 / 164 / 8) | 30 |
+
+**Reading:**
+- LCP fails the "good" threshold of 2.5 s on `/` and the PDP in every run
+  (3.1–4.8 s). CLS and TBT are fine.
+- **Every page, even the FAQ, transfers ~1.9 MB, of which ~1.6 MB is images.**
+  It is the same five `cdn.shopify.com` images, loaded from the shared layout:
+  `LACES2.jpg` 753 KB, `Antimicrobial_lining.jpg` 238 KB, and three
+  `M000_*_PDP_Side.jpg` at ~200 KB each.
+- This is R21's real problem. The CI weight gate measures JavaScript only
+  (~164 KB here), so it passes while the page is ~3.8× the 500 KB budget.
+  Fixing it is Phase 14 (R2 + WebP/AVIF, and not loading off-screen
+  layout images eagerly). It belongs to the images workstream; it was not
+  changed here.
+
+### Latency from a client: 15 sequential GETs per page, 2 s apart, `Cache-Control: no-cache`
+
+| Page | TTFB p50 | p90 | max | Status | HTML bytes |
+|---|---|---|---|---|---|
+| `/` | 374 ms | 612 ms | 1,366 ms | 15× 200 | 80,296 |
+| `/shop/model-x` | 492 ms | 633 ms | 695 ms | 15× 200 | 32,793 |
+
+`cf-cache-status: DYNAMIC`: Cloudflare does not cache the HTML, so every
+request reaches Cloud Run.
+
+### Server time: Cloud Run request logs (`httpRequest.latency`), last 1,000 GETs on `vokr-00044-2c4`, 18–19 Oct 2026
+
+Real traffic plus the uptime and keep-warm probes. This is the time spent inside
+Cloud Run, excluding the network.
+
+| Route group | n | p50 | p95 | max | 5xx |
+|---|---|---|---|---|---|
+| `/` | 76 | 9 ms | 18 ms | 129 ms | 0 |
+| `/shop/*` | 36 | 9 ms | 26 ms | 36 ms | 0 |
+| other pages | 446 | 8 ms | 17 ms | 112 ms | 0 |
+| `/_next/*` (static) | 202 | 10 ms | 116 ms | 286 ms | 0 |
+| `/api/health` | 179 | 44 ms | 76 ms | 203 ms | 0 |
+| `/api/*` other | 61 | 7 ms | 61 ms | 111 ms | 0 |
+
+**Reading:**
+- Server time is small: p95 under 30 ms for pages. Most of the ~370–490 ms
+  client TTFB is network and edge, not rendering.
+- `/api/health` is slower (p50 44 ms) because it touches the database.
+- These are low-traffic numbers. They say nothing about behaviour under load
+  on Cloud Run, which still needs staging.
+
+### Cold start: Cloud Run system logs (read-only)
+
+- From `Starting new instance` to Next's `Ready` took **1.7–3.3 s** across the
+  14 most recent instance starts (revisions `vokr-00032` … `vokr-00044`, 16–17 Oct;
+  log query capped at 30 lines).
+- 13 of those starts were `DEPLOYMENT_ROLLOUT`. One was `AUTOSCALING`
+  (`vokr-00037-xrt`, 17 Oct 02:10Z).
+- The serving revision `vokr-00044-2c4` has started **once** since its
+  deploy (17 Oct 07:24Z) and has stayed warm since. Traffic includes the 5-minute maintenance Scheduler job.
+- This is start-to-ready only. The first-request latency on a truly cold
+  instance, and the comparison of keep-warm off vs on (task 7), were **not**
+  measured: that would mean disabling keep-warm in production. It needs staging.
+
 ## Database-level R10 (existing, for comparison)
 
 `src/server/inventory/__tests__/concurrent-buyers.integration.test.ts`:
@@ -252,6 +329,6 @@ the reservation transaction itself, not HTTP.
 - R10 Razorpay round-trip (order + webhook) over HTTP, and R10 on Cloud Run (see above)
 - Razorpay-delay test (task 5)
 - Cloud Run vCPU-seconds and Supabase bytes per pageview (task 6, R18)
-- cold start with and without keep-warm (task 7)
-- Core Web Vitals, mobile (task 8)
+- cold start: first-request latency, keep-warm off vs on (task 7, needs staging). Start-to-ready measured above
+- Core Web Vitals in the field (CrUX). Lab values measured above; cart and checkout pages not measured (ordering off)
 - `EXPLAIN ANALYZE` of hot queries (task 9)
