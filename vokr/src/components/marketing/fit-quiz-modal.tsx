@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /** One question's option set, verbatim from `#fitModalOverlay` (`vokr-production/index.html`). */
 const STEPS = [
@@ -82,6 +82,20 @@ export function FitQuizModal() {
     setOpen(false);
     reset();
   }
+
+  // Escape-to-close, the same as the cart drawer and the menu panel;
+  // closing this way resets progress exactly like the × button.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      setStep(0);
+      setAnswers({});
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   return (
     <>

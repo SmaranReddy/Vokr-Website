@@ -48,10 +48,25 @@ describe("responsive images (Phase 14, R21)", () => {
     }
   });
 
-  it("the CSP admits an absolute asset origin, and nothing for /img or unset", () => {
+  it("the CSP admits an absolute asset origin, and no extra origin for /img or an insecure base", () => {
     const nonce = "test-nonce";
-    expect(contentSecurityPolicy(undefined, { nonce, assetBaseUrl: "https://assets.vokr.shop/img" })).toMatch(/img-src [^;]*https:\/\/assets\.vokr\.shop(?!\/)/);
-    expect(contentSecurityPolicy(undefined, { nonce, assetBaseUrl: "/img" })).toBe(contentSecurityPolicy(undefined, { nonce }));
-    expect(contentSecurityPolicy(undefined, { nonce, assetBaseUrl: "http://insecure.example" })).toBe(contentSecurityPolicy(undefined, { nonce }));
+    const imgSrc = (assetBaseUrl?: string) =>
+      contentSecurityPolicy(undefined, { nonce, assetBaseUrl }).match(/img-src ([^;]*)/)![1]!.split(" ");
+    expect(imgSrc("https://assets.vokr.shop/img")).toContain("https://assets.vokr.shop");
+    expect(imgSrc("/img")).toEqual(["'self'", "data:", "blob:", "https://cdn.razorpay.com"]);
+    expect(imgSrc("http://insecure.example")).toEqual(["'self'", "data:", "blob:", "https://cdn.razorpay.com"]);
+  });
+
+  it("the CSP admits cdn.shopify.com only while no asset base is configured — the one case ResponsiveImage renders it", () => {
+    const nonce = "test-nonce";
+    const policy = (assetBaseUrl?: string) => contentSecurityPolicy(undefined, { nonce, assetBaseUrl });
+    for (const unset of [undefined, "", "  ", "/"]) {
+      expect(policy(unset), JSON.stringify(unset)).toMatch(/img-src [^;]*https:\/\/cdn\.shopify\.com/);
+      expect(assetBaseUrl(unset), JSON.stringify(unset)).toBeNull();
+    }
+    for (const configured of ["/img", "https://assets.vokr.shop/img"]) {
+      expect(policy(configured), configured).not.toContain("cdn.shopify.com");
+      expect(assetBaseUrl(configured), configured).not.toBeNull();
+    }
   });
 });

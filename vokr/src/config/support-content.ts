@@ -135,13 +135,18 @@ export const HELP_CARDS = [
   },
 ];
 
+/**
+ * The legacy also listed "Phone: +91 80 0000 0000" (a placeholder, not a
+ * real line) and "Chat: Available on this page during business hours"
+ * (no chat exists). Both were removed after the 20 Oct 2026 production
+ * audit rather than replaced — add a real number or chat only once one
+ * exists.
+ */
 export const CONTACT_DETAILS: {
   title: string;
   value: string;
   href?: string;
 }[] = [
   { title: "Email", value: "support@vokr.shop", href: "mailto:support@vokr.shop" },
-  { title: "Phone", value: "+91 80 0000 0000" },
   { title: "Hours", value: "Mon–Sat, 10am–7pm IST" },
-  { title: "Chat", value: "Available on this page during business hours" },
 ];

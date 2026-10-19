@@ -60,6 +60,9 @@ export const PDP_CONTENT: Record<string, PdpContent> = {
     ],
   },
   socks: {
+    // CONTENT BLOCKER (production audit, 20 Oct 2026): the legacy hero is a
+    // Model x shoe photo, not socks. No socks photograph exists in the asset
+    // manifest; replace once the owner supplies one.
     heroImage:
       "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_White_PDP_Side.jpg?v=1778604639",
     heroAlt: "Vokr Socks",
@@ -73,6 +76,10 @@ export const PDP_CONTENT: Record<string, PdpContent> = {
     ],
   },
   "stretch-laces": {
+    // CONTENT BLOCKER (production audit, 20 Oct 2026): the legacy hero is a
+    // Model 001 shoe photo, not laces. The manifest's `stretch-laces` image
+    // (homepage feature card) is a lacing close-up on a white shoe, not a
+    // product shot of the laces sold; replace once the owner supplies one.
     heroImage:
       "https://cdn.shopify.com/s/files/1/0231/2060/9358/files/M000_Black_PDP_Side.jpg?v=1778604540",
     heroAlt: "Stretch Laces",

@@ -9,17 +9,22 @@
  * ratings or review counts"). The legacy heading is kept; the body is an
  * honest empty state. There is deliberately no rating, count or
  * structured data here until real, order-verified reviews exist (Phase 9).
+ *
+ * `headingLevel` is `h1` on `/reviews`, where this section is the whole
+ * page and its heading the page's main heading; PDPs keep `h2` under the
+ * product name.
  */
-export function ReviewsSummary() {
+export function ReviewsSummary({ headingLevel = "h2" }: { headingLevel?: "h1" | "h2" }) {
+  const Heading = headingLevel;
   return (
     <section
       id="reviews"
       aria-labelledby="reviews-heading"
       className="mx-auto max-w-4xl px-5 py-16"
     >
-      <h2 id="reviews-heading" className="mb-4 text-2xl font-bold tracking-tight">
+      <Heading id="reviews-heading" className="mb-4 text-2xl font-bold tracking-tight">
         Ratings and Reviews
-      </h2>
+      </Heading>
       <div className="rounded-2xl border border-border-strong p-6 text-center">
         <p className="text-sm font-semibold">No reviews yet.</p>
         <p className="mt-2 text-sm text-muted">

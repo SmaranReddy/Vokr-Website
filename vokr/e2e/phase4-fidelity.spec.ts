@@ -43,6 +43,8 @@ interface HeadingDeviations {
   removed?: string[];
   /** Legacy heading text → its replacement. */
   renamed?: Record<string, string>;
+  /** Legacy heading text → the tag it now renders as (same text). */
+  retagged?: Record<string, string>;
 }
 
 const REVIEWS_EMPTY_STATE =
@@ -73,6 +75,15 @@ const ORDER_STATUS_DEVIATIONS: Deviation[] = [
   },
   { legacy: "by email and SMS the moment", migrated: "by email the moment" },
 ];
+
+// The homepage "Contact Us" accordion and /support-contact listed a
+// placeholder phone number and a chat that does not exist; both were
+// removed (production audit, 20 Oct 2026), not replaced.
+const CONTACT_DEVIATIONS: Deviation[] = [
+  { legacy: "Phone +91 80 0000 0000 Hours", migrated: "Hours" },
+  { legacy: "IST Chat Available on this page during business hours", migrated: "IST" },
+];
+const CONTACT_REMOVED_HEADINGS = ["Phone", "Chat"];
 
 // The /support-faq page answered "Yes"
 // to a subscription plan that does not exist.
@@ -105,7 +116,11 @@ function applyHeadingDeviations(
   headings: { tag: string; text: string }[],
   deviations: HeadingDeviations = {},
 ): { tag: string; text: string }[] {
-  const all = [...(deviations.removed ?? []), ...Object.keys(deviations.renamed ?? {})];
+  const all = [
+    ...(deviations.removed ?? []),
+    ...Object.keys(deviations.renamed ?? {}),
+    ...Object.keys(deviations.retagged ?? {}),
+  ];
   for (const text of all) {
     expect(
       headings.some((h) => h.text === text),
@@ -114,7 +129,10 @@ function applyHeadingDeviations(
   }
   return headings
     .filter((h) => !deviations.removed?.includes(h.text))
-    .map((h) => ({ ...h, text: deviations.renamed?.[h.text] ?? h.text }));
+    .map((h) => ({
+      tag: deviations.retagged?.[h.text] ?? h.tag,
+      text: deviations.renamed?.[h.text] ?? h.text,
+    }));
 }
 
 interface FidelityCase {
@@ -155,8 +173,9 @@ const CASES: FidelityCase[] = [
         migrated: "",
       },
       ...ORDER_STATUS_DEVIATIONS,
+      ...CONTACT_DEVIATIONS,
     ],
-    headingDeviations: { removed: ["What our customers say"] },
+    headingDeviations: { removed: ["What our customers say", ...CONTACT_REMOVED_HEADINGS] },
   },
   {
     route: "/terms",
@@ -191,7 +210,12 @@ const CASES: FidelityCase[] = [
     deviations: [FAQ_SUBSCRIPTION_DEVIATION],
   },
   { route: "/support-help", legacyFile: "support-help.html" },
-  { route: "/support-contact", legacyFile: "support-contact.html" },
+  {
+    route: "/support-contact",
+    legacyFile: "support-contact.html",
+    deviations: CONTACT_DEVIATIONS,
+    headingDeviations: { removed: CONTACT_REMOVED_HEADINGS },
+  },
   {
     route: "/about-vokr",
     legacyFile: "about-vokr.html",
@@ -283,7 +307,14 @@ const CASES: FidelityCase[] = [
       ),
     ],
   },
-  { route: "/reviews", legacyFile: "reviews.html", deviations: [REVIEWS_DEVIATION] },
+  {
+    route: "/reviews",
+    legacyFile: "reviews.html",
+    deviations: [REVIEWS_DEVIATION],
+    // The legacy page had no h1; on /reviews its section heading is the
+    // page's main heading (production audit, 20 Oct 2026). PDPs keep h2.
+    headingDeviations: { retagged: { "Ratings and Reviews": "h1" } },
+  },
   // The 5 dynamic PDP routes (task 5) — name/price/sizes come from the
   // live Phase 2 catalog (seeded to mirror the legacy prices exactly).
   {
