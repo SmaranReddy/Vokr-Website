@@ -12,7 +12,7 @@ import { RateLimitError } from "@/lib/errors";
 const requireUser = vi.fn(async () => ({ userId: "u1", email: "u1@example.com", cookiesToSet: [] }));
 const listUserOrders = vi.fn(async () => ({ orders: [], nextBefore: null }));
 const getUserOrder = vi.fn(async () => ({ orderNumber: "VK-10001" }));
-const assertWithinRateLimit = vi.fn(async (_options: { key: string; limit: number; windowMs: number }) => {});
+const assertWithinRateLimit = vi.fn<(options: { key: string; limit: number; windowMs: number }) => Promise<void>>(async () => {});
 
 vi.mock("@/server/cart/ordering-gate", () => ({ assertOrderingEnabled: () => {} }));
 vi.mock("@/server/auth/session", () => ({ requireUser: (...args: unknown[]) => requireUser(...(args as [])) }));

@@ -36,6 +36,7 @@ const SCANNER_SIGNATURES = [
 
 const SUSPICIOUS_AGENTS = ["curl", "wget", "python-requests", "python-urllib", "go-http-client", "scrapy", "httpclient", "libwww"];
 
+/** @param {{ adminIps?: string[]; badAsns?: string[] }} [options] */
 export function customRules({ adminIps = [], badAsns = [] } = {}) {
   const admin = `(starts_with(${path}, "/admin") or starts_with(${path}, "/api/admin"))`;
   const scanners = `(${SCANNER_SIGNATURES.join(" or ")})`;
