@@ -69,6 +69,17 @@ const postNewsletter = (body: unknown = { email: VISITOR.email }) =>
 function brevoReplies(status: number, body: unknown = {}) {
   fetchMock.mockImplementation(async () => new Response(status === 204 ? null : JSON.stringify(body), { status }));
 }
+/** The contact route reads the blocklist first; it answers with `blocklist`, the send with `status`/`body`. */
+function brevoSend(status: number, body: unknown = {}, blocklist: unknown = { contacts: [], count: 0 }) {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.includes("/smtp/blockedContacts")
+      ? new Response(JSON.stringify(blocklist), { status: 200 })
+      : new Response(JSON.stringify(body), { status }),
+  );
+}
+function sendCalls() {
+  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/smtp/email")) as [string, RequestInit][];
+}
 function brevoHangs() {
   fetchMock.mockImplementation(
     (_url: string, init: RequestInit) =>
@@ -104,13 +115,13 @@ describe("POST /api/marketing/contact", () => {
   const FAILED = "Could not send your message. Please try again.";
 
   it("200 only after Brevo accepts the email; nothing logged as a failure", async () => {
-    brevoReplies(201, { messageId: "<m@smtp-relay.brevo.com>" });
+    brevoSend(201, { messageId: "<m@smtp-relay.brevo.com>" });
     const response = await postContact();
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ message: "Thanks — we'll get back to you soon." });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const sent = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)) as { textContent: string };
+    expect(sendCalls()).toHaveLength(1);
+    const sent = JSON.parse(String(sendCalls()[0]![1].body)) as { textContent: string };
     expect(sent.textContent).toBe(`Order number: ${VISITOR.orderNumber}\n\n${VISITOR.message}`);
     expect(taggedLines()).toEqual([]);
   });
@@ -121,7 +132,7 @@ describe("POST /api/marketing/contact", () => {
     [400, { code: "invalid_parameter", message: `sender invalid for ${VISITOR.email}` }, "invalid_parameter"],
     [500, { message: "internal" }, undefined],
   ])("Brevo %i → 500, one sanitized tagged log line", async (status, body, code) => {
-    brevoReplies(status, body);
+    brevoSend(status, body);
     const requestId = await expectFailure(await postContact(), FAILED);
 
     const lines = taggedLines();
@@ -136,6 +147,34 @@ describe("POST /api/marketing/contact", () => {
     const output = logOutput();
     for (const secret of SECRETS) expect(output).not.toContain(secret);
     expect(output).not.toContain("Key not found");
+  });
+
+  it("support@ on Brevo's blocklist → 500 with reason=recipient_blocked, and no email is sent", async () => {
+    brevoSend(201, { messageId: "<m@smtp-relay.brevo.com>" }, {
+      contacts: [{ email: "support@vokr.shop", reason: { code: "hardBounce", message: "hard bounce" } }],
+      count: 1,
+    });
+    const requestId = await expectFailure(await postContact(), FAILED);
+
+    expect(sendCalls()).toHaveLength(0);
+    expect(taggedLines()).toEqual([
+      `[marketing/contact] ${FORM_DELIVERY_FAILED_TAG} {"form":"contact","reason":"recipient_blocked","requestId":"${requestId}"}`,
+    ]);
+    const output = logOutput();
+    for (const secret of SECRETS) expect(output).not.toContain(secret);
+  });
+
+  it("a 2xx without a messageId → 500 with reason=unconfirmed", async () => {
+    brevoSend(201, {});
+    await expectFailure(await postContact(), FAILED);
+    expect(taggedLines()[0]).toContain('"reason":"unconfirmed"');
+  });
+
+  it("an unreadable blocklist → 500, and no email is sent", async () => {
+    brevoReplies(503, { message: "unavailable" });
+    await expectFailure(await postContact(), FAILED);
+    expect(sendCalls()).toHaveLength(0);
+    expect(taggedLines()[0]).toContain('"status":503');
   });
 
   it("a Brevo stall times out → 500 with reason=timeout, not a hung request", async () => {
