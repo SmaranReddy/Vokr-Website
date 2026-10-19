@@ -21,6 +21,8 @@ database dump shows ciphertext only.
 | Email send records | `email_log.recipient_hash` (SHA-256 only, never the address or body) | One email per event | 180 days after sending | Records yes, hash no |
 | Guest device session | `guest_sessions.token_hash` | Guest bag | Until expiry | No (credential hash) |
 | Rate-limit buckets | `rate_limit_counters.key` — action scope + unsalted SHA-256 digest of the IP/email/id; raw values never stored, but this is **pseudonymised, not anonymised** (a known email or IPv4 address can be hashed and matched) | Abuse protection | 24 hours | No (transient) |
+| Consent records | `consent_records.subject_hash` (SHA-256 of the email), `ip_hash` (SHA-256 of the IP), purpose, policy version, source — **append-only** (trigger) | Proof of consent per purpose (DPDP) | Life of the account + 1 year (§3.5); kept through erasure pending legal review | Yes (records; hashes no) |
+| Privacy requests | `data_subject_requests` — account id, kind, state, decision, counts-only report; no PII | Handling erasure requests | Not yet pruned | Yes |
 | Operator audit | `audit_log` (actor = admin id; a PII reveal records *that* it happened, never the data) | Accountability | Not yet pruned | No (operator record) |
 
 ## Outside the database
@@ -42,15 +44,35 @@ database dump shows ciphertext only.
   downloads everything in the Postgres table above as JSON, decrypted, with
   the exclusions and their reasons listed in the file. Nothing is stored;
   rate limited per account and per IP.
+- **Consent (built):** recorded before the action it covers, at sign-up
+  (`account_terms`; terms §1) and the footer newsletter (`marketing_email`).
+  Withdrawal is a new row. Checkout and cookies are not consent points
+  today. See `legal-review-proposal.md` Q3/Q4.
+- **Erasure (built, execution off):** `POST /api/privacy/delete` records a
+  request. An admin reads the dry run (`GET /api/admin/privacy/requests/[id]`)
+  and approves or rejects it (`…/decide`, email retyped, recent sign-in,
+  audited). `…/execute` anonymises in place, but answers 409 while
+  `ERASURE_EXECUTION_ENABLED` is `false` (until legal review, Q1/Q2).
+  - **Tombstoned:** account email, name and phone; saved addresses; the
+    order contact email and ship-to phone.
+  - **Kept:** the order, its totals, payment and history, the ship-to name
+    and address (the tax invoice's recipient) and consent records.
+  - **Manual steps:** delete the Supabase Auth user (service-role key) and
+    the Brevo contact. Until then the session layer treats the erased
+    account as signed out.
+- **Retention (report-only):** the maintenance job's `retention` step counts
+  guest sessions (90 days), open carts (30 days), checkout emails on
+  sessions that never became an order (30 days), audit rows over a year old,
+  and consents of accounts erased over a year ago. Purging
+  (`RETENTION_PURGE_ENABLED`, off) only ever clears those checkout emails.
+- **Logs:** `scripts/ops/export-logs-to-r2.sh` (dry run by default; needs
+  R2 credentials; not scheduled). Default Cloud Logging retention is still
+  30 days.
 - **Not built yet:**
-  - **Erasure** — must anonymise PII in place while keeping orders,
-    invoices and credit notes for 8 years, and delete the Supabase Auth
-    user (needs the service-role key). A real tension with tax retention:
-    owner and legal review first.
-  - **Guest export** — guests own data only through a device session and
-    order number + email; a verified guest flow is not designed.
-  - **Consent records** (task 1–3), the grievance path (task 10), and the
-    privacy-policy update (task 11).
+  - **Guest export/erasure:** guests own data only through a device session
+    and order number + email; proposed as a manual support process (Q7).
+  - The grievance path (task 10) and the privacy-policy update (task 11),
+    both after legal review.
 
 ## Findings to act on
 
@@ -58,6 +80,6 @@ database dump shows ciphertext only.
    unsalted digest (`storedRateLimitKey`). That is pseudonymisation, not
    anonymisation: the rows are still personal data for their 24 hours. A
    keyed HMAC with a secret would close that; legal review to decide.
-2. `audit_log` has no retention rule yet.
+2. `audit_log` has no retention rule yet (counted by the retention report).
 3. The Shiprocket CSV is a PII file on the operator's machine — the
    runbook says delete after upload; nothing enforces it.

@@ -36,7 +36,14 @@ export async function getSession(
   const { data, error } = await supabase.auth.getUser();
   if (!error && data.user) {
     const email = data.user.email ?? "";
-    await getOrCreateAppUser({ id: data.user.id, email });
+    const appUser = await getOrCreateAppUser({ id: data.user.id, email });
+    // An erased account (plan §5 Phase 17) keeps its Supabase Auth user until
+    // an operator deletes it with the service-role key. Until then a valid
+    // token for it must not act as that account: it is a guest.
+    if (appUser.deletedAt !== null) {
+      console.warn(`[auth] ERASED_ACCOUNT_SESSION user=${data.user.id} treated as signed out`);
+      return getGuestSession(request, cookiesToSet);
+    }
 
     if (request.cookies.get(GUEST_COOKIE_NAME)) {
       cookiesToSet.push(clearGuestCookie());
@@ -48,6 +55,10 @@ export async function getSession(
     };
   }
 
+  return getGuestSession(request, cookiesToSet);
+}
+
+async function getGuestSession(request: NextRequest, cookiesToSet: CookieWrite[]): Promise<SessionResolution> {
   const guestToken = request.cookies.get(GUEST_COOKIE_NAME)?.value;
   const guestResolution = await getOrCreateGuestSession(guestToken);
   if (guestResolution.setCookie) {

@@ -26,7 +26,7 @@ describe("getOrCreateAppUser", () => {
       where: { id: "user-1" },
       create: { id: "user-1", email: "a@example.com" },
       update: {},
-      select: { id: true, email: true, createdAt: true },
+      select: { id: true, email: true, createdAt: true, deletedAt: true },
     });
   });
 });

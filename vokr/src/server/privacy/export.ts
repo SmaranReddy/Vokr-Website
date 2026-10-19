@@ -1,6 +1,7 @@
 import { decryptField } from "@/server/checkout/crypto";
 import { prisma } from "@/server/db/client";
 
+import { consentHistory } from "./consent";
 import { PERSONAL_DATA_INVENTORY } from "./inventory";
 
 /**
@@ -24,7 +25,7 @@ export async function exportAccountData(userId: string, now: Date = new Date()) 
   });
   if (!user) throw new Error(`no app user ${userId}`);
 
-  const [addresses, carts, checkoutSessions, orders] = await Promise.all([
+  const [addresses, carts, checkoutSessions, orders, consents, privacyRequests] = await Promise.all([
     prisma.address.findMany({
       where: { userId },
       select: {
@@ -90,6 +91,12 @@ export async function exportAccountData(userId: string, now: Date = new Date()) 
         emails: { select: { template: true, status: true, sentAt: true, createdAt: true }, orderBy: { createdAt: "asc" } },
       },
       orderBy: { placedAt: "asc" },
+    }),
+    consentHistory(userId, user.email),
+    prisma.dataSubjectRequest.findMany({
+      where: { userId },
+      select: { kind: true, state: true, createdAt: true, decidedAt: true, completedAt: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -178,6 +185,20 @@ export async function exportAccountData(userId: string, now: Date = new Date()) 
         sentAt: email.sentAt?.toISOString() ?? null,
         queuedAt: email.createdAt.toISOString(),
       })),
+    })),
+    consents: consents.map((row) => ({
+      purpose: row.purpose,
+      action: row.action,
+      policyVersion: row.policyVersion,
+      source: row.source,
+      at: row.createdAt.toISOString(),
+    })),
+    privacyRequests: privacyRequests.map((row) => ({
+      kind: row.kind,
+      state: row.state,
+      requestedAt: row.createdAt.toISOString(),
+      decidedAt: row.decidedAt?.toISOString() ?? null,
+      completedAt: row.completedAt?.toISOString() ?? null,
     })),
     notExported: PERSONAL_DATA_INVENTORY.filter((entry) => entry.exported !== true).map((entry) => ({
       field: entry.field,

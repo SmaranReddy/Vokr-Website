@@ -59,6 +59,20 @@ export const PERSONAL_DATA_INVENTORY: readonly PersonalDataField[] = [
     retention: "24 hours (pruned by the maintenance job)",
     exported: "Transient security data, deleted within 24 hours",
   },
+  {
+    field: "ConsentRecord.subjectHash",
+    what: "SHA-256 of the email a consent was given for — pseudonymised, not anonymised",
+    why: "Proof of consent per purpose (DPDP), including newsletter subscribers without an account",
+    retention: "Life of the account + 1 year (plan §3.5); kept through erasure as proof (legal review)",
+    exported: "A one-way hash of the account email; the consent records themselves are exported",
+  },
+  {
+    field: "ConsentRecord.ipHash",
+    what: "SHA-256 of the IP a consent was given from",
+    why: "Evidence of where consent was given",
+    retention: "With the consent record",
+    exported: "A one-way hash of a network address, not information the customer gave",
+  },
 ];
 
 /** Column names that mark personal data; the inventory test checks every match in the schema is listed above. */

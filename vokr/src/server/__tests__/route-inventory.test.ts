@@ -53,6 +53,10 @@ const ROUTES: Record<string, RouteEntry> = {
   "/account": { methods: ["GET"], guards: [], why: "Redirect only; reads the Supabase session, writes nothing." },
   "/api/admin/exports/shiprocket": { methods: ["GET"], guards: ["admin", "strict-body"], why: "Admin only (proxy + handler 404 otherwise); decrypts PII, so the export is audit-logged with its order numbers." },
   "/api/admin/inventory/adjust": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; row-locked, expected on-hand, never below held units; audit row in the same transaction." },
+  "/api/admin/privacy/requests": { methods: ["GET"], guards: ["admin"], why: "Admin only; open erasure requests, ids and states, no PII." },
+  "/api/admin/privacy/requests/[id]": { methods: ["GET"], guards: ["admin"], why: "Admin only; the erasure dry run (counts only); changes nothing." },
+  "/api/admin/privacy/requests/[id]/decide": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only, signed in within 15 min, account email retyped; decided once; audited." },
+  "/api/admin/privacy/requests/[id]/execute": { methods: ["POST"], guards: ["admin"], why: "Admin only, signed in within 15 min; only an approved request with no blockers; 409 while ERASURE_EXECUTION_ENABLED is off; audited." },
   "/api/admin/orders/[orderNumber]/refund": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only, signed in within 15 min, order number retyped; full refund of the captured amount via the idempotent payment-issue path; audited." },
   "/api/admin/orders/[orderNumber]/reveal": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; the PII reveal is audit-logged before the data is returned." },
   "/api/admin/orders/[orderNumber]/transition": { methods: ["POST"], guards: ["admin", "strict-body"], why: "Admin only; the shared order state machine (no `refunded` by assertion); audited." },
@@ -83,6 +87,7 @@ const ROUTES: Record<string, RouteEntry> = {
   "/api/payments/razorpay/order": { methods: ["POST"], guards: ["ordering-gate", "session", "rate-limit", "strict-body"], why: "Amount only from the pricing snapshot; an `amount` field is a 400." },
   "/api/payments/status": { methods: ["GET"], guards: ["ordering-gate", "session", "strict-body"], why: "Read-only; ownership 404; never accepts the browser callback's payment details." },
   "/api/privacy/export": { methods: ["POST"], guards: ["signed-in", "rate-limit"], why: "The caller's own account only; per-account and per-IP limits; POST so cross-site refusal applies; nothing stored." },
+  "/api/privacy/delete": { methods: ["POST"], guards: ["signed-in", "rate-limit", "strict-body"], why: "The caller's own account only; records a request, erases nothing (operator approval + execution gate); idempotent; POST so cross-site refusal applies." },
   "/api/shipping/serviceability": { methods: ["GET"], guards: ["ordering-gate", "rate-limit", "strict-body"], why: "Unauthenticated by design (no identity needed for a PIN lookup); rate limited per IP; fails closed." },
   "/api/webhooks/razorpay": { methods: ["POST"], guards: ["signature", "rate-limit"], why: "HMAC over the raw body, constant-time; replay-safe by event id." },
 };
