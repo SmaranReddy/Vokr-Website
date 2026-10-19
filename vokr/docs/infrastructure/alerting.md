@@ -11,8 +11,10 @@ day).
 
 - **Metrics: 10 created** in `vokr-website` (verified read-only with
   `gcloud logging metrics list`, 19 Oct 2026). **Defined but not yet created:**
-  `vokr_form_delivery_failed` and `vokr_maintenance_finished`. The owner
-  re-runs `setup-log-alerts.sh` to add them.
+  `vokr_form_delivery_failed`, `vokr_maintenance_finished` and (19 Oct,
+  backups branch) `vokr_backup_failed`, `vokr_backup_ok` — the backup pair
+  counts the workflow's own `vokr-backup` log on the `global` resource. The
+  owner re-runs `setup-log-alerts.sh` to add them.
 - **Alert policies and the uptime check: defined as code, not created.**
   There's one file per policy in `scripts/ops/alert-policies/`, and
   `scripts/__tests__/alert-policies.test.ts` checks them offline:
@@ -63,6 +65,8 @@ Each auto-closes after 24 h.
 | `vokr_maintenance_not_ok` | ERROR | > 0 in 5 min | A run's report names the failing step |
 | `vokr_reconcile_failed` | WARNING | **> 1 in 15 min** | "Transient if it clears next run" (below): needs two failures across three runs |
 | `vokr_email_volume` | WARNING | > 0 in 5 min | 200/day warning, 290/day stop (free tier is 300) |
+| `vokr_backup_failed` | ERROR | > 0 in 5 min | A scheduled database backup failed; nothing it left counts as a backup |
+| `vokr_backup_absent` | ERROR | **no verified backup for 8 h** | Schedule is 6 h; GitHub can delay scheduled runs or disable them after 60 days without repository activity |
 | `vokr_maintenance_absent` | ERROR | **no finished run for 20 min** | The Scheduler runs every 5 min. Four missed runs means it or the service stopped, and holds stop expiring |
 | `uptime /api/health` | CRITICAL | **failing from ≥ 2 regions for 5 min** | `https://vokr.shop/api/health` (through Cloudflare) every 5 min. Two regions rule out one checker's network |
 
@@ -107,6 +111,8 @@ Record each fire (time received, channel) in the plan's Phase 15 Status.
 | `vokr_admin_gate_error` | The admin gate failed for a reason other than "not an admin" | The panel may be unreachable for admins: check logs for the error, DB/Supabase health |
 | `vokr_maintenance_not_ok` | A maintenance run (every 5 min) did not finish cleanly | Read the run's JSON report in the log line; the failing step names itself |
 
+| `vokr_backup_failed` | A run of the `Database backup` workflow failed (dump, encryption, upload or read-back) | Open the run URL in the log line; `backups.md` |
+| `vokr_backup_absent` | No `BACKUP_OK` for 8 h | `BACKUP_ENABLED` off, workflow disabled by GitHub (60 days inactive), WIF/Secret Manager access, or every run failing early — Actions → Database backup; `backups.md` |
 | `vokr_maintenance_absent` | No maintenance run finished for 20 min | Scheduler job `vokr-maintenance` paused/failing, or the service is down: `gcloud scheduler jobs describe vokr-maintenance --location asia-south1 --project vokr-website`, then the service logs |
 | `uptime /api/health` | The public health endpoint fails from ≥ 2 regions | Storefront likely down: Cloud Run revision status, Cloudflare, Supabase |
 

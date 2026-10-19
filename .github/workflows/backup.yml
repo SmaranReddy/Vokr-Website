@@ -1,0 +1,130 @@
+name: Database backup
+
+# Plan §5 Phase 18 (R17). Runbook: vokr/docs/infrastructure/backups.md.
+#
+# Every 6 hours: pg_dump of the whole production database → age-encrypted →
+# private R2 bucket `vokr-backups`, each object read back and hashed, then a
+# COMPLETE marker. Off until the owner sets the repository variable
+# BACKUP_ENABLED=true; retention deletes nothing until BACKUP_PRUNE_ENABLED=true.
+#
+# Like deploy.yml there are no Actions secrets: GCP access comes from
+# Workload Identity Federation, and the service account BACKUP_SERVICE_ACCOUNT
+# may impersonate only from the `backups` environment (restricted to master).
+# It reads three Secret Manager secrets and writes the vokr-backup log.
+# The repository is public, so logs are world-readable: every secret is
+# masked before use and the scripts print sizes and object keys only.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 h, off the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+# One backup at a time; a run that is still going is never cancelled.
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    environment: backups
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: vokr
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      R2_BACKUP_BUCKET: vokr-backups
+    steps:
+      - name: Preflight — required variables
+        env:
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          BACKUP_SERVICE_ACCOUNT: ${{ vars.BACKUP_SERVICE_ACCOUNT }}
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+        working-directory: .
+        run: |
+          missing=0
+          for name in GCP_PROJECT_ID WIF_PROVIDER BACKUP_SERVICE_ACCOUNT BACKUP_AGE_RECIPIENT R2_ACCOUNT_ID; do
+            if [ -z "${!name:-}" ]; then echo "::error::repository variable $name is not set"; missing=1; fi
+          done
+          exit $missing
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: vokr/.nvmrc
+          cache: npm
+          cache-dependency-path: vokr/package-lock.json
+
+      - name: Install pg_dump 17 (server is 17.x) and age
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -q && sudo apt-get install -yq postgresql-client-17 age
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.BACKUP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Back up, encrypt, upload, verify
+        env:
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          PRUNE_ENABLED: ${{ vars.BACKUP_PRUNE_ENABLED }}
+        run: |
+          set -euo pipefail
+          secret() { gcloud secrets versions access latest --secret="$1" --project="$GCP_PROJECT_ID"; }
+          BACKUP_DATABASE_URL=$(secret BACKUP_DATABASE_URL)
+          echo "::add-mask::$BACKUP_DATABASE_URL"
+          export BACKUP_DATABASE_URL
+          DB_PASSWORD=$(node -e 'process.stdout.write(decodeURIComponent(new URL(process.env.BACKUP_DATABASE_URL).password))')
+          echo "::add-mask::$DB_PASSWORD"
+          unset DB_PASSWORD
+          R2_ACCESS_KEY_ID=$(secret R2_BACKUP_ACCESS_KEY_ID)
+          echo "::add-mask::$R2_ACCESS_KEY_ID"
+          R2_SECRET_ACCESS_KEY=$(secret R2_BACKUP_SECRET_ACCESS_KEY)
+          echo "::add-mask::$R2_SECRET_ACCESS_KEY"
+          export R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+          args=(--out "$RUNNER_TEMP/backups" --upload --apply --prune --result "$RUNNER_TEMP/backup-result.json")
+          if [ "${PRUNE_ENABLED:-}" = "true" ]; then args+=(--apply-prune); fi
+          npx tsx scripts/backup/backup.ts "${args[@]}"
+
+      - name: Heartbeat (BACKUP_OK)
+        run: |
+          set -euo pipefail
+          # backup.ts writes the result file only after the COMPLETE marker was read back.
+          test -s "$RUNNER_TEMP/backup-result.json"
+          gcloud logging write vokr-backup "BACKUP_OK $(cat "$RUNNER_TEMP/backup-result.json") run=${{ github.run_id }}" \
+            --severity=INFO --project="$GCP_PROJECT_ID"
+
+      - name: Report failure (BACKUP_FAILED)
+        if: failure()
+        run: |
+          gcloud logging write vokr-backup "BACKUP_FAILED run=${{ github.run_id }} url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --severity=ERROR --project="$GCP_PROJECT_ID" \
+            || echo "::warning::could not write BACKUP_FAILED (auth failed?); the vokr_backup_absent alert still catches this"
+
+      - name: Remove local backup files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/backups" "$RUNNER_TEMP/backup-result.json"

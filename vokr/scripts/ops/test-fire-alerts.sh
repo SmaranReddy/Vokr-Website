@@ -14,7 +14,8 @@
 # they auto-close after 24 h (or close them by hand).
 #
 # Not covered here (see docs/infrastructure/alerting.md → Test-fire):
-# vokr_maintenance_absent (pause the Scheduler job) and the uptime alert
+# vokr_maintenance_absent (pause the Scheduler job), vokr_backup_absent
+# (leave BACKUP_ENABLED off for 8 h) and the uptime alert
 # (point the check at a 404 path), which need a real outage signal.
 set -euo pipefail
 PROJECT=vokr-website
@@ -45,6 +46,10 @@ LINES=(
   "vokr_admin_gate_error|ALERT-TEST [admin] ADMIN_GATE_ERROR synthetic"
   "vokr_maintenance_not_ok|ALERT-TEST [jobs/maintenance] finished ok=false {}"
 )
+# Written to the backup workflow's own log (global resource), not Cloud Run's.
+JOB_LINES=(
+  "vokr_backup_failed|ALERT-TEST BACKUP_FAILED synthetic"
+)
 
 entries=()
 for line in "${LINES[@]}"; do
@@ -58,6 +63,13 @@ for line in "${LINES[@]}"; do
       severity: "ERROR",
       textPayload: text,
     }));' "$PROJECT" "$SERVICE" "$REGION" "$text")")
+done
+for line in "${JOB_LINES[@]}"; do
+  IFS='|' read -r metric text <<<"$line"
+  [ -z "$ONLY" ] || [ "$ONLY" = "$metric" ] || continue
+  entries+=("$(node -e '
+    const [project, text] = process.argv.slice(1);
+    console.log(JSON.stringify({ logName: `projects/${project}/logs/vokr-backup`, resource: { type: "global", labels: { project_id: project } }, severity: "ERROR", textPayload: text }));' "$PROJECT" "$text")")
 done
 [ "${#entries[@]}" -gt 0 ] || { echo "no metric matched \"$ONLY\"" >&2; exit 2; }
 

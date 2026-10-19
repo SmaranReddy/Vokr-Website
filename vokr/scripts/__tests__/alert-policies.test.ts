@@ -42,7 +42,9 @@ function sourceFiles(dir: string): string[] {
     return /\.(ts|tsx)$/.test(entry.name) ? [full] : [];
   });
 }
-const source = sourceFiles(SRC).map((file) => readFileSync(file, "utf8")).join("\n");
+// The backup heartbeat tags are written by the backup workflow, not by src/.
+const BACKUP_WORKFLOW = path.resolve(import.meta.dirname, "../../../.github/workflows/backup.yml");
+const source = [...sourceFiles(SRC).map((file) => readFileSync(file, "utf8")), readFileSync(BACKUP_WORKFLOW, "utf8")].join("\n");
 
 function metricOf(policy: Policy): string | undefined {
   const condition = policy.conditions[0];
@@ -58,7 +60,7 @@ describe("alert policies", () => {
   it("every metric is alerted on by exactly one policy", () => {
     for (const { name } of metrics) {
       const watchers = policies.filter(({ policy }) => metricOf(policy) === name);
-      // vokr_maintenance_finished is watched for absence by vokr_maintenance_absent.
+      // vokr_maintenance_finished / vokr_backup_ok are watched for absence by the *_absent policies.
       expect(watchers.map(({ file }) => file), name).toHaveLength(1);
     }
   });
@@ -117,7 +119,7 @@ describe("alert policies", () => {
     const fire = readFileSync(path.join(OPS, "test-fire-alerts.sh"), "utf8");
     const lines = [...fire.matchAll(/^\s*"(vokr_[a-z_]+)\|(.+)"$/gm)].map((match) => ({ metric: match[1] ?? "", text: (match[2] ?? "").replace(/\\"/g, '"') }));
     for (const { name, filter } of metrics) {
-      if (name === "vokr_maintenance_finished") continue; // watched for absence, fired by pausing the Scheduler
+      if (name === "vokr_maintenance_finished" || name === "vokr_backup_ok") continue; // watched for absence, fired by stopping the job
       const tags = [...filter.matchAll(/textPayload:\\"(.+?)\\"/g)].map((match) => match[1] ?? "");
       const mine = lines.filter(({ metric }) => metric === name);
       expect(mine.length, name).toBeGreaterThan(0);
@@ -130,6 +132,16 @@ describe("alert policies", () => {
     }
     // The reconcile alert fires only above 1 in 15 min, so it needs two lines.
     expect(lines.filter(({ metric }) => metric === "vokr_reconcile_failed")).toHaveLength(2);
+  });
+
+  it("backup alerts count the workflow's own log, not Cloud Run's", () => {
+    for (const name of ["vokr_backup_failed", "vokr_backup_ok"]) {
+      const condition = policies.find(({ policy }) => metricOf(policy) === name)?.policy.conditions[0];
+      expect(condition?.conditionThreshold?.filter ?? condition?.conditionAbsent?.filter, name).toContain('resource.type="global"');
+    }
+    expect(script).toContain("logs/vokr-backup");
+    // 6-hourly schedule plus GitHub's scheduling delay: absent for 8 h, not less.
+    expect(policies.find(({ file }) => file === "vokr_backup_absent.json")?.policy.conditions[0]?.conditionAbsent?.duration).toBe("28800s");
   });
 
   it("the uptime check probes the public health endpoint through Cloudflare", () => {

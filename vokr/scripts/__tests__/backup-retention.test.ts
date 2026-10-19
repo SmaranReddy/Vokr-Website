@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { backupFolder, parseBackupTime, planRetention } from "../lib/backup-retention";
+import { backupFolder, COMPLETE_MARKER, newestCompleteBackup, parseBackupTime, planRetention } from "../lib/backup-retention";
 
 const now = new Date("2026-10-19T12:00:00Z");
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
-const keysFor = (at: Date) => [`${backupFolder(at)}full.dump.age`, `${backupFolder(at)}manifest.json`];
+const keysFor = (at: Date) => [`${backupFolder(at)}full.dump.age`, `${backupFolder(at)}manifest.json`, `${backupFolder(at)}${COMPLETE_MARKER}`];
+/** A run that died before writing its COMPLETE marker. */
+const partialFor = (at: Date) => [`${backupFolder(at)}full.dump.age`];
 
 describe("backup retention", () => {
   it("names and parses backup folders", () => {
@@ -29,8 +31,8 @@ describe("backup retention", () => {
     // At most one per day inside 14 days plus one per ISO week inside 8 weeks.
     expect(beyond48h.length).toBeLessThanOrEqual(14 + 9);
     expect(plan.keepFolders.length + plan.deleteFolders.length).toBe(480);
-    // Each deleted folder takes both its objects with it.
-    expect(plan.deleteKeys.length).toBe(plan.deleteFolders.length * 2);
+    // Each deleted folder takes all its objects (marker included) with it.
+    expect(plan.deleteKeys.length).toBe(plan.deleteFolders.length * 3);
   });
 
   it("never deletes the newest backup, even when it is ancient", () => {
@@ -47,7 +49,41 @@ describe("backup retention", () => {
     expect(plan.keepFolders).toContain(backupFolder(new Date(now.getTime() + 3_600_000)));
   });
 
+  it("a future-dated folder does not count as the newest backup", () => {
+    // Clock skew must not let the last real backup be pruned.
+    const keys = [...keysFor(new Date(now.getTime() + 3_600_000)), ...keysFor(hoursAgo(24 * 200))];
+    expect(planRetention(keys, now).keepFolders).toContain(backupFolder(hoursAgo(24 * 200)));
+  });
+
   it("an empty bucket plans nothing", () => {
-    expect(planRetention([], now)).toEqual({ keepFolders: [], deleteFolders: [], deleteKeys: [] });
+    expect(planRetention([], now)).toEqual({ keepFolders: [], deleteFolders: [], deleteKeys: [], incompleteFolders: [] });
+  });
+
+  it("an incomplete newest folder is not 'the newest backup': the last complete one is kept, whatever its age", () => {
+    const keys = [...partialFor(hoursAgo(1)), ...keysFor(hoursAgo(24 * 400)), ...keysFor(hoursAgo(24 * 500))];
+    const plan = planRetention(keys, now);
+    expect(plan.keepFolders).toContain(backupFolder(hoursAgo(24 * 400)));
+    expect(plan.deleteFolders).toEqual([backupFolder(hoursAgo(24 * 500))]);
+    expect(plan.incompleteFolders).toEqual([backupFolder(hoursAgo(1))]);
+    expect(newestCompleteBackup(keys)?.folder).toBe(backupFolder(hoursAgo(24 * 400)));
+  });
+
+  it("keeps an incomplete folder for 24 h (it may still be uploading), then deletes it as debris", () => {
+    const keys = [...keysFor(hoursAgo(0)), ...partialFor(hoursAgo(6)), ...partialFor(hoursAgo(30))];
+    const plan = planRetention(keys, now);
+    expect(plan.keepFolders).toEqual([backupFolder(hoursAgo(0)), backupFolder(hoursAgo(6))]);
+    expect(plan.deleteFolders).toEqual([backupFolder(hoursAgo(30))]);
+  });
+
+  it("a partial run never takes a complete backup's daily slot", () => {
+    const morning = new Date("2026-10-10T06:00:00Z");
+    const keys = [...keysFor(morning), ...partialFor(new Date("2026-10-10T18:00:00Z")), ...keysFor(now)];
+    expect(planRetention(keys, now).keepFolders).toContain(backupFolder(morning));
+  });
+
+  it("only an exact COMPLETE key counts as the marker", () => {
+    const keys = [`${backupFolder(hoursAgo(1))}COMPLETE.tmp`, `${backupFolder(hoursAgo(1))}full.dump.age`];
+    expect(newestCompleteBackup(keys)).toBeNull();
+    expect(planRetention(keys, now).incompleteFolders).toEqual([backupFolder(hoursAgo(1))]);
   });
 });

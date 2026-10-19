@@ -5,14 +5,37 @@
  *
  * Every caller is dry-run unless it passes `{ apply: true }`, and a dry run
  * needs no credentials at all: it prints what it would do.
+ *
+ * Integrity is checked by reading objects back and hashing them, not by
+ * S3 checksum headers: R2's compatibility table documents SHA-256 and
+ * CRC-32 only as multipart (composite) checksums, so the client sends a
+ * checksum only where the API requires one (`WHEN_REQUIRED`), and objects
+ * are removed with single `DeleteObject` calls rather than the batch
+ * `DeleteObjects`, whose required checksum header R2 does not document.
  */
-import { DeleteObjectsCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export interface R2Config {
   accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
   bucket: string;
+  /** Test-only S3-compatible endpoint (a local MinIO); see {@link endpointOverride}. */
+  endpoint?: string;
+}
+
+/**
+ * `R2_ENDPOINT_OVERRIDE` points the client at a local S3-compatible server
+ * for rehearsals. Only plain-HTTP loopback/Docker hosts are accepted, so the
+ * variable can never redirect a real backup (or its credentials) to another
+ * service; the backup workflow never sets it.
+ */
+export function endpointOverride(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (!/^http:\/\/(127\.0\.0\.1|localhost|host\.docker\.internal|minio)(:\d{1,5})?$/.test(value)) {
+    throw new Error("R2_ENDPOINT_OVERRIDE accepts only a local test endpoint (http://127.0.0.1:<port>, localhost, host.docker.internal or minio).");
+  }
+  return value;
 }
 
 /** Reads `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and the bucket (`R2_BUCKET_NAME` unless overridden). Names what is missing, never a value. */
@@ -25,14 +48,23 @@ export function readR2Config(env: NodeJS.ProcessEnv, bucketVar = "R2_BUCKET_NAME
     accessKeyId: env[wanted.accessKeyId]!,
     secretAccessKey: env[wanted.secretAccessKey]!,
     bucket: env[wanted.bucket]!,
+    endpoint: endpointOverride(env.R2_ENDPOINT_OVERRIDE),
   };
+}
+
+/** True when every R2 variable is present (for read-only planning without failing). */
+export function hasR2Config(env: NodeJS.ProcessEnv, bucketVar = "R2_BUCKET_NAME"): boolean {
+  return ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", bucketVar].every((name) => Boolean(env[name]));
 }
 
 export function r2Client(config: R2Config): S3Client {
   return new S3Client({
     region: "auto",
-    endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+    endpoint: config.endpoint ?? `https://${config.accountId}.r2.cloudflarestorage.com`,
+    forcePathStyle: config.endpoint !== undefined,
     credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
 }
 
@@ -52,7 +84,7 @@ export async function putObject(
   bucket: string,
   key: string,
   body: Uint8Array,
-  options: { contentType: string; cacheControl?: string; sha256Base64?: string },
+  options: { contentType: string; cacheControl?: string },
 ): Promise<void> {
   await client.send(
     new PutObjectCommand({
@@ -61,9 +93,15 @@ export async function putObject(
       Body: body,
       ContentType: options.contentType,
       CacheControl: options.cacheControl,
-      ChecksumSHA256: options.sha256Base64,
     }),
   );
+}
+
+/** The whole object, for read-back verification and restores. */
+export async function getObjectBytes(client: S3Client, bucket: string, key: string): Promise<Uint8Array> {
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!result.Body) throw new Error(`R2 returned no body for ${key}`);
+  return result.Body.transformToByteArray();
 }
 
 export async function listKeys(client: S3Client, bucket: string, prefix: string): Promise<string[]> {
@@ -78,13 +116,5 @@ export async function listKeys(client: S3Client, bucket: string, prefix: string)
 }
 
 export async function deleteKeys(client: S3Client, bucket: string, keys: readonly string[]): Promise<void> {
-  for (let start = 0; start < keys.length; start += 1000) {
-    const batch = keys.slice(start, start + 1000);
-    const result = await client.send(
-      new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }),
-    );
-    if (result.Errors && result.Errors.length > 0) {
-      throw new Error(`R2 refused to delete ${result.Errors.length} object(s), first: ${result.Errors[0]?.Key}`);
-    }
-  }
+  for (const key of keys) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }

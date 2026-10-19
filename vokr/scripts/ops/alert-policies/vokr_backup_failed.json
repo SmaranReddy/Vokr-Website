@@ -1,0 +1,36 @@
+{
+  "displayName": "Vokr: vokr_backup_failed",
+  "severity": "ERROR",
+  "documentation": {
+    "content": "A scheduled database backup failed (GitHub Actions workflow `Database backup`). The log line links the run; nothing it left in R2 counts as a backup (no COMPLETE marker). Runbook: vokr/docs/infrastructure/alerting.md and vokr/docs/infrastructure/backups.md",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "vokr_backup_failed > 0 in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/vokr_backup_failed\" AND resource.type=\"global\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "notificationChannels": [
+    "${NOTIFICATION_CHANNEL}"
+  ]
+}
