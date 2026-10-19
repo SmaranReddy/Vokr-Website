@@ -299,6 +299,8 @@ export async function createReturnRequest(
     requestedBy: string;
   },
   now: Date = new Date(),
+  /** Set when an operator records the request: audited in the same transaction. */
+  audit?: { actor: string; note?: string; requestId?: string },
 ): Promise<CustomerReturnView> {
   try {
     return await runLockingTransaction("returns.request", async (tx) => {
@@ -381,6 +383,18 @@ export async function createReturnRequest(
         },
         select: RETURN_VIEW_SELECT,
       });
+      if (audit) {
+        await auditReturn(tx, {
+          actor: audit.actor,
+          action: "return.create",
+          orderId: order.id,
+          returnId: row.id,
+          before: {},
+          after: { kind: input.kind, quantity: input.quantity, reason: input.reason, exchangeSize: input.exchangeSize ?? null },
+          reason: audit.note,
+          requestId: audit.requestId,
+        });
+      }
       console.info(
         `[returns] requested return=${row.id} order=${order.id} kind=${input.kind} quantity=${input.quantity} by=${input.requestedBy}`,
       );
@@ -393,6 +407,39 @@ export async function createReturnRequest(
 }
 
 // ---------------------------------------------------------------- admin
+
+/** The guest request's fields, minus the credentials: the operator is already authenticated. */
+export const adminReturnRequestSchema = z
+  .object({
+    sku: z.string().trim().min(1).max(40),
+    quantity: z.number().int().min(1).max(20),
+    kind: z.enum([ReturnKind.return, ReturnKind.exchange]),
+    reason: z.enum(CUSTOMER_REASONS),
+    exchangeSize: z.string().trim().min(1).max(20).optional(),
+    /** Why the operator is recording it (e.g. "customer emailed support"). */
+    note: z.string().trim().min(3).max(300),
+  })
+  .strict()
+  .refine((body) => (body.kind === ReturnKind.exchange) === (body.exchangeSize !== undefined), {
+    message: "An exchange needs the size wanted instead; a return does not.",
+  });
+
+/**
+ * An operator records a request the customer made by email or phone. Same
+ * checks as the customer's own (delivered, inside the window, units left,
+ * one open request per item, same-price exchange), plus an audit row.
+ */
+export async function createReturnAsAdmin(
+  actor: string,
+  orderNumberInput: string,
+  input: z.infer<typeof adminReturnRequestSchema>,
+  requestId?: string,
+): Promise<CustomerReturnView> {
+  const orderNumber = normalizeOrderNumber(orderNumberInput);
+  if (!orderNumber) throw new NotFoundError("Order not found.");
+  const { note, ...request } = input;
+  return createReturnRequest(orderNumber, { ...request, requestedBy: actor }, new Date(), { actor, note, requestId });
+}
 
 export const decideReturnSchema = z
   .object({ decision: z.enum(["approve", "reject"]), note: z.string().trim().max(300).optional() })

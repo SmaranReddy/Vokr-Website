@@ -17,6 +17,7 @@ const service = vi.hoisted(() => ({
   refundReturn: vi.fn(),
   recordManualRefund: vi.fn(),
   receiveRto: vi.fn(),
+  createReturnAsAdmin: vi.fn(),
 }));
 vi.mock("@/server/returns/service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/returns/service")>()),
@@ -69,6 +70,13 @@ describe("admin returns routes", () => {
       url: `https://vokr.shop/api/admin/returns/${returnId}/refund`,
       params: { returnId },
       body: { action: "refund", input: { confirmOrderNumber: "VK-10001", reason: "returned" } },
+    },
+    {
+      name: "create on behalf",
+      load: () => import("@/app/api/admin/orders/[orderNumber]/returns/route"),
+      url: "https://vokr.shop/api/admin/orders/VK-10001/returns",
+      params: { orderNumber: "VK-10001" },
+      body: { sku: "VK-X", quantity: 1, kind: "return", reason: "size_fit", note: "customer emailed" },
     },
     {
       name: "rto",

@@ -40,6 +40,7 @@ import { exportAccountData } from "@/server/privacy/export";
 
 import { RETURN_WINDOW_DAYS } from "../policy";
 import {
+  createReturnAsAdmin,
   createReturnRequest,
   decideReturn,
   dispatchReplacement,
@@ -807,5 +808,29 @@ describe("data-subject export", () => {
       await prisma.order.update({ where: { id: order.orderId }, data: { userId: null }, select: { id: true } });
       await prisma.appUser.delete({ where: { id: user.id } });
     }
+  });
+});
+
+describe("operator records a request on the customer's behalf", () => {
+  it("applies the customer's checks, records who and why, and audits it in the same transaction", async () => {
+    const order = await delivered([{ quantity: 2 }]);
+    const line = order.lines[0]!;
+    const input = { sku: line.sku.toLowerCase(), quantity: 1, kind: "return" as const, reason: "defective" as const, note: "customer emailed support" };
+    const created = await createReturnAsAdmin(ACTOR, order.orderNumber.toLowerCase(), input);
+    expect(created).toMatchObject({ kind: "return", state: "requested", quantity: 1 });
+    expect(await prisma.returnRequest.findUniqueOrThrow({ where: { id: created.id }, select: { requestedBy: true } })).toEqual({ requestedBy: ACTOR });
+    expect(await auditActions(order.orderId)).toContain("return.create");
+    // Same guards as the guest: a second open request on the item is refused, and nothing is audited for it.
+    await expect(createReturnAsAdmin(ACTOR, order.orderNumber, input)).rejects.toBeInstanceOf(ConflictError);
+    expect((await auditActions(order.orderId)).filter((action) => action === "return.create")).toHaveLength(1);
+    await expect(createReturnAsAdmin(ACTOR, "VK-0", input)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("refuses an order that is not delivered", async () => {
+    const order = await placedOrder();
+    await expect(
+      createReturnAsAdmin(ACTOR, order.orderNumber, { sku: order.lines[0]!.sku, quantity: 1, kind: "return", reason: "size_fit", note: "phone call" }),
+    ).rejects.toThrow("once an order is delivered");
+    expect(await prisma.returnRequest.count({ where: { orderId: order.orderId } })).toBe(0);
   });
 });

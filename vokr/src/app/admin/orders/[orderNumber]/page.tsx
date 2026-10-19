@@ -5,6 +5,7 @@ import { formatAdminDate, TABLE_CLASS, TD_CLASS, TH_CLASS } from "@/components/a
 import { RefundForm } from "@/components/admin/refund-form";
 import { ReturnActions } from "@/components/admin/return-actions";
 import { RevealPii } from "@/components/admin/reveal-pii";
+import { AdminReturnForm } from "@/components/admin/admin-return-form";
 import { RtoReceiveForm } from "@/components/admin/rto-receive-form";
 import { TransitionForm } from "@/components/admin/transition-form";
 import { NotFoundError } from "@/lib/errors";
@@ -171,6 +172,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
             ))}
           </Table>
         )}
+        {order.status === "delivered" ? (
+          <AdminReturnForm orderNumber={order.orderNumber} skus={order.items.map((item) => item.sku)} />
+        ) : null}
         {order.status === "rto" && !rtoRecorded ? (
           <RtoReceiveForm orderNumber={order.orderNumber} skus={order.items.map((item) => item.sku)} />
         ) : null}
