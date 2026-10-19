@@ -137,6 +137,9 @@ release; record the report here.
 
 ### Rehearsal of record, 19 Oct 2026 (local, synthetic data — S3-compatible, not R2)
 
+Reports and the backup log: `C:\Users\Asus\vokr-backups\restore-drills\rehearsal-r2-20261019\`
+(`restore-drill-20261019T180646Z.*` is the passing drill).
+
 Source: Supabase's own Postgres image `public.ecr.aws/supabase/postgres:17.6.1.167`
 (server 17.6, as production; ships `auth`), all 10 migrations applied, the
 catalog seed, one synthetic `auth.users` row. Storage: `versity/versitygw:v1.0.16`
@@ -257,7 +260,23 @@ replication), adds the version from a temp file with no trailing newline,
 deletes the file and clears the clipboard. gcloud must be the account with
 rights on `vokr-website` (not the default `baquar@haett.app` project).
 
-### 3. Service account and IAM (gcloud, `--project vokr-website`)
+### 3. GitHub environment `backups`, master only — BEFORE step 4
+
+The service account in step 4 trusts any job that runs in the `backups`
+environment. If the environment does not exist yet, GitHub creates it
+**unrestricted** the first time any branch's job names it — so create it,
+with its branch policy, first, and check it:
+
+```sh
+gh api -X PUT repos/SmaranReddy/Vokr-Website/environments/backups \
+  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api -X POST repos/SmaranReddy/Vokr-Website/environments/backups/deployment-branch-policies -f name=master -f type=branch
+# must show custom_branch_policies: true, and the policy list only `master`:
+gh api repos/SmaranReddy/Vokr-Website/environments/backups --jq .deployment_branch_policy
+gh api repos/SmaranReddy/Vokr-Website/environments/backups/deployment-branch-policies --jq '.branch_policies[].name'
+```
+
+### 4. Service account, per-secret IAM, Workload Identity (gcloud, `--project vokr-website`)
 
 ```sh
 gcloud iam service-accounts create vokr-backup --project vokr-website \
@@ -282,18 +301,15 @@ Per-secret bindings only: the backup account cannot read `DATABASE_URL`,
 deployer gains access to the backup secrets (checked 19 Oct 2026: there is
 no project-level Secret Manager grant).
 
-### 4. GitHub environment and variables
+### 5. Repository variables (`BACKUP_ENABLED` last)
 
 ```sh
-gh api -X PUT repos/SmaranReddy/Vokr-Website/environments/backups \
-  -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true'
-gh api -X POST repos/SmaranReddy/Vokr-Website/environments/backups/deployment-branch-policies -f name=master -f type=branch
 gh variable set BACKUP_SERVICE_ACCOUNT --body vokr-backup@vokr-website.iam.gserviceaccount.com
 gh variable set R2_ACCOUNT_ID --body <account id>
 gh variable set BACKUP_AGE_RECIPIENT --body <age1… public key>
 ```
 
-### 5. First run, then the drill
+### 6. First run, then the drill
 
 `BACKUP_ENABLED` gates the job for both triggers, so set it, then run once by hand:
 `gh variable set BACKUP_ENABLED --body true`, then
@@ -301,10 +317,10 @@ gh variable set BACKUP_AGE_RECIPIENT --body <age1… public key>
 verified" lines, a retention plan, `BACKUP_OK`. Then, on the owner's
 machine with the private key and the R2 token in the environment, run
 `restore-drill.ts --from-r2 latest` and record the report above → **R17
-VERIFIED**. If the first run fails at authentication, the subject in step 3
+VERIFIED**. If the first run fails at authentication, the subject in step 4
 is the first thing to compare with the run's OIDC token claims.
 
-### 6. Alerts and pruning
+### 7. Alerts and pruning
 
 `bash scripts/ops/setup-log-alerts.sh --channel <ID>` (creates the two
 backup metrics and, with the channel, their policies). After a few runs'
@@ -312,10 +328,10 @@ retention plans look right: `gh variable set BACKUP_PRUNE_ENABLED --body true`.
 
 ## Missing permissions and infrastructure (as of 19 Oct 2026)
 
-- **Service account `vokr-backup`** and its bindings — does not exist (step 3).
+- **Service account `vokr-backup`** and its bindings — does not exist (step 4).
 - **Secrets** `BACKUP_DATABASE_URL`, `R2_BACKUP_ACCESS_KEY_ID`,
   `R2_BACKUP_SECRET_ACCESS_KEY` — do not exist (step 2).
-- **GitHub environment `backups`** — does not exist (step 4); variables
+- **GitHub environment `backups`** — does not exist (step 3, before step 4); variables
   `BACKUP_SERVICE_ACCOUNT`, `R2_ACCOUNT_ID`, `BACKUP_AGE_RECIPIENT`,
   `BACKUP_ENABLED`, `BACKUP_PRUNE_ENABLED` unset.
 - **age key pair** — owner (step 1).

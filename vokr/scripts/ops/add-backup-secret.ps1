@@ -21,6 +21,17 @@ param(
   [string]$Project = "vokr-website"
 )
 $ErrorActionPreference = "Stop"
+# gcloud writes warnings (and "not found") to stderr; in Windows PowerShell 5.1
+# redirected native stderr becomes a terminating error under "Stop", so every
+# gcloud call goes through Invoke-Gcloud and is judged by its exit code only.
+$env:PYTHONWARNINGS = "ignore"
+$env:CLOUDSDK_PYTHON_SUPPRESS_WARNINGS = "1"
+function Invoke-Gcloud {
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try { $out = & gcloud @args 2>$null; return @{ Code = $LASTEXITCODE; Out = $out } }
+  finally { $ErrorActionPreference = $previous }
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 $value = [System.Windows.Forms.Clipboard]::GetText().Trim()
@@ -42,10 +53,8 @@ switch ($Name) {
 }
 Write-Host "Shape check passed for $Name."
 
-& gcloud secrets describe $Name --project $Project --format="value(name)" 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
-  & gcloud secrets create $Name --project $Project --replication-policy=automatic --quiet | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Could not create secret $Name." }
+if ((Invoke-Gcloud secrets describe $Name --project $Project --format="value(name)").Code -ne 0) {
+  if ((Invoke-Gcloud secrets create $Name --project $Project --replication-policy=automatic --quiet).Code -ne 0) { throw "Could not create secret $Name (permissions? gcloud account?)." }
   Write-Host "Created secret $Name."
 }
 
@@ -53,9 +62,9 @@ if ($LASTEXITCODE -ne 0) {
 $tmp = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
 try {
   [System.IO.File]::WriteAllBytes($tmp, [System.Text.Encoding]::UTF8.GetBytes($value))
-  $version = & gcloud secrets versions add $Name --project $Project --data-file=$tmp --format="value(name.basename())"
-  if ($LASTEXITCODE -ne 0) { throw "gcloud secrets versions add failed for $Name." }
-  Write-Host "Stored $Name version $version."
+  $added = Invoke-Gcloud secrets versions add $Name --project $Project --data-file=$tmp --format="value(name.basename())"
+  if ($added.Code -ne 0) { throw "gcloud secrets versions add failed for $Name." }
+  Write-Host "Stored $Name version $($added.Out)."
 } finally {
   if (Test-Path $tmp) { Remove-Item -Force $tmp }
   [System.Windows.Forms.Clipboard]::Clear()
