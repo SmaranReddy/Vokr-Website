@@ -16,6 +16,8 @@ export interface OrderConfirmationData {
   placedAt: Date;
   items: { productName: string; sizeLabel: string; colorway: string; quantity: number; lineSubtotalPaise: number }[];
   subtotalPaise: number;
+  /** First-order discount taken off the subtotal; 0 when none. */
+  discountPaise: number;
   shippingPaise: number;
   codFeePaise: number;
   totalPaise: number;
@@ -51,8 +53,10 @@ function gstLines(gst: OrderConfirmationData["gst"]): [string, number][] {
 export function renderOrderConfirmation(data: OrderConfirmationData): { subject: string; text: string; html: string } {
   const trackUrl = `${data.siteUrl.replace(/\/+$/, "")}/support-order-status`;
   const rupees = formatPaiseAsRupees;
+  const money = (paise: number) => (paise < 0 ? `−${rupees(-paise)}` : rupees(paise));
   const summary: [string, number][] = [
     ["Subtotal (incl. GST)", data.subtotalPaise],
+    ...(data.discountPaise > 0 ? ([["First order discount (10%)", -data.discountPaise]] as [string, number][]) : []),
     ...gstLines(data.gst),
     ["Shipping", data.shippingPaise],
     ...(data.codFeePaise > 0 ? ([["COD handling fee", data.codFeePaise]] as [string, number][]) : []),
@@ -69,7 +73,7 @@ export function renderOrderConfirmation(data: OrderConfirmationData): { subject:
       (item) => `- ${item.productName} · ${item.sizeLabel} · ${item.colorway} · Qty ${item.quantity}: ${rupees(item.lineSubtotalPaise)}`,
     ),
     "",
-    ...summary.map(([label, paise]) => `${label}: ${paise === 0 && label === "Shipping" ? "Free" : rupees(paise)}`),
+    ...summary.map(([label, paise]) => `${label}: ${paise === 0 && label === "Shipping" ? "Free" : money(paise)}`),
     `Total paid: ${rupees(data.totalPaise)}`,
     "",
     `Shipping to: ${data.shipTo.city}, ${data.shipTo.state} ${data.shipTo.pincode}`,
@@ -93,7 +97,7 @@ export function renderOrderConfirmation(data: OrderConfirmationData): { subject:
     ...data.items.map((item) =>
       row(`${item.productName} · ${item.sizeLabel} · ${item.colorway} · Qty ${item.quantity}`, rupees(item.lineSubtotalPaise)),
     ),
-    ...summary.map(([label, paise]) => row(label, paise === 0 && label === "Shipping" ? "Free" : rupees(paise))),
+    ...summary.map(([label, paise]) => row(label, paise === 0 && label === "Shipping" ? "Free" : money(paise))),
     row("Total paid", rupees(data.totalPaise), true),
     `</table>`,
     `<p>Shipping to: ${e(data.shipTo.city)}, ${e(data.shipTo.state)} ${e(data.shipTo.pincode)}</p>`,

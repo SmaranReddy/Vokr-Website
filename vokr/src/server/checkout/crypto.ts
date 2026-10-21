@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
 import { requireServerEnv } from "@/lib/env";
 
@@ -19,6 +19,7 @@ const IV_LENGTH_BYTES = 12;
 const KEY_LENGTH_BYTES = 32;
 
 let cachedKey: Buffer | null = null;
+let cachedLookupKey: Buffer | null = null;
 
 function getKey(): Buffer {
   if (cachedKey) {
@@ -48,6 +49,7 @@ function getKey(): Buffer {
 /** Test-only: forces the next call to re-read `ADDRESS_ENCRYPTION_KEY`. */
 export function __resetCryptoKeyCacheForTests(): void {
   cachedKey = null;
+  cachedLookupKey = null;
 }
 
 export function encryptField(plaintext: string): string {
@@ -88,4 +90,21 @@ export function decryptField(token: string): string {
     decipher.final(),
   ]);
   return plaintext.toString("utf8");
+}
+
+/**
+ * A stable, keyed lookup value for a normalised E.164 phone, for "has this
+ * number ordered before?" checks (first-order discount). `encryptField`
+ * can't serve: its random IV makes every ciphertext different. A plain
+ * hash can't either: ~10^10 Indian mobiles are trivially enumerable. So an
+ * HMAC under a key derived (HKDF, own label) from `ADDRESS_ENCRYPTION_KEY`
+ * — rotating that key resets every phone's lookup value.
+ */
+export function phoneLookupHash(phoneE164: string): string {
+  if (!cachedLookupKey) {
+    cachedLookupKey = Buffer.from(
+      hkdfSync("sha256", getKey(), Buffer.alloc(0), "vokr:phone-lookup:v1", 32),
+    );
+  }
+  return createHmac("sha256", cachedLookupKey).update(phoneE164, "utf8").digest("hex");
 }

@@ -2,7 +2,7 @@ import { CheckoutPaymentMethod, CheckoutState, PaymentStatus } from "@/generated
 import { Prisma } from "@/generated/prisma/client";
 import { CheckoutStaleError, ConflictError, ReservationExpiredError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
-import { assertOrderable, NotOrderableError } from "@/server/orders/create";
+import { assertOrderable, DiscountNoLongerAvailableError, NotOrderableError } from "@/server/orders/create";
 import { findOwnedSession } from "@/server/checkout/service";
 import { assertValidCheckoutTransition } from "@/server/checkout/state-machine";
 import { prisma } from "@/server/db/client";
@@ -153,6 +153,12 @@ export async function createPaymentOrder(
   try {
     await assertOrderable(prisma, checkoutSessionId, existing?.amountPaise ?? snapshot.totalPaise);
   } catch (error) {
+    if (error instanceof DiscountNoLongerAvailableError) {
+      console.warn(`[payments] ${error.message} — order withheld`);
+      throw new CheckoutStaleError(
+        "The first-order discount has already been used for this phone number. Please review your order again.",
+      );
+    }
     if (!(error instanceof NotOrderableError)) throw error;
     console.error(`[payments] ${error.message} — order withheld`);
     throw new CheckoutStaleError("Some checkout details are missing. Please review your order again.");

@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { prisma } from "@/server/db/client";
+import { isFirstOrderPhone, phoneHashFromEncrypted } from "@/server/discounts/first-order";
 import {
   computePricing,
   type CheckoutPaymentMethod,
@@ -332,6 +333,10 @@ export async function priceCheckoutSession(
     cartId: session.cartId,
     shipToState: session.address.state,
     paymentMethod,
+    firstOrderDiscount: await isFirstOrderPhone(
+      prisma,
+      phoneHashFromEncrypted(session.address.phoneEnc),
+    ),
   });
 
   if (session.state === CheckoutState.address_captured) {

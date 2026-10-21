@@ -2,6 +2,11 @@ import { CheckoutStaleError, OutOfStockError, ValidationError } from "@/lib/erro
 import { gstStateCode } from "@/lib/gst-states";
 import { listProducts, type CatalogProduct, type CatalogVariant } from "@/server/catalog";
 import { prisma } from "@/server/db/client";
+import {
+  FIRST_ORDER_DISCOUNT_BPS,
+  FIRST_ORDER_DISCOUNT_KIND,
+  lineDiscountPaise as computeLineDiscount,
+} from "@/server/discounts/first-order";
 
 import {
   FREE_SHIPPING_THRESHOLD_PAISE,
@@ -22,8 +27,10 @@ export interface PricingLine {
   quantity: number;
   unitPricePaise: number;
   lineSubtotalPaise: number;
+  /** This line's share of the order discount; 0 when none. Absent on snapshots priced before discounts existed. */
+  lineDiscountPaise?: number;
   gstRateBps: number;
-  /** The GST embedded within `lineSubtotalPaise` (prices are GST-inclusive) — a breakdown, not an addition. */
+  /** The GST embedded within `lineSubtotalPaise - lineDiscountPaise` (prices are GST-inclusive) — a breakdown, not an addition. */
   lineTaxPaise: number;
   cgstPaise: number;
   sgstPaise: number;
@@ -39,6 +46,10 @@ export interface PricingSnapshot {
   paymentMethod: CheckoutPaymentMethod;
   lines: PricingLine[];
   subtotalPaise: number;
+  /** The discount applied, if any. Absent on snapshots priced before discounts existed. */
+  discount?: { kind: typeof FIRST_ORDER_DISCOUNT_KIND; rateBps: number } | null;
+  /** Sum of the lines' `lineDiscountPaise`; taken off `subtotalPaise`. */
+  discountPaise?: number;
   taxPaise: number;
   shippingPaise: number;
   codFeePaise: number;
@@ -86,6 +97,7 @@ function buildLine(
   product: CatalogProduct,
   variant: CatalogVariant,
   intraState: boolean,
+  discountBps: number,
 ): PricingLine {
   if (product.gstRateBps === null) {
     // Structurally unreachable — see cart/service.ts's identical guard.
@@ -100,10 +112,13 @@ function buildLine(
   }
 
   const lineSubtotalPaise = variant.pricePaise * quantity;
-  // Half-up: `Math.round` rounds .5 toward +Infinity, which for a
+  const lineDiscountPaise = computeLineDiscount(lineSubtotalPaise, discountBps);
+  // GST is on what is actually charged for the goods: the line after its
+  // discount. Half-up: `Math.round` rounds .5 toward +Infinity, which for a
   // non-negative value is round-half-up (plan §5 Phase 6, task 5).
   const lineTaxPaise = Math.round(
-    (lineSubtotalPaise * product.gstRateBps) / (10_000 + product.gstRateBps),
+    ((lineSubtotalPaise - lineDiscountPaise) * product.gstRateBps) /
+      (10_000 + product.gstRateBps),
   );
 
   return {
@@ -116,6 +131,7 @@ function buildLine(
     quantity,
     unitPricePaise: variant.pricePaise,
     lineSubtotalPaise,
+    lineDiscountPaise,
     gstRateBps: product.gstRateBps,
     lineTaxPaise,
     ...splitGst(lineTaxPaise, intraState),
@@ -126,6 +142,8 @@ export interface ComputePricingParams {
   cartId: string;
   shipToState: string;
   paymentMethod: CheckoutPaymentMethod;
+  /** The ship-to phone has no first-order claim yet (`server/discounts/first-order.ts`); the caller decides. */
+  firstOrderDiscount?: boolean;
 }
 
 /**
@@ -142,6 +160,7 @@ export async function computePricing({
   cartId,
   shipToState,
   paymentMethod,
+  firstOrderDiscount = false,
 }: ComputePricingParams): Promise<PricingSnapshot> {
   const [items, catalog] = await Promise.all([
     prisma.cartItem.findMany({
@@ -162,6 +181,7 @@ export async function computePricing({
   // proceeds — a malformed state should never reach the split logic.
   gstStateCode(shipToState);
   gstStateCode(sellerState);
+  const discountBps = firstOrderDiscount ? FIRST_ORDER_DISCOUNT_BPS : 0;
 
   const lines: PricingLine[] = items.map((item) => {
     const found = findVariantInCatalog(catalog, item.variantId);
@@ -175,15 +195,17 @@ export async function computePricing({
         { variantId: item.variantId, requested: item.quantity, available: found.variant.quantityAvailable },
       ]);
     }
-    return buildLine(item.quantity, found.product, found.variant, intraState);
+    return buildLine(item.quantity, found.product, found.variant, intraState, discountBps);
   });
 
   const subtotalPaise = lines.reduce((sum, line) => sum + line.lineSubtotalPaise, 0);
+  const discountPaise = lines.reduce((sum, line) => sum + (line.lineDiscountPaise ?? 0), 0);
   const taxPaise = lines.reduce((sum, line) => sum + line.lineTaxPaise, 0);
+  // Judged after the discount: the threshold is on what the goods cost.
   const shippingPaise =
-    subtotalPaise > FREE_SHIPPING_THRESHOLD_PAISE ? 0 : getFlatShippingFeePaise();
+    subtotalPaise - discountPaise > FREE_SHIPPING_THRESHOLD_PAISE ? 0 : getFlatShippingFeePaise();
   const codFeePaise = paymentMethod === "cod" ? getCodHandlingFeePaise() : 0;
-  const totalPaise = subtotalPaise + shippingPaise + codFeePaise;
+  const totalPaise = subtotalPaise - discountPaise + shippingPaise + codFeePaise;
 
   const computedAt = new Date();
   const expiresAt = new Date(computedAt.getTime() + PRICING_SNAPSHOT_TTL_MS);
@@ -197,6 +219,9 @@ export async function computePricing({
     paymentMethod,
     lines,
     subtotalPaise,
+    discount:
+      discountPaise > 0 ? { kind: FIRST_ORDER_DISCOUNT_KIND, rateBps: FIRST_ORDER_DISCOUNT_BPS } : null,
+    discountPaise,
     taxPaise,
     shippingPaise,
     codFeePaise,

@@ -6,6 +6,7 @@ export const ORDER_VIEW_SELECT = {
   status: true,
   placedAt: true,
   subtotalPaise: true,
+  discountPaise: true,
   shippingPaise: true,
   codFeePaise: true,
   totalPaise: true,
@@ -26,6 +27,7 @@ export interface OrderView {
   timeline: { status: OrderStatus; at: string }[];
   items: { productName: string; sizeLabel: string; colorway: string; quantity: number; lineSubtotalPaise: number }[];
   subtotalPaise: number;
+  discountPaise: number;
   shippingPaise: number;
   codFeePaise: number;
   totalPaise: number;
@@ -37,6 +39,7 @@ interface OrderViewRow {
   status: OrderStatus;
   placedAt: Date;
   subtotalPaise: number;
+  discountPaise: number;
   shippingPaise: number;
   codFeePaise: number;
   totalPaise: number;
@@ -56,6 +59,7 @@ export function toOrderView(order: OrderViewRow): OrderView {
     timeline: order.history.map((row) => ({ status: row.toStatus, at: row.createdAt.toISOString() })),
     items: order.items,
     subtotalPaise: order.subtotalPaise,
+    discountPaise: order.discountPaise,
     shippingPaise: order.shippingPaise,
     codFeePaise: order.codFeePaise,
     totalPaise: order.totalPaise,

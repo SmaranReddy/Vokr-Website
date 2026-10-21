@@ -623,12 +623,16 @@ model Order {
   gstSplit    String @map("gst_split")
   sellerState String @map("seller_state")
 
-  subtotalPaise Int    @map("subtotal_paise")
-  taxPaise      Int    @map("tax_paise")
-  shippingPaise Int    @map("shipping_paise")
-  codFeePaise   Int    @map("cod_fee_paise")
-  totalPaise    Int    @map("total_paise")
-  currency      String @default("INR")
+  subtotalPaise Int     @map("subtotal_paise")
+  /// Taken off the GST-inclusive subtotal before shipping and fees; 0 when
+  /// none. `discount_kind` names it (`first_order`) whenever it is non-zero.
+  discountPaise Int     @default(0) @map("discount_paise")
+  discountKind  String? @map("discount_kind")
+  taxPaise      Int     @map("tax_paise")
+  shippingPaise Int     @map("shipping_paise")
+  codFeePaise   Int     @map("cod_fee_paise")
+  totalPaise    Int     @map("total_paise")
+  currency      String  @default("INR")
 
   /// Courier and AWB entered by an operator from the Shiprocket panel when
   /// the order ships (plan §5 Phase 10, task 3). Both or neither (CHECK).
@@ -639,9 +643,10 @@ model Order {
   placedAt  DateTime @default(now()) @map("placed_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  items   OrderItem[]
-  history OrderStatusHistory[]
-  emails  EmailLog[]
+  items                   OrderItem[]
+  history                 OrderStatusHistory[]
+  emails                  EmailLog[]
+  firstOrderDiscountClaim FirstOrderDiscountClaim?
 
   @@index([userId, placedAt])
   @@index([status, placedAt])
@@ -670,6 +675,9 @@ model OrderItem {
   quantity          Int
   unitPricePaise    Int @map("unit_price_paise")
   lineSubtotalPaise Int @map("line_subtotal_paise")
+  /// This line's share of the order discount. GST (`line_tax_paise`) is
+  /// charged on `line_subtotal_paise - line_discount_paise`.
+  lineDiscountPaise Int @default(0) @map("line_discount_paise")
   lineTaxPaise      Int @map("line_tax_paise")
   cgstPaise         Int @map("cgst_paise")
   sgstPaise         Int @map("sgst_paise")
@@ -775,4 +783,18 @@ model AuditLog {
   @@index([entity, entityId, createdAt])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+/// One row per phone number that has had the 10% first-order discount
+/// (owner decision, 21 Oct 2026). `phone_hash` is `phoneLookupHash()` of
+/// the E.164 ship-to phone — never the number itself. Written in the same
+/// transaction as the order; cancelling or refunding the order does not
+/// release it.
+model FirstOrderDiscountClaim {
+  phoneHash String   @id @map("phone_hash")
+  orderId   String   @unique @map("order_id") @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  claimedAt DateTime @default(now()) @map("claimed_at") @db.Timestamptz(6)
+
+  @@map("first_order_discount_claims")
 }
