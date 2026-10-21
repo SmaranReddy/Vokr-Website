@@ -122,7 +122,8 @@ export default function TermsPage() {
       <p>
         <strong>15. Grievance Redressal.</strong> In accordance with the
         Consumer Protection (E-Commerce) Rules, 2020, any complaints or
-        concerns may be addressed to our Grievance Officer at{" "}
+        concerns may be addressed to our Grievance Officer, Imroze Shaik
+        Baquar, at{" "}
         <a href="mailto:support@vokr.shop">support@vokr.shop</a>. We aim
         to acknowledge complaints within 48 hours and resolve them within 30
         days.
