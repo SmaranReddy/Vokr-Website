@@ -182,6 +182,9 @@ const CASES: FidelityCase[] = [
     legacyFile: "terms.html",
     deviations: [
       { legacy: "confirmation email/SMS with", migrated: "confirmation email with" },
+      // One address for everything: support@ (owner decision, 21 Oct 2026).
+      { legacy: "Grievance Officer at grievance@vokr.shop", migrated: "Grievance Officer at support@vokr.shop" },
+      { legacy: "Reach us at legal@vokr.shop", migrated: "Reach us at support@vokr.shop" },
     ],
   },
   {
@@ -193,6 +196,9 @@ const CASES: FidelityCase[] = [
         legacy: "marketing emails or SMS at any time",
         migrated: "marketing emails at any time",
       },
+      // One address for everything: support@ (owner decision, 21 Oct 2026).
+      { legacy: "can be reached at grievance@vokr.shop", migrated: "can be reached at support@vokr.shop" },
+      { legacy: "sent to privacy@vokr.shop", migrated: "sent to support@vokr.shop" },
     ],
   },
   {
@@ -286,7 +292,12 @@ const CASES: FidelityCase[] = [
     ],
     headingDeviations: { removed: ["What 250,000 pairs of feet taught us about fit"] },
   },
-  { route: "/jobs", legacyFile: "jobs.html" },
+  {
+    route: "/jobs",
+    legacyFile: "jobs.html",
+    // One address for everything: support@ (owner decision, 21 Oct 2026).
+    deviations: [{ legacy: "Email us at careers@vokr.shop", migrated: "Email us at support@vokr.shop" }],
+  },
   {
     route: "/wholesale-orders",
     legacyFile: "wholesale-orders.html",

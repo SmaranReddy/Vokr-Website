@@ -108,7 +108,7 @@ export default function PrivacyPolicyPage() {
       <p>
         <strong>9. Grievance Officer.</strong> In accordance with applicable
         Indian law, our designated Grievance Officer can be reached at{" "}
-        <a href="mailto:grievance@vokr.shop">grievance@vokr.shop</a> for any
+        <a href="mailto:support@vokr.shop">support@vokr.shop</a> for any
         privacy-related complaints, which we aim to resolve within 30 days.
       </p>
       <p>
@@ -120,7 +120,7 @@ export default function PrivacyPolicyPage() {
       <p>
         <strong>11. Contact Us.</strong> Privacy questions or data requests
         can be sent to{" "}
-        <a href="mailto:privacy@vokr.shop">privacy@vokr.shop</a> or through
+        <a href="mailto:support@vokr.shop">support@vokr.shop</a> or through
         our <Link href="/support-contact">Contact page</Link>.
       </p>
     </LegalPageShell>

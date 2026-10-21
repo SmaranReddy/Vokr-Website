@@ -5,8 +5,8 @@ import { createMetadata } from "@/lib/metadata";
  * `.cp-section` / `.cp-cta-band` content between `</nav>` and
  * `<footer class="site-footer">`. Header/nav/cart/search/account/footer
  * markup is skipped — those are global (site-header.tsx / site-footer.tsx).
- * The `careers@vokr.shop` mailto address is preserved exactly as the
- * legacy markup has it.
+ * The legacy `careers@` mailto is `support@vokr.shop`: Vokr uses that one
+ * address for everything (owner decision, 21 Oct 2026).
  */
 
 export const metadata = createMetadata({
@@ -92,10 +92,10 @@ export default function JobsPage() {
           <p className="mb-8 text-[15px] text-muted">
             Don&apos;t see a fit? Email us at{" "}
             <a
-              href="mailto:careers@vokr.shop"
+              href="mailto:support@vokr.shop"
               className="font-semibold text-foreground underline underline-offset-2"
             >
-              careers@vokr.shop
+              support@vokr.shop
             </a>{" "}
             anyway — we read everything.
           </p>
@@ -130,7 +130,7 @@ export default function JobsPage() {
           We&apos;re always open to hearing from people who care about craft
           and comfort.
         </p>
-        <a href="mailto:careers@vokr.shop" className="text-sm font-semibold underline underline-offset-2">
+        <a href="mailto:support@vokr.shop" className="text-sm font-semibold underline underline-offset-2">
           Email Careers &rarr;
         </a>
       </section>
