@@ -107,8 +107,8 @@ export default function PrivacyPolicyPage() {
       </p>
       <p>
         <strong>9. Grievance Officer.</strong> In accordance with applicable
-        Indian law, our designated Grievance Officer, Imroze Shaik Baquar,
-        can be reached at{" "}
+        Indian law, our designated Grievance Officer, Imroze Shaik Baquar
+        (Founder), can be reached at{" "}
         <a href="mailto:support@vokr.shop">support@vokr.shop</a> for any
         privacy-related complaints, which we aim to resolve within 30 days.
       </p>

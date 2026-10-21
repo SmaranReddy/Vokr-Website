@@ -185,7 +185,7 @@ const CASES: FidelityCase[] = [
       // One address for everything: support@ (owner decision, 21 Oct 2026).
       {
         legacy: "Grievance Officer at grievance@vokr.shop",
-        migrated: "Grievance Officer, Imroze Shaik Baquar, at support@vokr.shop",
+        migrated: "Grievance Officer, Imroze Shaik Baquar (Founder), at support@vokr.shop",
       },
       { legacy: "Reach us at legal@vokr.shop", migrated: "Reach us at support@vokr.shop" },
     ],
@@ -202,7 +202,7 @@ const CASES: FidelityCase[] = [
       // One address for everything: support@ (owner decision, 21 Oct 2026).
       {
         legacy: "Grievance Officer can be reached at grievance@vokr.shop",
-        migrated: "Grievance Officer, Imroze Shaik Baquar, can be reached at support@vokr.shop",
+        migrated: "Grievance Officer, Imroze Shaik Baquar (Founder), can be reached at support@vokr.shop",
       },
       { legacy: "sent to privacy@vokr.shop", migrated: "sent to support@vokr.shop" },
     ],
