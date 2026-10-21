@@ -57,8 +57,10 @@ export async function pricedSession(
     totalPaise?: number;
     paymentMethod?: "prepaid" | "cod";
     identity?: Identity & { type: "guest" };
-    /** Ship-to phone (E.164); first-order discount tests need distinct numbers. */
+    /** Ship-to phone (E.164), name and contact email; first-order discount tests need distinct customers. */
     phone?: string;
+    name?: string;
+    email?: string;
   },
 ): Promise<{ identity: Identity & { type: "guest" }; sessionId: string; cartId: string }> {
   const identity = input.identity ?? (await guest(fixtures));
@@ -114,7 +116,7 @@ export async function pricedSession(
   const subtotalPaise = Math.min(linesSubtotal, totalPaise);
   const address = await prisma.address.create({
     data: {
-      nameEnc: encryptField("Test Buyer"),
+      nameEnc: encryptField(input.name ?? "Test Buyer"),
       phoneEnc: encryptField(input.phone ?? "+919876543210"),
       line1Enc: encryptField("1 Test Road"),
       city: "Pune",
@@ -131,7 +133,7 @@ export async function pricedSession(
       state: CheckoutState.priced,
       paymentMethod: input.paymentMethod ?? "prepaid",
       addressId: address.id,
-      contactEmailEnc: encryptField("buyer@example.com"),
+      contactEmailEnc: encryptField(input.email ?? "buyer@example.com"),
       pricingSnapshot: {
         computedAt: new Date().toISOString(),
         expiresAt: expiresAt.toISOString(),

@@ -39,9 +39,9 @@ export const PERSONAL_DATA_INVENTORY: readonly PersonalDataField[] = [
   { field: "Order.shipState", what: "Ship-to state", why: "GST place of supply", retention: "8 years (tax records)", exported: true },
   { field: "Order.shipPincode", what: "Ship-to PIN code", why: "Delivery", retention: "8 years (tax records)", exported: true },
   {
-    field: "FirstOrderDiscountClaim.phoneHash",
-    what: "Keyed hash (HMAC) of a phone that has had the first-order discount",
-    why: "One first-order discount per phone number",
+    field: "FirstOrderDiscountClaim.keyHash",
+    what: "Keyed hash (HMAC) of a phone, email or name + address that has had the first-order discount",
+    why: "One first-order discount per customer",
     retention: "With its order (8 years, tax records)",
     exported: "A keyed hash, not the number; the number itself is exported with the order",
   },

@@ -3,7 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
 import { prisma } from "@/server/db/client";
-import { isFirstOrderPhone, phoneHashFromEncrypted } from "@/server/discounts/first-order";
+import { discountKeysFromEncrypted, isFirstOrder } from "@/server/discounts/first-order";
 import {
   computePricing,
   type CheckoutPaymentMethod,
@@ -317,7 +317,7 @@ export async function priceCheckoutSession(
 ): Promise<CheckoutSessionView> {
   const session = await findOwnedSession(identity, sessionId);
 
-  if (!session.address) {
+  if (!session.address || !session.contactEmailEnc) {
     throw new ValidationError("Add a shipping address before pricing.");
   }
   if (
@@ -333,9 +333,9 @@ export async function priceCheckoutSession(
     cartId: session.cartId,
     shipToState: session.address.state,
     paymentMethod,
-    firstOrderDiscount: await isFirstOrderPhone(
+    firstOrderDiscount: await isFirstOrder(
       prisma,
-      phoneHashFromEncrypted(session.address.phoneEnc),
+      discountKeysFromEncrypted({ ...session.address, contactEmailEnc: session.contactEmailEnc }),
     ),
   });
 

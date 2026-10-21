@@ -253,7 +253,7 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
 });
 
 describe("computePricing — first-order discount (owner decision, 21 Oct 2026)", () => {
-  it("takes 10% off each line in whole rupees and charges GST on the discounted lines", async () => {
+  it("takes 10% off each line, rounded down to whole rupees, and charges GST on the discounted lines", async () => {
     cartItemFindManyMock.mockResolvedValue([
       { variantId: "variant-shoes", quantity: 1 },
       { variantId: "variant-laces", quantity: 2 },
@@ -268,12 +268,12 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
     });
 
     const shoes = snapshot.lines.find((l) => l.variantId === "variant-shoes")!;
-    // 10% of ₹9,995 = ₹999.50 -> half-up to whole rupees ₹1,000.
-    expect(shoes.lineDiscountPaise).toBe(100_000);
+    // 10% of ₹9,995 = ₹999.50 -> down to whole rupees ₹999.
+    expect(shoes.lineDiscountPaise).toBe(99_900);
     expect(shoes.lineSubtotalPaise).toBe(999_500);
-    // (999500 - 100000) * 1800 / 11800 = 137211.86 -> 137212, all IGST (inter-state).
-    expect(shoes.lineTaxPaise).toBe(137_212);
-    expect(shoes.igstPaise).toBe(137_212);
+    // (999500 - 99900) * 1800 / 11800 = 137227.12 -> 137227, all IGST (inter-state).
+    expect(shoes.lineTaxPaise).toBe(137_227);
+    expect(shoes.igstPaise).toBe(137_227);
 
     const laces = snapshot.lines.find((l) => l.variantId === "variant-laces")!;
     // 10% of ₹590 = ₹59.
@@ -282,10 +282,10 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
     expect(laces.lineTaxPaise).toBe(2_529);
 
     expect(snapshot.discount).toEqual({ kind: "first_order", rateBps: 1000 });
-    expect(snapshot.discountPaise).toBe(105_900);
-    expect(snapshot.taxPaise).toBe(137_212 + 2_529);
+    expect(snapshot.discountPaise).toBe(105_800);
+    expect(snapshot.taxPaise).toBe(137_227 + 2_529);
     expect(snapshot.shippingPaise).toBe(0);
-    expect(snapshot.totalPaise).toBe(999_500 + 59_000 - 105_900);
+    expect(snapshot.totalPaise).toBe(999_500 + 59_000 - 105_800);
   });
 
   it("judges free shipping on the subtotal after the discount, and never discounts shipping or the COD fee", async () => {

@@ -3,9 +3,11 @@ import type { Prisma } from "@/generated/prisma/client";
 import { encryptField } from "@/server/checkout/crypto";
 import {
   claimFirstOrderDiscount,
+  discountKeysFromEncrypted,
   FIRST_ORDER_DISCOUNT_KIND,
-  isFirstOrderPhone,
-  phoneHashFromEncrypted,
+  isFirstOrder,
+  releaseFirstOrderDiscount,
+  RELEASING_STATUSES,
 } from "@/server/discounts/first-order";
 import { enqueueOrderConfirmation } from "@/server/email/outbox";
 import type { PricingSnapshot } from "@/server/pricing";
@@ -71,7 +73,7 @@ export function checkOrderSource(sessionId: string, row: OrderSourceRow, amountP
   };
 }
 
-/** A discounted snapshot whose phone has since claimed its first-order discount — the customer must re-price. */
+/** A discounted snapshot whose customer has since used their first-order discount — the customer must re-price. */
 export class DiscountNoLongerAvailableError extends Error {}
 
 /**
@@ -85,9 +87,12 @@ export async function assertOrderable(
   amountPaise: number,
 ): Promise<void> {
   const row = await client.checkoutSession.findUniqueOrThrow({ where: { id: sessionId }, select: ORDER_SOURCE_SELECT });
-  const { snapshot, address } = checkOrderSource(sessionId, row, amountPaise);
-  if ((snapshot.discountPaise ?? 0) > 0 && !(await isFirstOrderPhone(client, phoneHashFromEncrypted(address.phoneEnc)))) {
-    throw new DiscountNoLongerAvailableError(`session ${sessionId}: first-order discount already claimed for this phone`);
+  const { snapshot, address, contactEmailEnc } = checkOrderSource(sessionId, row, amountPaise);
+  if (
+    (snapshot.discountPaise ?? 0) > 0 &&
+    !(await isFirstOrder(client, discountKeysFromEncrypted({ ...address, contactEmailEnc })))
+  ) {
+    throw new DiscountNoLongerAvailableError(`session ${sessionId}: first-order discount already used by this customer`);
   }
 }
 
@@ -161,7 +166,7 @@ export async function createOrderForPaidSession(
     select: { id: true, orderNumber: true },
   });
   if ((snapshot.discountPaise ?? 0) > 0) {
-    await claimFirstOrderDiscount(tx, { phoneHash: phoneHashFromEncrypted(address.phoneEnc), orderId: order.id });
+    await claimFirstOrderDiscount(tx, { keys: discountKeysFromEncrypted({ ...address, contactEmailEnc }), orderId: order.id });
   }
   // The confirmation email's outbox row, in this same transaction: sent by
   // the maintenance job after commit, never inline (plan §5 Phase 11).
@@ -188,6 +193,8 @@ export async function transitionOrder(
   if (row.status === input.to) return false;
   assertValidOrderTransition(input.orderId, row.status, input.to);
   await tx.order.update({ where: { id: input.orderId }, data: { status: input.to }, select: { id: true } });
+  // An unfulfilled order gives its first-order discount back (owner decision, 21 Oct 2026).
+  if (RELEASING_STATUSES.includes(input.to)) await releaseFirstOrderDiscount(tx, input.orderId);
   await tx.orderStatusHistory.create({
     data: { orderId: input.orderId, fromStatus: row.status, toStatus: input.to, actor: input.actor, note: input.note },
     select: { id: true },

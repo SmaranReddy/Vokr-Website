@@ -156,7 +156,7 @@ export async function createPaymentOrder(
     if (error instanceof DiscountNoLongerAvailableError) {
       console.warn(`[payments] ${error.message} — order withheld`);
       throw new CheckoutStaleError(
-        "The first-order discount has already been used for this phone number. Please review your order again.",
+        "The first-order discount has already been used. Please review your order again.",
       );
     }
     if (!(error instanceof NotOrderableError)) throw error;

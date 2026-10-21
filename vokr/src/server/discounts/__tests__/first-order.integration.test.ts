@@ -20,18 +20,22 @@ import type { RazorpayClient, RazorpayOrder } from "@/server/payments/razorpay";
 import { createPaymentOrder } from "@/server/payments/service";
 import { handleRazorpayWebhook } from "@/server/payments/webhook";
 
-import { claimFirstOrderDiscount, phoneHashFromEncrypted } from "../first-order";
+import { claimFirstOrderDiscount, discountKeys } from "../first-order";
 
 /**
- * The first-order discount against a real Postgres: a new phone's first
- * order is priced, paid and recorded at 10% off with its claim; the same
- * phone's next order is full price; a discount priced before another order
- * claimed the phone is never handed to Razorpay; and the database itself
- * refuses an order whose total ignores its discount.
+ * The first-order discount against a real Postgres: a new customer's first
+ * order is priced, paid and recorded at 10% off with a claim on each of
+ * their phone, email and name + address; any one of those keys makes the
+ * next order full price; an order cancelled before it is fulfilled gives
+ * the discount back; a discount priced before another order used it is
+ * never handed to Razorpay; and the database refuses a total that ignores
+ * its discount.
  */
 
 const SECRET = "whsec_first_order_fixture";
 const PRICE = 699_900;
+const DISCOUNT = 69_900; // ₹699: 10% of ₹6,999 rounded down.
+const ACTOR = "admin:first-order-test";
 const fixtures = newCheckoutFixtures();
 const eventIds: string[] = [];
 
@@ -50,8 +54,20 @@ class FakeRazorpay implements RazorpayClient {
   }
 }
 
-function newPhone(): string {
-  return `+9198${String(randomInt(0, 100_000_000)).padStart(8, "0")}`;
+interface Customer {
+  phone: string;
+  email: string;
+  name: string;
+}
+
+/** A customer none of whose keys can have been seen before. The fixture address is the same for all; the name tells them apart. */
+function newCustomer(): Customer {
+  const n = String(randomInt(0, 100_000_000)).padStart(8, "0");
+  return { phone: `+9198${n}`, email: `buyer-${n}@example.com`, name: `Test Buyer ${n}` };
+}
+
+function keysOf(customer: Customer) {
+  return discountKeys({ ...customer, line1: "1 Test Road", pincode: "411001" });
 }
 
 async function capture(razorpayOrderId: string, amount: number) {
@@ -71,9 +87,9 @@ async function capture(razorpayOrderId: string, amount: number) {
   });
 }
 
-/** A session for `phone`, re-priced through the real pricing path. */
-async function pricedFor(phone: string, variantId: string) {
-  const { identity, sessionId } = await pricedSession(fixtures, { lines: [{ variantId, quantity: 1 }], phone });
+/** A session for `customer`, re-priced through the real pricing path. */
+async function pricedFor(customer: Customer, variantId: string) {
+  const { identity, sessionId } = await pricedSession(fixtures, { lines: [{ variantId, quantity: 1 }], ...customer });
   const view = await priceCheckoutSession(identity, sessionId, "prepaid");
   return { identity, sessionId, snapshot: view.pricingSnapshot! };
 }
@@ -87,16 +103,22 @@ async function payFor(identity: Awaited<ReturnType<typeof pricedFor>>["identity"
     where: { checkoutSessionId: sessionId },
     select: {
       id: true,
+      orderNumber: true,
       subtotalPaise: true,
       discountPaise: true,
       discountKind: true,
       taxPaise: true,
       totalPaise: true,
-      shipPhoneEnc: true,
       items: { select: { lineSubtotalPaise: true, lineDiscountPaise: true, lineTaxPaise: true } },
-      firstOrderDiscountClaim: { select: { phoneHash: true } },
+      firstOrderDiscountClaims: { select: { keyKind: true, keyHash: true }, orderBy: { keyKind: "asc" } },
     },
   });
+}
+
+async function variant() {
+  const variantId = await stockedVariant(fixtures, 10, PRICE);
+  invalidateCatalogCache();
+  return variantId;
 }
 
 beforeEach(() => {
@@ -104,6 +126,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  await prisma.auditLog.deleteMany({ where: { actor: ACTOR } });
   await cleanupCheckoutFixtures(fixtures, eventIds);
   eventIds.length = 0;
 });
@@ -113,57 +136,73 @@ afterAll(async () => {
 });
 
 describe("first-order discount", () => {
-  it("a new phone's first order is 10% off, GST on the discounted price, and claims the phone", async () => {
-    const phone = newPhone();
-    const variantId = await stockedVariant(fixtures, 5, PRICE);
-    invalidateCatalogCache();
-    const { identity, sessionId, snapshot } = await pricedFor(phone, variantId);
+  it("a new customer's first order is ₹699 off, GST on the discounted price, and claims all three keys", async () => {
+    const customer = newCustomer();
+    const { identity, sessionId, snapshot } = await pricedFor(customer, await variant());
 
     expect(snapshot.discount).toEqual({ kind: "first_order", rateBps: 1000 });
-    expect(snapshot.discountPaise).toBe(70_000);
-    expect(snapshot.totalPaise).toBe(PRICE - 70_000);
-    // (699900 - 70000) * 1800 / 11800 = 96086.44 -> 96086.
-    expect(snapshot.taxPaise).toBe(96_086);
+    expect(snapshot.discountPaise).toBe(DISCOUNT);
+    expect(snapshot.totalPaise).toBe(PRICE - DISCOUNT);
+    // (699900 - 69900) * 1800 / 11800 = 96101.69 -> 96102.
+    expect(snapshot.taxPaise).toBe(96_102);
 
     const order = await payFor(identity, sessionId);
     expect(order).toMatchObject({
       subtotalPaise: PRICE,
-      discountPaise: 70_000,
+      discountPaise: DISCOUNT,
       discountKind: "first_order",
-      taxPaise: 96_086,
-      totalPaise: 629_900,
+      taxPaise: 96_102,
+      totalPaise: 630_000,
     });
-    expect(order.items).toEqual([{ lineSubtotalPaise: PRICE, lineDiscountPaise: 70_000, lineTaxPaise: 96_086 }]);
-    expect(order.firstOrderDiscountClaim?.phoneHash).toBe(phoneHashFromEncrypted(order.shipPhoneEnc));
+    expect(order.items).toEqual([{ lineSubtotalPaise: PRICE, lineDiscountPaise: DISCOUNT, lineTaxPaise: 96_102 }]);
+    const expected = keysOf(customer).map((key) => ({ keyKind: key.kind, keyHash: key.hash }));
+    expect(order.firstOrderDiscountClaims).toEqual(expected.sort((a, b) => a.keyKind.localeCompare(b.keyKind)));
   });
 
-  it("the same phone's next order is full price", async () => {
-    const phone = newPhone();
-    const variantId = await stockedVariant(fixtures, 5, PRICE);
-    invalidateCatalogCache();
-    const first = await pricedFor(phone, variantId);
+  it("any one known key — phone, email, or name + address — makes the next order full price", async () => {
+    const variantId = await variant();
+    const customer = newCustomer();
+    const first = await pricedFor(customer, variantId);
     await payFor(first.identity, first.sessionId);
 
-    const second = await pricedFor(phone, variantId);
-    expect(second.snapshot.discount).toBeNull();
-    expect(second.snapshot.discountPaise).toBe(0);
-    expect(second.snapshot.totalPaise).toBe(PRICE);
-    const order = await payFor(second.identity, second.sessionId);
-    expect(order).toMatchObject({ discountPaise: 0, discountKind: null, totalPaise: PRICE, firstOrderDiscountClaim: null });
+    const fresh = newCustomer();
+    for (const repeat of [
+      { ...fresh, phone: customer.phone },
+      { ...fresh, email: customer.email },
+      { ...fresh, name: customer.name },
+    ]) {
+      const again = await pricedFor(repeat, variantId);
+      expect(again.snapshot.discount).toBeNull();
+      expect(again.snapshot.totalPaise).toBe(PRICE);
+    }
 
-    // A different number is a first order again (the rule is per phone).
-    const other = await pricedFor(newPhone(), variantId);
-    expect(other.snapshot.discountPaise).toBe(70_000);
+    const second = await pricedFor(customer, variantId);
+    const order = await payFor(second.identity, second.sessionId);
+    expect(order).toMatchObject({ discountPaise: 0, discountKind: null, totalPaise: PRICE, firstOrderDiscountClaims: [] });
+
+    // Someone with no key in common is a new customer.
+    expect((await pricedFor(fresh, variantId)).snapshot.discountPaise).toBe(DISCOUNT);
   });
 
-  it("a discount priced before another order claimed the phone is never handed to Razorpay", async () => {
-    const phone = newPhone();
-    const variantId = await stockedVariant(fixtures, 5, PRICE);
-    invalidateCatalogCache();
-    const late = await pricedFor(phone, variantId);
-    expect(late.snapshot.discountPaise).toBe(70_000);
+  it("an order cancelled before it is fulfilled gives the discount back", async () => {
+    const variantId = await variant();
+    const customer = newCustomer();
+    const first = await pricedFor(customer, variantId);
+    const order = await payFor(first.identity, first.sessionId);
+    expect(order.firstOrderDiscountClaims).toHaveLength(3);
 
-    const early = await pricedFor(phone, variantId);
+    await adminTransitionOrder(ACTOR, order.orderNumber, { to: OrderStatus.cancelled });
+    expect(await prisma.firstOrderDiscountClaim.count({ where: { orderId: order.id } })).toBe(0);
+    expect((await pricedFor(customer, variantId)).snapshot.discountPaise).toBe(DISCOUNT);
+  });
+
+  it("a discount priced before another order used it is never handed to Razorpay", async () => {
+    const variantId = await variant();
+    const customer = newCustomer();
+    const late = await pricedFor(customer, variantId);
+    expect(late.snapshot.discountPaise).toBe(DISCOUNT);
+
+    const early = await pricedFor(customer, variantId);
     await payFor(early.identity, early.sessionId);
 
     await reserveCheckoutSession(late.identity, late.sessionId);
@@ -172,40 +211,31 @@ describe("first-order discount", () => {
     expect(razorpay.orders.size).toBe(0);
   });
 
-  it("a second claim on one phone is a no-op inside the capture, never an error", async () => {
-    const phone = newPhone();
-    const variantId = await stockedVariant(fixtures, 5, PRICE);
-    invalidateCatalogCache();
-    const { identity, sessionId } = await pricedFor(phone, variantId);
+  it("claiming known keys again is a no-op inside the capture, never an error", async () => {
+    const customer = newCustomer();
+    const { identity, sessionId } = await pricedFor(customer, await variant());
     const order = await payFor(identity, sessionId);
-    const phoneHash = phoneHashFromEncrypted(order.shipPhoneEnc);
 
-    const again = await prisma.$transaction((tx) => claimFirstOrderDiscount(tx, { phoneHash, orderId: order.id }));
+    const again = await prisma.$transaction((tx) => claimFirstOrderDiscount(tx, { keys: keysOf(customer), orderId: order.id }));
     expect(again).toBe(false);
-    expect(await prisma.firstOrderDiscountClaim.count({ where: { phoneHash } })).toBe(1);
+    expect(await prisma.firstOrderDiscountClaim.count({ where: { orderId: order.id } })).toBe(3);
   });
 
   it("the Shiprocket export carries the discount, so its order value is what was charged", async () => {
-    const variantId = await stockedVariant(fixtures, 5, PRICE);
-    invalidateCatalogCache();
-    const { identity, sessionId } = await pricedFor(newPhone(), variantId);
+    const { identity, sessionId } = await pricedFor(newCustomer(), await variant());
     const order = await payFor(identity, sessionId);
-    const { orderNumber } = await prisma.order.findUniqueOrThrow({ where: { id: order.id }, select: { orderNumber: true } });
-    await adminTransitionOrder("admin:first-order-test", orderNumber, { to: OrderStatus.preparing });
+    await adminTransitionOrder(ACTOR, order.orderNumber, { to: OrderStatus.preparing });
 
-    const { csv } = await exportShiprocketCsv("admin:first-order-test", OrderStatus.preparing);
-    const row = csv.split("\r\n").find((line) => line.startsWith(`${orderNumber},`))!;
+    const { csv } = await exportShiprocketCsv(ACTOR, OrderStatus.preparing);
+    const row = csv.split("\r\n").find((line) => line.startsWith(`${order.orderNumber},`))!;
     const cells = row.split(",");
     const at = (header: string) => cells[SHIPROCKET_HEADERS.indexOf(header as (typeof SHIPROCKET_HEADERS)[number])];
     expect(at("*Selling Price(Per Unit Item, Inclusive of Tax)")).toBe("6999.00");
-    expect(at("Total Discount (Per Order)")).toBe("700.00");
-    await prisma.auditLog.deleteMany({ where: { actor: "admin:first-order-test" } }).catch(() => {});
+    expect(at("Total Discount (Per Order)")).toBe("699.00");
   });
 
   it("the database refuses a total that ignores the discount, or a discount with no kind", async () => {
-    const variantId = await stockedVariant(fixtures, 5, PRICE);
-    invalidateCatalogCache();
-    const { identity, sessionId } = await pricedFor(newPhone(), variantId);
+    const { identity, sessionId } = await pricedFor(newCustomer(), await variant());
     const order = await payFor(identity, sessionId);
 
     await expect(prisma.order.update({ where: { id: order.id }, data: { totalPaise: PRICE } })).rejects.toThrow(/orders_total_adds_up/);

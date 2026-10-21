@@ -93,18 +93,19 @@ export function decryptField(token: string): string {
 }
 
 /**
- * A stable, keyed lookup value for a normalised E.164 phone, for "has this
- * number ordered before?" checks (first-order discount). `encryptField`
- * can't serve: its random IV makes every ciphertext different. A plain
- * hash can't either: ~10^10 Indian mobiles are trivially enumerable. So an
- * HMAC under a key derived (HKDF, own label) from `ADDRESS_ENCRYPTION_KEY`
- * — rotating that key resets every phone's lookup value.
+ * A stable, keyed lookup value for "has this customer ordered before?"
+ * checks (first-order discount: phone, email, name + address). The caller
+ * prefixes the value with its kind. `encryptField` can't serve: its random
+ * IV makes every ciphertext different. A plain hash can't either: ~10^10
+ * Indian mobiles are trivially enumerable. So an HMAC under a key derived
+ * (HKDF, own label) from `ADDRESS_ENCRYPTION_KEY` — rotating that key
+ * resets every lookup value.
  */
-export function phoneLookupHash(phoneE164: string): string {
+export function keyedLookupHash(value: string): string {
   if (!cachedLookupKey) {
     cachedLookupKey = Buffer.from(
-      hkdfSync("sha256", getKey(), Buffer.alloc(0), "vokr:phone-lookup:v1", 32),
+      hkdfSync("sha256", getKey(), Buffer.alloc(0), "vokr:customer-lookup:v1", 32),
     );
   }
-  return createHmac("sha256", cachedLookupKey).update(phoneE164, "utf8").digest("hex");
+  return createHmac("sha256", cachedLookupKey).update(value, "utf8").digest("hex");
 }

@@ -1,5 +1,5 @@
--- First-order discount (owner decision, 21 Oct 2026): 10% off the products
--- of a phone number's first order. Additive only: two defaulted columns,
+-- First-order discount (owner decisions, 21 Oct 2026): 10% off the products
+-- of a new customer's first order, keyed by phone, email and name + address. Additive only: two defaulted columns,
 -- one new table, and the order-total CHECK widened to subtract the discount.
 
 ALTER TABLE "orders" ADD COLUMN "discount_paise" INTEGER NOT NULL DEFAULT 0,
@@ -8,14 +8,15 @@ ADD COLUMN "discount_kind" TEXT;
 ALTER TABLE "order_items" ADD COLUMN "line_discount_paise" INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE "first_order_discount_claims" (
-    "phone_hash" TEXT NOT NULL,
+    "key_kind" TEXT NOT NULL,
+    "key_hash" TEXT NOT NULL,
     "order_id" UUID NOT NULL,
     "claimed_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "first_order_discount_claims_pkey" PRIMARY KEY ("phone_hash")
+    CONSTRAINT "first_order_discount_claims_pkey" PRIMARY KEY ("key_kind","key_hash")
 );
 
-CREATE UNIQUE INDEX "first_order_discount_claims_order_id_key" ON "first_order_discount_claims"("order_id");
+CREATE INDEX "first_order_discount_claims_order_id_idx" ON "first_order_discount_claims"("order_id");
 
 ALTER TABLE "first_order_discount_claims" ADD CONSTRAINT "first_order_discount_claims_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -38,6 +39,7 @@ ALTER TABLE "order_items"
     CHECK ("line_discount_paise" >= 0 AND "line_discount_paise" <= "line_subtotal_paise");
 
 ALTER TABLE "first_order_discount_claims"
-  ADD CONSTRAINT "first_order_discount_claims_hash_format" CHECK ("phone_hash" ~ '^[0-9a-f]{64}$');
+  ADD CONSTRAINT "first_order_discount_claims_key_valid"
+    CHECK ("key_kind" IN ('phone', 'email', 'name_address') AND "key_hash" ~ '^[0-9a-f]{64}$');
 
 ALTER TABLE "first_order_discount_claims" ENABLE ROW LEVEL SECURITY;
