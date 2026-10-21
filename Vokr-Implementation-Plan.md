@@ -786,7 +786,7 @@ gift-card purchasing, redemption or ledger functionality is built.
 | 4 | Vokr Socks | `socks` | `Socks (3-pack)` | Vokr Socks | ₹999 | S/M, M/L, L/XL (3) |
 | 5 | Stretch Laces | `stretch-laces` | `Stretch Laces` | Stretch Laces | ₹299 | One Size (1) |
 
-**Prices revised 21 Oct 2026 by the owner** (GST-inclusive, as before). They replace the legacy ₹9,995 / ₹8,995 / ₹5,995 / ₹495 / ₹295. The Kids Model is "launching soon" and stays unpurchasable. A 10% first-time-purchase discount was also announced; its rules are still open and nothing is built for it yet.
+**Prices revised 21 Oct 2026 by the owner** (GST-inclusive, as before). They replace the legacy ₹9,995 / ₹8,995 / ₹5,995 / ₹495 / ₹295. The Kids Model is "launching soon" and stays unpurchasable. The owner also announced a 10% discount on a phone number's first order; it is implemented in PR #63.
 
 ~~Gift Card (`gift-card`, ₹1,000/2,000/5,000/10,000, 4 denominations)~~ —
 **deferred, D1.** Not seeded, not displayed. Do not add it to the seed or
