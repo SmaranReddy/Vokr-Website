@@ -198,8 +198,18 @@ async function siblingSize(variantId: string, sizeLabel: string, stock: number, 
 
 const ip = () => `198.51.100.${Math.floor(Math.random() * 250) + 1}-${randomUUID()}`;
 
+/** Customers can only ask for a size exchange (owner decision, 21 Oct 2026). */
 function guestBody(order: Placed, extra: Record<string, unknown> = {}) {
-  return { orderNumber: order.orderNumber, email: EMAIL, sku: order.lines[0]!.sku, quantity: 1, kind: "return", reason: "size_fit", ...extra };
+  return { orderNumber: order.orderNumber, email: EMAIL, sku: order.lines[0]!.sku, quantity: 1, kind: "exchange", reason: "size_fit", exchangeSize: "IN 9", ...extra };
+}
+
+/** A delivered IN 8 pair with an IN 9 of the same shoe in stock, so a guest exchange can be recorded. */
+async function deliveredWithNine(): Promise<Placed> {
+  const order = await delivered();
+  const line = order.lines[0]!;
+  await prisma.productVariant.update({ where: { id: line.variantId }, data: { sizeLabel: "IN 8" }, select: { id: true } });
+  await siblingSize(line.variantId, "IN 9", 1);
+  return order;
 }
 
 async function returnRow(id: string) {
@@ -254,30 +264,33 @@ describe("the guest request (task 7: no login, enumeration-resistant)", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(295);
   });
 
-  it("rejects malformed bodies, free text and an exchange without a size", async () => {
+  it("rejects malformed bodies, free text, an exchange without a size, and any return for a refund", async () => {
     const order = await delivered();
+    const withoutSize: Record<string, unknown> = guestBody(order);
+    delete withoutSize.exchangeSize;
     for (const body of [
       { ...guestBody(order), note: "free text is not accepted" },
       guestBody(order, { reason: "undelivered" }),
       guestBody(order, { kind: "rto" }),
       guestBody(order, { quantity: 0 }),
-      guestBody(order, { kind: "exchange" }),
-      guestBody(order, { exchangeSize: "IN 9" }),
+      withoutSize,
+      guestBody(order, { kind: "return" }),
+      guestBody(order, { kind: "return", exchangeSize: undefined }),
     ]) {
       await expect(requestReturnAsGuest({ ip: ip(), body }, FAST)).rejects.toBeInstanceOf(ValidationError);
     }
   });
 
   it("records the request, and the guest can read its status", async () => {
-    const order = await delivered();
+    const order = await deliveredWithNine();
     const created = await requestReturnAsGuest({ ip: ip(), body: guestBody(order) }, FAST);
-    expect(created).toMatchObject({ kind: "return", state: "requested", sku: order.lines[0]!.sku, quantity: 1, refund: null });
+    expect(created).toMatchObject({ kind: "exchange", exchangeSize: "IN 9", state: "requested", sku: order.lines[0]!.sku, quantity: 1, refund: null });
     const listed = await listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: EMAIL } }, FAST);
     expect(listed.returns).toEqual([created]);
     expect(listed.open).toBe(true);
     expect(listed.windowClosesAt).not.toBeNull();
     expect(listed.lines).toEqual([
-      expect.objectContaining({ sku: order.lines[0]!.sku, availableUnits: 0, hasOpenRequest: true, exchangeSizes: [] }),
+      expect.objectContaining({ sku: order.lines[0]!.sku, availableUnits: 0, hasOpenRequest: true }),
     ]);
     await expect(
       listReturnsAsGuest({ ip: ip(), body: { orderNumber: order.orderNumber, email: "x@y.example" } }, FAST),
@@ -285,7 +298,7 @@ describe("the guest request (task 7: no login, enumeration-resistant)", () => {
   });
 
   it("its own per-IP limit refuses the 11th request in an hour, before the lookup, recording nothing", async () => {
-    const order = await delivered();
+    const order = await deliveredWithNine();
     const caller = ip();
     // Ten guesses at unknown numbers: under the lookup's own per-IP (20) and per-number limits.
     for (let i = 0; i < 10; i += 1) {

@@ -57,20 +57,23 @@ const CUSTOMER_REASONS = [
 
 const credentials = { orderNumber: z.string().max(40), email: z.string().max(254) };
 
+/**
+ * A customer may ask only for a size exchange: Vokr gives no refunds on
+ * delivered orders (owner decision, 21 Oct 2026). Refunds remain for an
+ * order cancelled before dispatch, an RTO, and an operator-recorded
+ * exception (`adminReturnRequestSchema`).
+ */
 export const returnRequestBodySchema = z
   .object({
     ...credentials,
     sku: z.string().trim().min(1).max(40),
     quantity: z.number().int().min(1).max(20),
-    kind: z.enum([ReturnKind.return, ReturnKind.exchange]),
+    kind: z.literal(ReturnKind.exchange, { message: "We offer size exchanges only, not returns for a refund." }),
     reason: z.enum(CUSTOMER_REASONS),
-    /** Exchange only: the size wanted instead, e.g. `IN 9`. */
-    exchangeSize: z.string().trim().min(1).max(20).optional(),
+    /** The size wanted instead, e.g. `IN 9`. */
+    exchangeSize: z.string().trim().min(1).max(20, "Choose the size you want instead."),
   })
-  .strict()
-  .refine((body) => (body.kind === ReturnKind.exchange) === (body.exchangeSize !== undefined), {
-    message: "An exchange needs the size you want instead; a return does not.",
-  });
+  .strict();
 
 export const returnLookupBodySchema = z.object(credentials).strict();
 
@@ -408,7 +411,12 @@ export async function createReturnRequest(
 
 // ---------------------------------------------------------------- admin
 
-/** The guest request's fields, minus the credentials: the operator is already authenticated. */
+/**
+ * The guest request's fields, minus the credentials: the operator is
+ * already authenticated. Unlike the customer's, it still accepts a
+ * `return` — the operator's exception for a refund the owner approves
+ * (e.g. a defective item), since customers can only ask for exchanges.
+ */
 export const adminReturnRequestSchema = z
   .object({
     sku: z.string().trim().min(1).max(40),

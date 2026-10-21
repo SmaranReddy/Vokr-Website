@@ -74,27 +74,27 @@ afterEach(() => {
 });
 
 describe("OrderReturns", () => {
-  it("offers the server's lines and sends exactly the return request's fields", async () => {
+  it("offers the server's lines and sends exactly the exchange request's fields — never a refund", async () => {
     render(<OrderReturns {...CREDENTIALS} />);
     expect(calls[0]).toEqual({ url: "/api/returns/lookup", body: CREDENTIALS });
     expect(await screen.findByText(/until 15 Nov 2026/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Exchange or return" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exchange a size" }));
+    expect(screen.queryByText(/refund/i)).toBeNull();
     fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "defective" } });
-    fireEvent.click(screen.getByRole("button", { name: "Request return" }));
+    fireEvent.click(screen.getByRole("button", { name: "Request exchange" }));
 
     expect(await screen.findByText(/Request received\. We'll review it and email you with pickup or drop-off details\./)).toBeTruthy();
     expect(calls[1]).toEqual({
       url: "/api/returns/request",
-      body: { ...CREDENTIALS, sku: "VK-MX-WHT-IN08", quantity: 1, kind: "return", reason: "defective" },
+      body: { ...CREDENTIALS, sku: "VK-MX-WHT-IN08", quantity: 1, kind: "exchange", reason: "defective", exchangeSize: "IN 9" },
     });
     expect(calls[2]?.url).toBe("/api/returns/lookup"); // refreshed
   });
 
   it("an exchange picks a size from the server's list only", async () => {
     render(<OrderReturns {...CREDENTIALS} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Exchange or return" }));
-    fireEvent.click(screen.getByLabelText("Exchange for another size"));
+    fireEvent.click(await screen.findByRole("button", { name: "Exchange a size" }));
     const sizes = within(screen.getByLabelText("New size")).getAllByRole("option").map((option) => option.textContent);
     expect(sizes).toEqual(["IN 9", "IN 10"]);
     fireEvent.change(screen.getByLabelText("New size"), { target: { value: "IN 10" } });
@@ -103,19 +103,20 @@ describe("OrderReturns", () => {
     expect(calls[1]?.body).toEqual({ ...CREDENTIALS, sku: "VK-MX-WHT-IN08", quantity: 1, kind: "exchange", reason: "size_fit", exchangeSize: "IN 10" });
   });
 
-  it("disables exchange when no other size is available, and offers quantity only for several units", async () => {
+  it("can't send a request when no other size is available, and offers quantity only for several units", async () => {
     lookupReply = { status: 200, body: { returns: [], open: true, windowClosesAt: "2026-11-15T10:00:00.000Z", lines: [line({ exchangeSizes: [], availableUnits: 2 })] } };
     render(<OrderReturns {...CREDENTIALS} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Exchange or return" }));
-    expect((screen.getByRole("radio", { name: /Exchange for another size/ }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(await screen.findByRole("button", { name: "Exchange a size" }));
+    expect(screen.getByText("Exchange for another size (no other size in stock)")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Request exchange" }) as HTMLButtonElement).disabled).toBe(true);
     expect(within(screen.getByLabelText("Quantity")).getAllByRole("option")).toHaveLength(2);
   });
 
   it("shows the server's refusal as it is", async () => {
     requestReply = { status: 409, body: { error: { code: "CONFLICT", message: "The 30-day return window for this order closed on 2026-11-15." } } };
     render(<OrderReturns {...CREDENTIALS} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Exchange or return" }));
-    fireEvent.click(screen.getByRole("button", { name: "Request return" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Exchange a size" }));
+    fireEvent.click(screen.getByRole("button", { name: "Request exchange" }));
     expect((await screen.findByRole("alert")).textContent).toBe("The 30-day return window for this order closed on 2026-11-15.");
   });
 
@@ -127,14 +128,13 @@ describe("OrderReturns", () => {
     render(<OrderReturns {...CREDENTIALS} />);
     expect(await screen.findByText("Refunded to your original payment method.")).toBeTruthy();
     expect(screen.getByText(/window for new exchange or return requests on this order has closed/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Exchange or return" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Exchange a size" })).toBeNull();
   });
 
   it("has no serious structural accessibility violations with the form open", async () => {
     lookupReply = { status: 200, body: { returns: [returnRow()], open: true, windowClosesAt: "2026-11-15T10:00:00.000Z", lines: [line()] } };
     const { container } = render(<OrderReturns {...CREDENTIALS} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Exchange or return" }));
-    fireEvent.click(screen.getByLabelText("Exchange for another size"));
+    fireEvent.click(await screen.findByRole("button", { name: "Exchange a size" }));
     const result = await axe.run(container, {
       runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] },
       rules: { "color-contrast": { enabled: false } },
@@ -186,7 +186,7 @@ describe("OrderLookup shows returns only from delivery on", () => {
     orderReply = { status: 200, body: { order: order("delivered") } };
     render(<OrderLookup />);
     await track();
-    expect(await screen.findByRole("heading", { name: "Exchange or return" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Exchange a size" })).toBeTruthy();
     expect(calls.map((call) => call.url)).toEqual(["/api/orders/lookup", "/api/returns/lookup"]);
     expect(calls[1]?.body).toEqual(CREDENTIALS);
   });
@@ -196,6 +196,6 @@ describe("OrderLookup shows returns only from delivery on", () => {
     render(<OrderLookup />);
     await track();
     expect(calls.map((call) => call.url)).toEqual(["/api/orders/lookup"]);
-    expect(screen.queryByRole("heading", { name: "Exchange or return" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Exchange a size" })).toBeNull();
   });
 });

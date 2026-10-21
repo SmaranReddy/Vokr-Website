@@ -79,7 +79,6 @@ function RequestForm({
   onDone: () => void;
 }) {
   const id = `return-${line.sku}`;
-  const [kind, setKind] = useState<"return" | "exchange">("return");
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState<(typeof REASONS)[number]["value"]>("size_fit");
   const [size, setSize] = useState(line.exchangeSizes[0] ?? "");
@@ -95,9 +94,9 @@ function RequestForm({
       ...credentials,
       sku: line.sku,
       quantity,
-      kind,
+      kind: "exchange",
       reason,
-      ...(kind === "exchange" ? { exchangeSize: size } : {}),
+      exchangeSize: size,
     });
     setPending(false);
     if (result.ok) onDone();
@@ -106,23 +105,9 @@ function RequestForm({
 
   return (
     <form onSubmit={onSubmit} aria-labelledby={`${id}-title`} className="mt-3 flex flex-col gap-3 border-t border-border pt-3">
-      <fieldset className="flex flex-wrap gap-4 text-sm">
-        <legend className="sr-only">Return or exchange</legend>
-        <label className="flex items-center gap-2">
-          <input type="radio" name={`${id}-kind`} checked={kind === "return"} onChange={() => setKind("return")} />
-          Return for a refund
-        </label>
-        <label className={`flex items-center gap-2 ${canExchange ? "" : "text-muted"}`}>
-          <input
-            type="radio"
-            name={`${id}-kind`}
-            checked={kind === "exchange"}
-            disabled={!canExchange}
-            onChange={() => setKind("exchange")}
-          />
-          Exchange for another size{canExchange ? "" : " (no other size in stock)"}
-        </label>
-      </fieldset>
+      <p className={`text-sm ${canExchange ? "" : "text-muted"}`}>
+        Exchange for another size{canExchange ? "" : " (no other size in stock)"}
+      </p>
       <div className="flex flex-wrap gap-3">
         {line.availableUnits > 1 ? (
           <label className="flex flex-col gap-1 text-sm">
@@ -146,7 +131,7 @@ function RequestForm({
             ))}
           </select>
         </label>
-        {kind === "exchange" ? (
+        {canExchange ? (
           <label className="flex flex-col gap-1 text-sm">
             New size
             <select value={size} onChange={(e) => setSize(e.target.value)} className={SELECT_CLASS}>
@@ -160,17 +145,15 @@ function RequestForm({
         ) : null}
       </div>
       <p className="text-sm text-muted">
-        {kind === "exchange"
-          ? "Your new size ships once we receive your original pair, subject to stock at that time."
-          : "Refunds go to your original payment method within 5-7 business days of your item passing our quality check."}
+        Your new size ships once we receive your original pair, subject to stock at that time.
       </p>
       <div>
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !canExchange}
           className="bg-foreground px-6 py-3 text-sm font-semibold text-background disabled:opacity-60"
         >
-          {pending ? "Sending…" : kind === "exchange" ? "Request exchange" : "Request return"}
+          {pending ? "Sending…" : "Request exchange"}
         </button>
       </div>
       {error ? (
@@ -215,7 +198,7 @@ export function OrderReturns({ orderNumber, email }: { orderNumber: string; emai
   return (
     <section aria-labelledby="returns-title" className="mb-10 border border-border p-5">
       <h2 id="returns-title" className="text-base font-bold">
-        Exchange or return
+        Exchange a size
       </h2>
       {data.windowClosesAt ? (
         <p className="mt-1 text-sm text-muted">
@@ -257,7 +240,7 @@ export function OrderReturns({ orderNumber, email }: { orderNumber: string; emai
                   onClick={() => setOpenSku(openSku === line.sku ? null : line.sku)}
                   className="border border-border-strong px-4 py-2 text-sm font-semibold"
                 >
-                  Exchange or return
+                  Exchange a size
                 </button>
               </div>
               {openSku === line.sku ? (
