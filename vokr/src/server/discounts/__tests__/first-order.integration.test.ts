@@ -2,7 +2,10 @@ import { createHmac, randomInt, randomUUID } from "node:crypto";
 
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { OrderStatus } from "@/generated/prisma/enums";
 import { CheckoutStaleError } from "@/lib/errors";
+import { adminTransitionOrder } from "@/server/admin/orders";
+import { exportShiprocketCsv, SHIPROCKET_HEADERS } from "@/server/admin/shiprocket-csv";
 import { invalidateCatalogCache } from "@/server/catalog";
 import { reserveCheckoutSession } from "@/server/checkout/reserve";
 import { priceCheckoutSession } from "@/server/checkout/service";
@@ -180,6 +183,23 @@ describe("first-order discount", () => {
     const again = await prisma.$transaction((tx) => claimFirstOrderDiscount(tx, { phoneHash, orderId: order.id }));
     expect(again).toBe(false);
     expect(await prisma.firstOrderDiscountClaim.count({ where: { phoneHash } })).toBe(1);
+  });
+
+  it("the Shiprocket export carries the discount, so its order value is what was charged", async () => {
+    const variantId = await stockedVariant(fixtures, 5, PRICE);
+    invalidateCatalogCache();
+    const { identity, sessionId } = await pricedFor(newPhone(), variantId);
+    const order = await payFor(identity, sessionId);
+    const { orderNumber } = await prisma.order.findUniqueOrThrow({ where: { id: order.id }, select: { orderNumber: true } });
+    await adminTransitionOrder("admin:first-order-test", orderNumber, { to: OrderStatus.preparing });
+
+    const { csv } = await exportShiprocketCsv("admin:first-order-test", OrderStatus.preparing);
+    const row = csv.split("\r\n").find((line) => line.startsWith(`${orderNumber},`))!;
+    const cells = row.split(",");
+    const at = (header: string) => cells[SHIPROCKET_HEADERS.indexOf(header as (typeof SHIPROCKET_HEADERS)[number])];
+    expect(at("*Selling Price(Per Unit Item, Inclusive of Tax)")).toBe("6999.00");
+    expect(at("Total Discount (Per Order)")).toBe("700.00");
+    await prisma.auditLog.deleteMany({ where: { actor: "admin:first-order-test" } }).catch(() => {});
   });
 
   it("the database refuses a total that ignores the discount, or a discount with no kind", async () => {

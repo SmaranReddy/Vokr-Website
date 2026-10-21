@@ -119,6 +119,7 @@ export async function exportShiprocketCsv(
       shipPincode: true,
       shippingPaise: true,
       codFeePaise: true,
+      discountPaise: true,
       items: {
         select: { sku: true, quantity: true, unitPricePaise: true, variant: { select: { weightGrams: true } } },
         orderBy: { id: "asc" },
@@ -170,7 +171,8 @@ export async function exportShiprocketCsv(
           first ? rupees(order.shippingPaise) : "",
           first && order.codFeePaise > 0 ? rupees(order.codFeePaise) : "",
           "",
-          "",
+          // The first-order discount, so Shiprocket's order value matches what was charged.
+          first && order.discountPaise > 0 ? rupees(order.discountPaise) : "",
           first && weightGrams > 0 ? (weightGrams / 1000).toFixed(3) : "",
           "",
           "",
