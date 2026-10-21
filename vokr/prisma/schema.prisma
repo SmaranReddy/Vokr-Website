@@ -375,6 +375,10 @@ model ServiceablePincode {
 
   codEligible           Boolean @map("cod_eligible")
   estimatedDeliveryDays Int     @map("estimated_delivery_days")
+  /// Shipping charged to this PIN code, GST-inclusive paise, from the
+  /// courier's rate card (owner decision, 21 Oct 2026: always charged, no
+  /// free shipping). NULL until loaded; checkout refuses to price without it.
+  shippingFeePaise      Int?    @map("shipping_fee_paise")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

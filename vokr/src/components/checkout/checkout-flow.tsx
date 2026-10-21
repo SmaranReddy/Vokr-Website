@@ -121,9 +121,8 @@ export function CheckoutFlow() {
   const [pincode, setPincode] = useState("");
   const [email, setEmail] = useState("");
 
-  const [paymentMethod, setPaymentMethod] = useState<"prepaid" | "cod">(
-    "prepaid",
-  );
+  // Online payment only: Vokr does not offer cash on delivery.
+  const [paymentMethod, setPaymentMethod] = useState<"prepaid">("prepaid");
   const [serviceability, setServiceability] = useState<ServiceabilityState>({
     status: "idle",
   });
@@ -223,7 +222,7 @@ export function CheckoutFlow() {
 
   /** Re-prices from the server's cart; a short line becomes a visible stock problem, not a generic error. */
   const priceSession = useCallback(
-    async (sessionId: string, method: "prepaid" | "cod") => {
+    async (sessionId: string, method: "prepaid") => {
       try {
         const response = await fetch(
           `/api/checkout/session/${sessionId}/pricing?paymentMethod=${method}`,
@@ -293,7 +292,7 @@ export function CheckoutFlow() {
   );
 
   const computePricing = useCallback(
-    async (method: "prepaid" | "cod") => {
+    async (method: "prepaid") => {
       if (!session) return;
       setIsLoading(true);
       setError(null);
@@ -341,7 +340,7 @@ export function CheckoutFlow() {
   }, [session, paymentMethod, priceSession, restartCheckout]);
 
   const onSelectPaymentMethod = useCallback(
-    (method: "prepaid" | "cod") => {
+    (method: "prepaid") => {
       setPaymentMethod(method);
       void computePricing(method);
     },
@@ -357,8 +356,6 @@ export function CheckoutFlow() {
   }
 
   const snapshot = session?.pricingSnapshot ?? null;
-  const codBlockedByServiceability =
-    serviceability.status === "serviceable" && !serviceability.codEligible;
   const locked = !!session && LOCKED_STATES.includes(session.state);
   const lineName = (variantId: string) => {
     const line = snapshot?.lines.find((candidate) => candidate.variantId === variantId);
@@ -507,9 +504,6 @@ export function CheckoutFlow() {
         {serviceability.status === "serviceable" && (
           <p className="mt-3 text-xs text-muted">
             Delivers in ~{serviceability.estimatedDeliveryDays} days.
-            {serviceability.codEligible
-              ? " COD available."
-              : " Prepaid only for this PIN code."}
           </p>
         )}
         {serviceability.status === "unserviceable" && (
@@ -532,19 +526,6 @@ export function CheckoutFlow() {
               className={`border px-4 py-2 text-sm ${paymentMethod === "prepaid" ? "border-foreground font-semibold" : "border-border-strong"}`}
             >
               Prepaid
-            </button>
-            <button
-              type="button"
-              disabled={locked || codBlockedByServiceability}
-              onClick={() => onSelectPaymentMethod("cod")}
-              className={`border px-4 py-2 text-sm disabled:opacity-40 ${paymentMethod === "cod" ? "border-foreground font-semibold" : "border-border-strong"}`}
-              title={
-                codBlockedByServiceability
-                  ? "COD is not available for this PIN code"
-                  : undefined
-              }
-            >
-              Cash on Delivery
             </button>
           </div>
         </section>
@@ -578,35 +559,19 @@ export function CheckoutFlow() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted">Shipping</span>
-              <span>
-                {snapshot.shippingPaise === 0
-                  ? "Free"
-                  : formatPaiseAsRupees(snapshot.shippingPaise)}
-              </span>
+              <span>{formatPaiseAsRupees(snapshot.shippingPaise)}</span>
             </div>
-            {snapshot.codFeePaise > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted">COD handling fee</span>
-                <span>{formatPaiseAsRupees(snapshot.codFeePaise)}</span>
-              </div>
-            )}
             <div className="flex items-center justify-between border-t border-border pt-2 text-base font-semibold">
               <span>Total</span>
               <span>{formatPaiseAsRupees(snapshot.totalPaise)}</span>
             </div>
           </div>
 
-          {!locked && paymentMethod === "cod" && (
-            <p id="cod-unavailable" className="mt-6 text-sm text-muted">
-              Cash on Delivery isn&apos;t available yet. Please choose Prepaid to continue.
-            </p>
-          )}
           {!locked && (
             <button
               type="button"
               onClick={() => void reserve()}
-              disabled={isLoading || paymentMethod !== "prepaid" || session?.state !== "priced"}
-              aria-describedby={paymentMethod === "cod" ? "cod-unavailable" : undefined}
+              disabled={isLoading || session?.state !== "priced"}
               className="mt-6 w-full bg-foreground px-6 py-3.5 text-sm font-semibold text-background disabled:opacity-50"
             >
               Continue to payment

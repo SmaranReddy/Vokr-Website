@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConflictError, ValidationError } from "@/lib/errors";
 
 const cartItemFindManyMock = vi.fn();
+const pincodeFindUniqueMock = vi.fn();
 vi.mock("@/server/db/client", () => ({
-  prisma: { cartItem: { findMany: (...args: unknown[]) => cartItemFindManyMock(...args) } },
+  prisma: {
+    cartItem: { findMany: (...args: unknown[]) => cartItemFindManyMock(...args) },
+    serviceablePincode: { findUnique: (...args: unknown[]) => pincodeFindUniqueMock(...args) },
+  },
 }));
 
 const listProductsMock = vi.fn();
@@ -13,15 +17,11 @@ vi.mock("@/server/catalog", () => ({
 }));
 
 const getSellerStateMock = vi.fn();
-const getFlatShippingFeePaiseMock = vi.fn();
-const getCodHandlingFeePaiseMock = vi.fn();
 vi.mock("../config", async () => {
   const actual = await vi.importActual<typeof import("../config")>("../config");
   return {
     ...actual,
     getSellerState: (...args: unknown[]) => getSellerStateMock(...args),
-    getFlatShippingFeePaise: (...args: unknown[]) => getFlatShippingFeePaiseMock(...args),
-    getCodHandlingFeePaise: (...args: unknown[]) => getCodHandlingFeePaiseMock(...args),
   };
 });
 
@@ -81,12 +81,11 @@ beforeEach(() => {
   cartItemFindManyMock.mockReset();
   listProductsMock.mockReset();
   getSellerStateMock.mockReset().mockReturnValue("Maharashtra");
-  getFlatShippingFeePaiseMock.mockReset().mockReturnValue(9_900);
-  getCodHandlingFeePaiseMock.mockReset().mockReturnValue(4_900);
+  pincodeFindUniqueMock.mockReset().mockResolvedValue({ shippingFeePaise: 9_900 });
 });
 
 describe("computePricing (plan §5 Phase 6, task 5)", () => {
-  it("prices a mixed-GST-slab cart, intra-state (CGST+SGST), below the free-shipping threshold, prepaid", async () => {
+  it("prices a mixed-GST-slab cart, intra-state (CGST+SGST), prepaid, with the PIN code's shipping fee", async () => {
     cartItemFindManyMock.mockResolvedValue([
       { variantId: "variant-shoes", quantity: 1 },
       { variantId: "variant-laces", quantity: 2 },
@@ -95,7 +94,7 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
 
     const snapshot = await computePricing({
       cartId: "cart-1",
-      shipToState: "Maharashtra",
+      shipToState: "Maharashtra", shipToPincode: "411001",
       paymentMethod: "prepaid",
     });
 
@@ -118,45 +117,37 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
 
     expect(snapshot.subtotalPaise).toBe(999_500 + 59_000);
     expect(snapshot.taxPaise).toBe(152_466 + 2_810);
-    // Below the ₹4,999 threshold's *complement* — this subtotal is well above it, so shipping is free.
-    expect(snapshot.shippingPaise).toBe(0);
+    expect(snapshot.shippingPaise).toBe(9_900);
     expect(snapshot.codFeePaise).toBe(0);
-    expect(snapshot.totalPaise).toBe(snapshot.subtotalPaise);
+    expect(snapshot.totalPaise).toBe(snapshot.subtotalPaise + 9_900);
   });
 
-  it("charges the flat shipping fee at or below the ₹4,999 threshold, and free strictly above it", async () => {
+  it("charges the delivery PIN code's fee on every order, however large — there is no free shipping", async () => {
     listProductsMock.mockResolvedValue(fixtureCatalog());
+    cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-shoes", quantity: 3 }]);
+    pincodeFindUniqueMock.mockResolvedValue({ shippingFeePaise: 14_000 });
 
-    cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-laces", quantity: 1 }]);
-    const below = await computePricing({
-      cartId: "cart-below",
+    const snapshot = await computePricing({
+      cartId: "cart-big",
       shipToState: "Maharashtra",
+      shipToPincode: "500001",
       paymentMethod: "prepaid",
     });
-    expect(below.subtotalPaise).toBeLessThan(499_900);
-    expect(below.shippingPaise).toBe(9_900);
+    expect(pincodeFindUniqueMock).toHaveBeenCalledWith({ where: { pincode: "500001" }, select: { shippingFeePaise: true } });
+    expect(snapshot.subtotalPaise).toBe(2_998_500);
+    expect(snapshot.shippingPaise).toBe(14_000);
+    expect(snapshot.totalPaise).toBe(2_998_500 + 14_000);
+  });
 
+  it("refuses to price a PIN code with no shipping fee on file, rather than guess one", async () => {
+    listProductsMock.mockResolvedValue(fixtureCatalog());
     cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-shoes", quantity: 1 }]);
-    const above = await computePricing({
-      cartId: "cart-above",
-      shipToState: "Maharashtra",
-      paymentMethod: "prepaid",
-    });
-    expect(above.subtotalPaise).toBeGreaterThan(499_900);
-    expect(above.shippingPaise).toBe(0);
-  });
-
-  it("adds the COD handling fee only for paymentMethod=cod", async () => {
-    cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-laces", quantity: 1 }]);
-    listProductsMock.mockResolvedValue(fixtureCatalog());
-
-    const cod = await computePricing({
-      cartId: "cart-cod",
-      shipToState: "Maharashtra",
-      paymentMethod: "cod",
-    });
-    expect(cod.codFeePaise).toBe(4_900);
-    expect(cod.totalPaise).toBe(cod.subtotalPaise + cod.shippingPaise + 4_900);
+    for (const row of [null, { shippingFeePaise: null }]) {
+      pincodeFindUniqueMock.mockResolvedValue(row);
+      await expect(
+        computePricing({ cartId: "cart-1", shipToState: "Maharashtra", shipToPincode: "411001", paymentMethod: "prepaid" }),
+      ).rejects.toThrow(ValidationError);
+    }
   });
 
   it("splits inter-state as IGST only, with CGST/SGST both zero", async () => {
@@ -165,7 +156,7 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
 
     const snapshot = await computePricing({
       cartId: "cart-inter",
-      shipToState: "Karnataka",
+      shipToState: "Karnataka", shipToPincode: "411001",
       paymentMethod: "prepaid",
     });
 
@@ -219,6 +210,7 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
         const snapshot = await computePricing({
           cartId: `cart-adversarial-${i}-${shipToState}`,
           shipToState,
+          shipToPincode: "411001",
           paymentMethod: "prepaid",
         });
         const line = snapshot.lines[0]!;
@@ -233,7 +225,7 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
     listProductsMock.mockResolvedValue(fixtureCatalog());
 
     await expect(
-      computePricing({ cartId: "cart-empty", shipToState: "Maharashtra", paymentMethod: "prepaid" }),
+      computePricing({ cartId: "cart-empty", shipToState: "Maharashtra", shipToPincode: "411001", paymentMethod: "prepaid" }),
     ).rejects.toThrow(ValidationError);
   });
 
@@ -242,12 +234,12 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
 
     cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-gone", quantity: 1 }]);
     await expect(
-      computePricing({ cartId: "cart-gone", shipToState: "Maharashtra", paymentMethod: "prepaid" }),
+      computePricing({ cartId: "cart-gone", shipToState: "Maharashtra", shipToPincode: "411001", paymentMethod: "prepaid" }),
     ).rejects.toThrow(ConflictError);
 
     cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-shoes", quantity: 999 }]);
     await expect(
-      computePricing({ cartId: "cart-oos", shipToState: "Maharashtra", paymentMethod: "prepaid" }),
+      computePricing({ cartId: "cart-oos", shipToState: "Maharashtra", shipToPincode: "411001", paymentMethod: "prepaid" }),
     ).rejects.toThrow(ConflictError);
   });
 });
@@ -262,7 +254,7 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
 
     const snapshot = await computePricing({
       cartId: "cart-1",
-      shipToState: "Karnataka",
+      shipToState: "Karnataka", shipToPincode: "411001",
       paymentMethod: "prepaid",
       firstOrderDiscount: true,
     });
@@ -284,29 +276,24 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
     expect(snapshot.discount).toEqual({ kind: "first_order", rateBps: 1000 });
     expect(snapshot.discountPaise).toBe(105_800);
     expect(snapshot.taxPaise).toBe(137_227 + 2_529);
-    expect(snapshot.shippingPaise).toBe(0);
-    expect(snapshot.totalPaise).toBe(999_500 + 59_000 - 105_800);
+    expect(snapshot.shippingPaise).toBe(9_900);
+    expect(snapshot.totalPaise).toBe(999_500 + 59_000 - 105_800 + 9_900);
   });
 
-  it("judges free shipping on the subtotal after the discount, and never discounts shipping or the COD fee", async () => {
-    const catalog = fixtureCatalog();
-    catalog[0]!.variants[0]!.pricePaise = 510_000; // ₹5,100: over ₹4,999, but ₹4,590 after 10%.
+  it("never discounts shipping", async () => {
     cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-shoes", quantity: 1 }]);
-    listProductsMock.mockResolvedValue(catalog);
+    listProductsMock.mockResolvedValue(fixtureCatalog());
 
     const discounted = await computePricing({
       cartId: "cart-1",
       shipToState: "Maharashtra",
-      paymentMethod: "cod",
+      shipToPincode: "411001",
+      paymentMethod: "prepaid",
       firstOrderDiscount: true,
     });
-    expect(discounted.discountPaise).toBe(51_000);
+    expect(discounted.discountPaise).toBe(99_900);
     expect(discounted.shippingPaise).toBe(9_900);
-    expect(discounted.codFeePaise).toBe(4_900);
-    expect(discounted.totalPaise).toBe(510_000 - 51_000 + 9_900 + 4_900);
-
-    const full = await computePricing({ cartId: "cart-1", shipToState: "Maharashtra", paymentMethod: "cod" });
-    expect(full.shippingPaise).toBe(0);
+    expect(discounted.totalPaise).toBe(999_500 - 99_900 + 9_900);
   });
 
   it("applies nothing when the phone has already had its first order", async () => {
@@ -315,7 +302,7 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
 
     const snapshot = await computePricing({
       cartId: "cart-1",
-      shipToState: "Maharashtra",
+      shipToState: "Maharashtra", shipToPincode: "411001",
       paymentMethod: "prepaid",
       firstOrderDiscount: false,
     });
@@ -323,6 +310,6 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
     expect(snapshot.discountPaise).toBe(0);
     expect(snapshot.lines[0]!.lineDiscountPaise).toBe(0);
     expect(snapshot.lines[0]!.lineTaxPaise).toBe(152_466);
-    expect(snapshot.totalPaise).toBe(999_500);
+    expect(snapshot.totalPaise).toBe(999_500 + 9_900);
   });
 });

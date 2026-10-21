@@ -117,7 +117,7 @@ export function PdpPurchasePanel({
         </p>
       )}
       <p className="mt-3 text-xs text-muted">
-        Free shipping on orders over ₹4,999. Free 30-day exchanges &amp;
+        Shipping calculated at checkout. Free 30-day exchanges &amp;
         returns.
       </p>
     </div>

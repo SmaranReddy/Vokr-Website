@@ -869,14 +869,20 @@ describe("the real path, end to end: cart → address → pricing → reserve �
 
     await addItem(identity, { variantId, quantity: 2 });
     const created = await createCheckoutSession(identity, randomUUID());
+    // Pricing charges the delivery PIN code's fee; this one is the fixtures' own.
+    await prisma.serviceablePincode.upsert({
+      where: { pincode: "411001" },
+      create: { pincode: "411001", codEligible: false, estimatedDeliveryDays: 5, shippingFeePaise: 0 },
+      update: {},
+    });
     await setCheckoutAddress(identity, created.id, {
       name: "Asha Rao",
       phone: "+919876543210",
       line1: "12 MG Road",
       line2: undefined,
-      city: "Mumbai",
+      city: "Pune",
       state: "Maharashtra",
-      pincode: "400001",
+      pincode: "411001",
       email: "asha@example.com",
     });
     const priced = await priceCheckoutSession(identity, created.id, "prepaid");

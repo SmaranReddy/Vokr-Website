@@ -1,4 +1,4 @@
-import { CheckoutState } from "@/generated/prisma/enums";
+import { CheckoutState, type CheckoutPaymentMethod as StoredPaymentMethod } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Identity } from "@/server/auth/session";
@@ -65,7 +65,8 @@ interface SessionRow {
   userId: string | null;
   guestSessionId: string | null;
   state: CheckoutState;
-  paymentMethod: CheckoutPaymentMethod | null;
+  /** As stored: the enum still has `cod` (never written now). */
+  paymentMethod: StoredPaymentMethod | null;
   pricingSnapshot: Prisma.JsonValue | null;
   expiresAt: Date | null;
   contactEmailEnc: string | null;
@@ -136,7 +137,7 @@ function toView(session: SessionRow): CheckoutSessionView {
           pincode: session.address.pincode,
         }
       : null,
-    paymentMethod: session.paymentMethod,
+    paymentMethod: session.paymentMethod === "prepaid" ? "prepaid" : null,
     pricingSnapshot: session.pricingSnapshot as PricingSnapshot | null,
     expiresAt: session.expiresAt ? session.expiresAt.toISOString() : null,
     contactEmail: session.contactEmailEnc ? decryptField(session.contactEmailEnc) : null,
@@ -332,6 +333,7 @@ export async function priceCheckoutSession(
   const snapshot = await computePricing({
     cartId: session.cartId,
     shipToState: session.address.state,
+    shipToPincode: session.address.pincode,
     paymentMethod,
     firstOrderDiscount: await isFirstOrder(
       prisma,
