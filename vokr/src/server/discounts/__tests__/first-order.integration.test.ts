@@ -34,7 +34,7 @@ import { claimFirstOrderDiscount, discountKeys } from "../first-order";
 
 const SECRET = "whsec_first_order_fixture";
 const PRICE = 699_900;
-const DISCOUNT = 69_900; // ₹699: 10% of ₹6,999 rounded down.
+const DISCOUNT = 69_990; // ₹699.90: exactly 10% of ₹6,999.
 const ACTOR = "admin:first-order-test";
 const fixtures = newCheckoutFixtures();
 const eventIds: string[] = [];
@@ -136,7 +136,7 @@ afterAll(async () => {
 });
 
 describe("first-order discount", () => {
-  it("a new customer's first order is ₹699 off, GST on the discounted price, and claims all three keys", async () => {
+  it("a new customer's first order is ₹699.90 off, GST on the discounted price, and claims all three keys", async () => {
     const customer = newCustomer();
     const { identity, sessionId, snapshot } = await pricedFor(customer, await variant());
 
@@ -144,17 +144,17 @@ describe("first-order discount", () => {
     expect(snapshot.discountPaise).toBe(DISCOUNT);
     expect(snapshot.totalPaise).toBe(PRICE - DISCOUNT);
     // (699900 - 69900) * 1800 / 11800 = 96101.69 -> 96102.
-    expect(snapshot.taxPaise).toBe(96_102);
+    expect(snapshot.taxPaise).toBe(96_088);
 
     const order = await payFor(identity, sessionId);
     expect(order).toMatchObject({
       subtotalPaise: PRICE,
       discountPaise: DISCOUNT,
       discountKind: "first_order",
-      taxPaise: 96_102,
+      taxPaise: 96_088,
       totalPaise: 630_000,
     });
-    expect(order.items).toEqual([{ lineSubtotalPaise: PRICE, lineDiscountPaise: DISCOUNT, lineTaxPaise: 96_102 }]);
+    expect(order.items).toEqual([{ lineSubtotalPaise: PRICE, lineDiscountPaise: DISCOUNT, lineTaxPaise: 96_088 }]);
     const expected = keysOf(customer).map((key) => ({ keyKind: key.kind, keyHash: key.hash }));
     expect(order.firstOrderDiscountClaims).toEqual(expected.sort((a, b) => a.keyKind.localeCompare(b.keyKind)));
   });

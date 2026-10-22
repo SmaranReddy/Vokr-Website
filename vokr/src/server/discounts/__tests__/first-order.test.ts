@@ -73,12 +73,13 @@ describe("discount keys", () => {
 
 describe("lineDiscountPaise", () => {
   it.each([
-    [699_900, 69_900], // Model x / Model 001 ₹6,999 -> ₹699 off
-    [399_900, 39_900], // Kids ₹3,999 -> ₹399
-    [99_900, 9_900], // Socks ₹999 -> ₹99
-    [29_900, 2_900], // Laces ₹299 -> ₹29
-    [1_399_800, 139_900], // two pairs: ₹1,399.80 -> ₹1,399
-  ])("10%% of %i paise is %i, rounded down to whole rupees", (subtotal, expected) => {
+    [699_900, 69_990], // Model x / Model 001 ₹6,999 -> ₹699.90 off
+    [399_900, 39_990], // Kids ₹3,999 -> ₹399.90
+    [99_900, 9_990], // Socks ₹999 -> ₹99.90
+    [29_900, 2_990], // Laces ₹299 -> ₹29.90
+    [1_399_800, 139_980], // two pairs -> ₹1,399.80
+    [12_345, 1_234], // only a fraction of a paisa is ever dropped
+  ])("10%% of %i paise is %i, to the paisa (no rounding)", (subtotal, expected) => {
     expect(lineDiscountPaise(subtotal, 1000)).toBe(expected);
   });
 

@@ -14,9 +14,8 @@ import { decryptField, keyedLookupHash } from "@/server/checkout/crypto";
  * refunded, returned or RTO releases its claims (`transitionOrder`) and the
  * customer qualifies again. Deleting an account never releases them.
  *
- * Not applied to shipping. The amount is 10% per line rounded DOWN to
- * whole rupees (₹6,999 → ₹699 off): the store shows and charges whole
- * rupees, and the owner asked for ₹699, not ₹700.
+ * Not applied to shipping. The amount is exactly 10% per line, to the
+ * paisa (₹6,999 → ₹699.90 off): the owner asked for no rounding (22 Oct).
  */
 export const FIRST_ORDER_DISCOUNT_KIND = "first_order" as const;
 export const FIRST_ORDER_DISCOUNT_BPS = 1000;
@@ -125,9 +124,10 @@ export async function releaseFirstOrderDiscount(
 }
 
 /**
- * One line's share, rounded DOWN to whole rupees per line (10% of ₹6,999 is
- * ₹699 off). The order discount is the sum of these, never a rounded total.
+ * One line's share, exact to the paisa (10% of ₹6,999 is ₹699.90 off). Only
+ * a fraction of a paisa is dropped, which whole-rupee prices never produce.
+ * The order discount is the sum of these.
  */
 export function lineDiscountPaise(lineSubtotalPaise: number, rateBps: number): number {
-  return Math.floor((lineSubtotalPaise * rateBps) / 10_000 / 100) * 100;
+  return Math.floor((lineSubtotalPaise * rateBps) / 10_000);
 }
