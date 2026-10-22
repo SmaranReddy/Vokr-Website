@@ -122,8 +122,9 @@ export default function TermsPage() {
       <p>
         <strong>15. Grievance Redressal.</strong> In accordance with the
         Consumer Protection (E-Commerce) Rules, 2020, any complaints or
-        concerns may be addressed to our Grievance Officer at{" "}
-        <a href="mailto:grievance@vokr.shop">grievance@vokr.shop</a>. We aim
+        concerns may be addressed to our Grievance Officer, Imroze Shaik
+        Baquar (Founder), at{" "}
+        <a href="mailto:support@vokr.shop">support@vokr.shop</a>. We aim
         to acknowledge complaints within 48 hours and resolve them within 30
         days.
       </p>
@@ -135,7 +136,7 @@ export default function TermsPage() {
       </p>
       <p>
         <strong>17. Contact.</strong> Questions about these Terms? Reach us
-        at <a href="mailto:legal@vokr.shop">legal@vokr.shop</a> or through
+        at <a href="mailto:support@vokr.shop">support@vokr.shop</a> or through
         our <Link href="/support-contact">Contact page</Link>.
       </p>
     </LegalPageShell>
