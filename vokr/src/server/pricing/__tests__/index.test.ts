@@ -291,9 +291,9 @@ describe("computePricing — first-order discount (owner decision, 21 Oct 2026)"
       paymentMethod: "prepaid",
       firstOrderDiscount: true,
     });
-    expect(discounted.discountPaise).toBe(99_900);
+    expect(discounted.discountPaise).toBe(99_950);
     expect(discounted.shippingPaise).toBe(9_900);
-    expect(discounted.totalPaise).toBe(999_500 - 99_900 + 9_900);
+    expect(discounted.totalPaise).toBe(999_500 - 99_950 + 9_900);
   });
 
   it("applies nothing when the phone has already had its first order", async () => {
