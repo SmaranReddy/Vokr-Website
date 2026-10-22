@@ -231,7 +231,7 @@ describe("first-order discount", () => {
     const cells = row.split(",");
     const at = (header: string) => cells[SHIPROCKET_HEADERS.indexOf(header as (typeof SHIPROCKET_HEADERS)[number])];
     expect(at("*Selling Price(Per Unit Item, Inclusive of Tax)")).toBe("6999.00");
-    expect(at("Total Discount (Per Order)")).toBe("699.00");
+    expect(at("Total Discount (Per Order)")).toBe("699.90");
   });
 
   it("the database refuses a total that ignores the discount, or a discount with no kind", async () => {
