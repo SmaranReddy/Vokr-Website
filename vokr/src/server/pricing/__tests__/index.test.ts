@@ -251,3 +251,78 @@ describe("computePricing (plan §5 Phase 6, task 5)", () => {
     ).rejects.toThrow(ConflictError);
   });
 });
+
+describe("computePricing — first-order discount (owner decision, 21 Oct 2026)", () => {
+  it("takes exactly 10% off each line, to the paisa, and charges GST on the discounted lines", async () => {
+    cartItemFindManyMock.mockResolvedValue([
+      { variantId: "variant-shoes", quantity: 1 },
+      { variantId: "variant-laces", quantity: 2 },
+    ]);
+    listProductsMock.mockResolvedValue(fixtureCatalog());
+
+    const snapshot = await computePricing({
+      cartId: "cart-1",
+      shipToState: "Karnataka",
+      paymentMethod: "prepaid",
+      firstOrderDiscount: true,
+    });
+
+    const shoes = snapshot.lines.find((l) => l.variantId === "variant-shoes")!;
+    // 10% of ₹9,995 = ₹999.50, not rounded.
+    expect(shoes.lineDiscountPaise).toBe(99_950);
+    expect(shoes.lineSubtotalPaise).toBe(999_500);
+    // (999500 - 99950) * 1800 / 11800 = 137219.49 -> 137219, all IGST (inter-state).
+    expect(shoes.lineTaxPaise).toBe(137_219);
+    expect(shoes.igstPaise).toBe(137_219);
+
+    const laces = snapshot.lines.find((l) => l.variantId === "variant-laces")!;
+    // 10% of ₹590 = ₹59.
+    expect(laces.lineDiscountPaise).toBe(5_900);
+    // 53100 * 500 / 10500 = 2528.57 -> 2529.
+    expect(laces.lineTaxPaise).toBe(2_529);
+
+    expect(snapshot.discount).toEqual({ kind: "first_order", rateBps: 1000 });
+    expect(snapshot.discountPaise).toBe(105_850);
+    expect(snapshot.taxPaise).toBe(137_219 + 2_529);
+    expect(snapshot.shippingPaise).toBe(0);
+    expect(snapshot.totalPaise).toBe(999_500 + 59_000 - 105_850);
+  });
+
+  it("judges free shipping on the subtotal after the discount, and never discounts shipping or the COD fee", async () => {
+    const catalog = fixtureCatalog();
+    catalog[0]!.variants[0]!.pricePaise = 510_000; // ₹5,100: over ₹4,999, but ₹4,590 after 10%.
+    cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-shoes", quantity: 1 }]);
+    listProductsMock.mockResolvedValue(catalog);
+
+    const discounted = await computePricing({
+      cartId: "cart-1",
+      shipToState: "Maharashtra",
+      paymentMethod: "cod",
+      firstOrderDiscount: true,
+    });
+    expect(discounted.discountPaise).toBe(51_000);
+    expect(discounted.shippingPaise).toBe(9_900);
+    expect(discounted.codFeePaise).toBe(4_900);
+    expect(discounted.totalPaise).toBe(510_000 - 51_000 + 9_900 + 4_900);
+
+    const full = await computePricing({ cartId: "cart-1", shipToState: "Maharashtra", paymentMethod: "cod" });
+    expect(full.shippingPaise).toBe(0);
+  });
+
+  it("applies nothing when the phone has already had its first order", async () => {
+    cartItemFindManyMock.mockResolvedValue([{ variantId: "variant-shoes", quantity: 1 }]);
+    listProductsMock.mockResolvedValue(fixtureCatalog());
+
+    const snapshot = await computePricing({
+      cartId: "cart-1",
+      shipToState: "Maharashtra",
+      paymentMethod: "prepaid",
+      firstOrderDiscount: false,
+    });
+    expect(snapshot.discount).toBeNull();
+    expect(snapshot.discountPaise).toBe(0);
+    expect(snapshot.lines[0]!.lineDiscountPaise).toBe(0);
+    expect(snapshot.lines[0]!.lineTaxPaise).toBe(152_466);
+    expect(snapshot.totalPaise).toBe(999_500);
+  });
+});

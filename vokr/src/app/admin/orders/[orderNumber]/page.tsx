@@ -112,6 +112,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ ord
         </Table>
         <dl className="mt-3 grid max-w-xs grid-cols-[1fr_auto] gap-y-1 text-sm">
           <Row label="Subtotal">{formatPaiseAsRupees(order.subtotalPaise)}</Row>
+          {order.discountPaise > 0 && (
+            <Row label="First order discount">−{formatPaiseAsRupees(order.discountPaise)}</Row>
+          )}
           <Row label="Tax (incl.)">{formatPaiseAsRupees(order.taxPaise)}</Row>
           <Row label="Shipping">{formatPaiseAsRupees(order.shippingPaise)}</Row>
           <Row label="COD fee">{formatPaiseAsRupees(order.codFeePaise)}</Row>

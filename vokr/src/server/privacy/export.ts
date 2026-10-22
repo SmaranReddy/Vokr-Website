@@ -74,6 +74,7 @@ export async function exportAccountData(userId: string, now: Date = new Date()) 
         shipPincode: true,
         shipCountry: true,
         subtotalPaise: true,
+        discountPaise: true,
         taxPaise: true,
         shippingPaise: true,
         codFeePaise: true,
@@ -82,7 +83,7 @@ export async function exportAccountData(userId: string, now: Date = new Date()) 
         awb: true,
         shippedAt: true,
         items: {
-          select: { sku: true, productName: true, sizeLabel: true, colorway: true, quantity: true, unitPricePaise: true, lineSubtotalPaise: true },
+          select: { sku: true, productName: true, sizeLabel: true, colorway: true, quantity: true, unitPricePaise: true, lineSubtotalPaise: true, lineDiscountPaise: true },
           orderBy: { id: "asc" },
         },
         history: { select: { toStatus: true, createdAt: true }, orderBy: { createdAt: "asc" } },
@@ -156,6 +157,7 @@ export async function exportAccountData(userId: string, now: Date = new Date()) 
       items: order.items,
       totals: {
         subtotalPaise: order.subtotalPaise,
+        discountPaise: order.discountPaise,
         taxPaise: order.taxPaise,
         shippingPaise: order.shippingPaise,
         codFeePaise: order.codFeePaise,

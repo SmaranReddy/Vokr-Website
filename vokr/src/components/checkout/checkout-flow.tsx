@@ -566,6 +566,12 @@ export function CheckoutFlow() {
               <span className="text-muted">Subtotal (GST-inclusive)</span>
               <span>{formatPaiseAsRupees(snapshot.subtotalPaise)}</span>
             </div>
+            {(snapshot.discountPaise ?? 0) > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted">First order discount (10%)</span>
+                <span>−{formatPaiseAsRupees(snapshot.discountPaise ?? 0)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-muted">Included GST</span>
               <span>{formatPaiseAsRupees(snapshot.taxPaise)}</span>

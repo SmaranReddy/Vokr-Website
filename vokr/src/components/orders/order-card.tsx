@@ -53,6 +53,12 @@ export function OrderCard({ order }: { order: OrderView }) {
           </li>
         ))}
       </ul>
+      {order.discountPaise > 0 && (
+        <p className="mt-1 flex justify-between text-sm">
+          <span>First order discount (10%)</span>
+          <span>−{formatPaiseAsRupees(order.discountPaise)}</span>
+        </p>
+      )}
       <p className="mt-3 flex justify-between border-t border-border pt-2 text-sm font-semibold">
         <span>Total</span>
         <span>{formatPaiseAsRupees(order.totalPaise)}</span>

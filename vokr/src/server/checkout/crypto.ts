@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
 import { requireServerEnv } from "@/lib/env";
 
@@ -19,6 +19,7 @@ const IV_LENGTH_BYTES = 12;
 const KEY_LENGTH_BYTES = 32;
 
 let cachedKey: Buffer | null = null;
+let cachedLookupKey: Buffer | null = null;
 
 function getKey(): Buffer {
   if (cachedKey) {
@@ -48,6 +49,7 @@ function getKey(): Buffer {
 /** Test-only: forces the next call to re-read `ADDRESS_ENCRYPTION_KEY`. */
 export function __resetCryptoKeyCacheForTests(): void {
   cachedKey = null;
+  cachedLookupKey = null;
 }
 
 export function encryptField(plaintext: string): string {
@@ -88,4 +90,22 @@ export function decryptField(token: string): string {
     decipher.final(),
   ]);
   return plaintext.toString("utf8");
+}
+
+/**
+ * A stable, keyed lookup value for "has this customer ordered before?"
+ * checks (first-order discount: phone, email, name + address). The caller
+ * prefixes the value with its kind. `encryptField` can't serve: its random
+ * IV makes every ciphertext different. A plain hash can't either: ~10^10
+ * Indian mobiles are trivially enumerable. So an HMAC under a key derived
+ * (HKDF, own label) from `ADDRESS_ENCRYPTION_KEY` — rotating that key
+ * resets every lookup value.
+ */
+export function keyedLookupHash(value: string): string {
+  if (!cachedLookupKey) {
+    cachedLookupKey = Buffer.from(
+      hkdfSync("sha256", getKey(), Buffer.alloc(0), "vokr:customer-lookup:v1", 32),
+    );
+  }
+  return createHmac("sha256", cachedLookupKey).update(value, "utf8").digest("hex");
 }

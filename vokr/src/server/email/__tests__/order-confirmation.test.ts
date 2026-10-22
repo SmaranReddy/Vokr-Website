@@ -8,6 +8,7 @@ function data(overrides: Partial<OrderConfirmationData> = {}): OrderConfirmation
     placedAt: new Date("2026-10-16T10:00:00Z"),
     items: [{ productName: "Model x", sizeLabel: "IN 8", colorway: "Black", quantity: 1, lineSubtotalPaise: 999_500 }],
     subtotalPaise: 999_500,
+    discountPaise: 0,
     shippingPaise: 0,
     codFeePaise: 0,
     totalPaise: 999_500,
@@ -38,6 +39,15 @@ describe("renderOrderConfirmation", () => {
     expect(text).toContain("IGST (included)");
     expect(text).not.toContain("CGST");
     expect(text).toContain("COD handling fee");
+  });
+
+  it("a first-order discount gets its own line between the subtotal and the GST", () => {
+    const { text, html } = renderOrderConfirmation(data({ discountPaise: 100_000, totalPaise: 899_500 }));
+    expect(text).toContain("First order discount (10%): −₹1,000");
+    expect(text.indexOf("First order discount")).toBeLessThan(text.indexOf("CGST (included)"));
+    expect(text).toContain("Total paid: ₹8,995");
+    expect(html).toContain("−₹1,000");
+    expect(renderOrderConfirmation(data()).text).not.toContain("discount");
   });
 
   it("escapes every value in the HTML part", () => {

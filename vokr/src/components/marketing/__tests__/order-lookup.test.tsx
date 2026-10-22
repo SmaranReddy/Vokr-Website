@@ -22,6 +22,7 @@ function order(overrides: Partial<GuestOrderView> = {}): GuestOrderView {
     ],
     items: [{ productName: "Model x", sizeLabel: "IN 8", colorway: "Black", quantity: 1, lineSubtotalPaise: 999_500 }],
     subtotalPaise: 999_500,
+    discountPaise: 0,
     shippingPaise: 0,
     codFeePaise: 0,
     totalPaise: 999_500,
@@ -67,6 +68,25 @@ describe("OrderLookup", () => {
     expect(current.getAttribute("aria-current")).toBe("step");
     expect(screen.getByText(/Model x · IN 8 · Qty 1/)).toBeTruthy();
     expect(screen.getByText(/Shipping to Pune, Maharashtra 411001/)).toBeTruthy();
+  });
+
+  it("shows a first-order discount line only when the order had one", async () => {
+    reply = { status: 200, body: { order: order({ discountPaise: 100_000, totalPaise: 899_500 }) } };
+    render(<OrderLookup />);
+    await submit();
+
+    expect(await screen.findByText("First order discount (10%)")).toBeTruthy();
+    expect(screen.getByText("−₹1,000")).toBeTruthy();
+    expect(screen.getByText("₹8,995")).toBeTruthy();
+  });
+
+  it("an order without a discount has no discount line", async () => {
+    reply = { status: 200, body: { order: order() } };
+    render(<OrderLookup />);
+    await submit();
+
+    expect(await screen.findByText("VK-10234")).toBeTruthy();
+    expect(screen.queryByText(/First order discount/)).toBeNull();
   });
 
   it("an order that left the tracker says what happened instead", async () => {
