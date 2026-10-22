@@ -70,7 +70,7 @@ export const PRODUCTS: ProductSeed[] = [
     name: "Model x",
     description: "Vokr's flagship sneaker.",
     category: "footwear",
-    pricePaise: 999_500,
+    pricePaise: 699_900,
     variants: withIds(
       adultSizeVariants("VK-MX", "WHTBLK", "White & Black", 900),
       [
@@ -91,7 +91,7 @@ export const PRODUCTS: ProductSeed[] = [
     name: "Model 001",
     description: "Vokr's everyday sneaker.",
     category: "footwear",
-    pricePaise: 899_500,
+    pricePaise: 699_900,
     variants: withIds(adultSizeVariants("VK-M001", "STD", "Standard", 850), [
       "01a07f95-a22f-74f8-bc6c-e3a295ec33ec",
       "01a07f95-a22f-74f8-bc6c-e3a3c5b3c2a2",
@@ -109,7 +109,7 @@ export const PRODUCTS: ProductSeed[] = [
     name: "Kids Model 123",
     description: "Vokr's kids' sneaker. Sold as an adult-purchased item only.",
     category: "kids-footwear",
-    pricePaise: 599_500,
+    pricePaise: 399_900,
     variants: withIds(
       IN_KIDS_SIZES.map((size, index) => ({
         sku: `VK-KM123-STD-IN${String(size).padStart(2, "0")}`,
@@ -135,7 +135,7 @@ export const PRODUCTS: ProductSeed[] = [
     name: "Vokr Socks",
     description: "Vokr's 3-pack of socks.",
     category: "accessories",
-    pricePaise: 49_500,
+    pricePaise: 99_900,
     variants: withIds(
       [
         {
@@ -173,7 +173,7 @@ export const PRODUCTS: ProductSeed[] = [
     name: "Stretch Laces",
     description: "Vokr's stretch laces.",
     category: "accessories",
-    pricePaise: 29_500,
+    pricePaise: 29_900,
     variants: withIds(
       [
         {

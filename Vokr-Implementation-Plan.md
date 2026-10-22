@@ -780,11 +780,13 @@ gift-card purchasing, redemption or ledger functionality is built.
 
 | # | Product | Proposed slug | Legacy `data-name` | PDP `<h1>` | Price | Variant axis |
 |---|---|---|---|---|---|---|
-| 1 | Model x | `model-x` | `Model x` | Model x | ₹9,995 | IN 4–11 (8 sizes) × colorway |
-| 2 | Model 001 | `model-001` | `Model 001` | Model 001 | ₹8,995 | IN 4–11 (8 sizes) |
-| 3 | Kids Model 123 | `kids-model-123` | `Kids Model 123` | Kids Model 123 | ₹5,995 | IN 10, 11, 12, 13, 1, 2, 3 (7 sizes) |
-| 4 | Vokr Socks | `socks` | `Socks (3-pack)` | Vokr Socks | ₹495 | S/M, M/L, L/XL (3) |
-| 5 | Stretch Laces | `stretch-laces` | `Stretch Laces` | Stretch Laces | ₹295 | One Size (1) |
+| 1 | Model x | `model-x` | `Model x` | Model x | ₹6,999 | IN 4–11 (8 sizes) × colorway |
+| 2 | Model 001 | `model-001` | `Model 001` | Model 001 | ₹6,999 | IN 4–11 (8 sizes) |
+| 3 | Kids Model 123 | `kids-model-123` | `Kids Model 123` | Kids Model 123 | ₹3,999 | IN 10, 11, 12, 13, 1, 2, 3 (7 sizes) |
+| 4 | Vokr Socks | `socks` | `Socks (3-pack)` | Vokr Socks | ₹999 | S/M, M/L, L/XL (3) |
+| 5 | Stretch Laces | `stretch-laces` | `Stretch Laces` | Stretch Laces | ₹299 | One Size (1) |
+
+**Prices revised 21 Oct 2026 by the owner** (GST-inclusive, as before). They replace the legacy ₹9,995 / ₹8,995 / ₹5,995 / ₹495 / ₹295. The Kids Model is "launching soon" and stays unpurchasable. The owner also announced a 10% discount on a phone number's first order; it is implemented in PR #63.
 
 ~~Gift Card (`gift-card`, ₹1,000/2,000/5,000/10,000, 4 denominations)~~ —
 **deferred, D1.** Not seeded, not displayed. Do not add it to the seed or
