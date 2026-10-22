@@ -143,7 +143,7 @@ describe("first-order discount", () => {
     expect(snapshot.discount).toEqual({ kind: "first_order", rateBps: 1000 });
     expect(snapshot.discountPaise).toBe(DISCOUNT);
     expect(snapshot.totalPaise).toBe(PRICE - DISCOUNT);
-    // (699900 - 69900) * 1800 / 11800 = 96101.69 -> 96102.
+    // (699900 - 69990) * 1800 / 11800 = 96087.97 -> 96088.
     expect(snapshot.taxPaise).toBe(96_088);
 
     const order = await payFor(identity, sessionId);
@@ -152,7 +152,7 @@ describe("first-order discount", () => {
       discountPaise: DISCOUNT,
       discountKind: "first_order",
       taxPaise: 96_088,
-      totalPaise: 630_000,
+      totalPaise: PRICE - DISCOUNT, // ₹6,299.10
     });
     expect(order.items).toEqual([{ lineSubtotalPaise: PRICE, lineDiscountPaise: DISCOUNT, lineTaxPaise: 96_088 }]);
     const expected = keysOf(customer).map((key) => ({ keyKind: key.kind, keyHash: key.hash }));
