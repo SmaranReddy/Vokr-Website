@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { CheckoutState } from "@/generated/prisma/enums";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -21,9 +21,9 @@ import {
 /**
  * Requires a running Postgres with migrations applied, and the Phase 6
  * local-test env fixtures in `.env.local` (`ADDRESS_ENCRYPTION_KEY`,
- * `CHECKOUT_SELLER_STATE`, `CHECKOUT_FLAT_SHIPPING_FEE_PAISE`,
- * `CHECKOUT_COD_HANDLING_FEE_PAISE`) — see README.md and that file's own
- * comment: these are test fixtures, not the real answers to D3 or D11.
+ * `CHECKOUT_SELLER_STATE`) — see README.md and that file's own comment:
+ * a test fixture, not the real answer to D3. Shipping fees come from
+ * `serviceable_pincodes`, seeded below.
  * Run via `npm run test:integration`.
  */
 
@@ -43,6 +43,21 @@ async function guestIdentity(): Promise<Identity> {
   createdGuestSessionIds.push(guestSessionId);
   return { type: "guest", guestSessionId };
 }
+
+const SHIPPING_FEE_PAISE = 9_900;
+
+/** The delivery PIN code needs a fee on file, or pricing refuses it. */
+beforeAll(async () => {
+  await prisma.serviceablePincode.upsert({
+    where: { pincode: "400001" },
+    create: { pincode: "400001", codEligible: false, estimatedDeliveryDays: 4, shippingFeePaise: SHIPPING_FEE_PAISE },
+    update: { shippingFeePaise: SHIPPING_FEE_PAISE },
+  });
+});
+
+afterAll(async () => {
+  await prisma.serviceablePincode.deleteMany({ where: { pincode: "400001" } });
+});
 
 const validAddress = {
   name: "Asha Rao",
@@ -219,12 +234,14 @@ describe("checkout service (plan §5 Phase 6)", () => {
     const session = await createCheckoutSession(identity, randomUUID());
     await setCheckoutAddress(identity, session.id, validAddress);
 
-    const priced = await priceCheckoutSession(identity, session.id, "cod");
+    const priced = await priceCheckoutSession(identity, session.id, "prepaid");
 
     expect(priced.state).toBe(CheckoutState.priced);
-    expect(priced.paymentMethod).toBe("cod");
+    expect(priced.paymentMethod).toBe("prepaid");
     expect(priced.pricingSnapshot).not.toBeNull();
-    expect(priced.pricingSnapshot!.codFeePaise).toBeGreaterThan(0);
+    // Shipping is the delivery PIN code's fee, on every order; no COD fee exists.
+    expect(priced.pricingSnapshot!.shippingPaise).toBe(SHIPPING_FEE_PAISE);
+    expect(priced.pricingSnapshot!.codFeePaise).toBe(0);
     expect(priced.expiresAt).not.toBeNull();
 
     const row = await prisma.checkoutSession.findUniqueOrThrow({

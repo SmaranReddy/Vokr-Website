@@ -206,12 +206,11 @@ export function CartDrawer() {
               <span>{formatPaiseAsRupees(cart.totalPaise)}</span>
             </div>
 
-            {/* `.cart-shipping-note` — approved legacy copy, restored verbatim. The
-                GST line above it is additional detail Phase 5 can now show,
-                not a replacement: shipping is still resolved at checkout. */}
+            {/* `.cart-shipping-note` — legacy copy without its free-shipping
+                offer (owner decision, 21 Oct 2026: shipping is always charged,
+                by PIN code). */}
             <p className="mt-3 text-xs leading-relaxed text-muted">
-              Free shipping on orders over &#8377;4,999. Taxes and final
-              shipping calculated at checkout.
+              Taxes and shipping calculated at checkout.
             </p>
 
             {/* Checkout and payment are not production-ready (§2A.6 row L1):

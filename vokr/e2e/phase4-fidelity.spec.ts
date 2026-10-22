@@ -62,6 +62,11 @@ const PDP_DEVIATIONS: Deviation[] = [
     legacy: "Add to Cart Free shipping",
     migrated: `Add to Cart ${ORDERING_UNAVAILABLE_MESSAGE} Free shipping`,
   },
+  // No free shipping: always charged, by PIN code (owner decision, 21 Oct 2026).
+  {
+    legacy: "Free shipping on orders over ₹4,999. Free 30-day",
+    migrated: "Shipping calculated at checkout. Free 30-day",
+  },
   REVIEWS_DEVIATION,
 ];
 
@@ -182,6 +187,24 @@ const CASES: FidelityCase[] = [
     legacyFile: "terms.html",
     deviations: [
       { legacy: "confirmation email/SMS with", migrated: "confirmation email with" },
+      // No COD, and shipping always charged by PIN code (owner decisions, 21 Oct 2026).
+      {
+        legacy:
+          "Cash on Delivery (COD) is available on eligible orders and PIN codes, subject to a nominal COD handling fee shown at checkout. Prepaid orders are prioritized for faster dispatch.",
+        migrated: "We do not offer Cash on Delivery (COD).",
+      },
+      {
+        legacy: "you can check this at checkout. Delivery timelines",
+        migrated:
+          "you can check this at checkout. Shipping charges depend on your PIN code and are shown at checkout. Delivery timelines",
+      },
+      {
+        legacy:
+          " Refunds for COD orders are issued via bank transfer or Vokr store credit, as selected by you at the time of the return request.",
+        migrated: "",
+      },
+      { legacy: "placing fraudulent COD orders", migrated: "placing fraudulent orders" },
+      { legacy: "repeated COD refusals", migrated: "repeated refused deliveries" },
     ],
   },
   {
@@ -193,6 +216,9 @@ const CASES: FidelityCase[] = [
         legacy: "marketing emails or SMS at any time",
         migrated: "marketing emails at any time",
       },
+      // No COD (owner decision, 21 Oct 2026).
+      { legacy: "size and fit preferences, COD vs. prepaid preference", migrated: "size and fit preferences" },
+      { legacy: "including COD verification, shipping, and returns", migrated: "including shipping and returns" },
     ],
   },
   {
@@ -203,6 +229,14 @@ const CASES: FidelityCase[] = [
   {
     route: "/support-exchange-returns",
     legacyFile: "support-exchange-returns.html",
+    deviations: [
+      // No COD (owner decision, 21 Oct 2026).
+      {
+        legacy:
+          "Refunds for prepaid orders go back to your original payment method within 5-7 business days; refunds for Cash on Delivery (COD) orders are sent via bank transfer or Vokr store credit — your choice.",
+        migrated: "Refunds go back to your original payment method within 5-7 business days.",
+      },
+    ],
   },
   {
     route: "/support-faq",

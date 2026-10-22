@@ -28,7 +28,7 @@ export default function PrivacyPolicyPage() {
         billing address, PIN code
         <br />
         — Order information: items purchased, order history, size and fit
-        preferences, COD vs. prepaid preference
+        preferences
         <br />
         — Payment information: processed securely by our payment partners
         (UPI, cards, net banking); we do not store full card numbers
@@ -41,8 +41,7 @@ export default function PrivacyPolicyPage() {
         information we collect to:
       </p>
       <p>
-        — Process and fulfill your orders, including COD verification,
-        shipping, and returns
+        — Process and fulfill your orders, including shipping and returns
         <br />
         — Check courier serviceability at your PIN code and provide accurate
         delivery estimates

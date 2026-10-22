@@ -44,11 +44,9 @@ jobs:
       DATABASE_URL: "postgresql://vokr_ci:vokr_ci@localhost:5432/vokr_ci"
       NEXT_PUBLIC_SITE_URL: "https://vokr.shop"
       # Test fixtures only — the same values as the local `.env.local`
-      # fixtures, and NOT the answers to decisions D3 (seller state) or D11
-      # (fees). The address-encryption key is generated per run below.
+      # fixtures, and NOT the answer to decision D3 (seller state). The
+      # address-encryption key is generated per run below.
       CHECKOUT_SELLER_STATE: "Karnataka"
-      CHECKOUT_FLAT_SHIPPING_FEE_PAISE: "9900"
-      CHECKOUT_COD_HANDLING_FEE_PAISE: "4900"
     steps:
       - name: Checkout
         uses: actions/checkout@v5

@@ -43,7 +43,7 @@ export const EXCHANGE_RETURNS_STEPS = [
   },
   {
     title: "Choose a new size or a refund",
-    body: "Exchanges ship out as soon as we receive your original pair. Refunds for prepaid orders go back to your original payment method within 5-7 business days; refunds for Cash on Delivery (COD) orders are sent via bank transfer or Vokr store credit — your choice.",
+    body: "Exchanges ship out as soon as we receive your original pair. Refunds go back to your original payment method within 5-7 business days.",
   },
   {
     title: "Print your free label",

@@ -47,8 +47,9 @@ export const addressBodySchema = z
 
 export type AddressBody = z.infer<typeof addressBodySchema>;
 
+/** Online payment only: Vokr does not offer cash on delivery (owner decision, 21 Oct 2026). */
 export const pricingQuerySchema = z.object({
-  paymentMethod: z.enum(["prepaid", "cod"]).default("prepaid"),
+  paymentMethod: z.enum(["prepaid"]).default("prepaid"),
 });
 
 export const serviceabilityQuerySchema = z.object({

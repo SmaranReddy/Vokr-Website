@@ -50,15 +50,13 @@ export default function TermsPage() {
       <p>
         <strong>5. Payment Methods.</strong> We accept UPI, major
         debit/credit cards, net banking, and popular wallets through our
-        secure payment partners. <strong>Cash on Delivery (COD)</strong> is
-        available on eligible orders and PIN codes, subject to a nominal COD
-        handling fee shown at checkout. Prepaid orders are prioritized for
-        faster dispatch.
+        secure payment partners. We do not offer Cash on Delivery (COD).
       </p>
       <p>
         <strong>6. Shipping &amp; Serviceability.</strong> We currently ship
         across India, subject to courier serviceability at your PIN code —
-        you can check this at checkout. Delivery timelines shown (typically
+        you can check this at checkout. Shipping charges depend on your PIN
+        code and are shown at checkout. Delivery timelines shown (typically
         3–7 business days) are estimates and may be affected by courier
         delays, weather, regional restrictions, or circumstances beyond our
         control. Metro cities are usually serviced faster than remote or
@@ -77,9 +75,7 @@ export default function TermsPage() {
       <p>
         <strong>8. Refunds.</strong> Refunds for prepaid orders are credited
         to the original payment method within 5–7 business days of the
-        returned item passing quality check. Refunds for COD orders are
-        issued via bank transfer or Vokr store credit, as selected by you at
-        the time of the return request.
+        returned item passing quality check.
       </p>
       <p>
         <strong>9. Product Use &amp; Warranty.</strong> Vokr products are
@@ -103,9 +99,9 @@ export default function TermsPage() {
       <p>
         <strong>12. Prohibited Use.</strong> You agree not to misuse this
         site, including attempting unauthorized access, placing fraudulent
-        COD orders, or using the site for any unlawful purpose. Vokr
-        reserves the right to blacklist accounts or numbers associated with
-        repeated COD refusals or fraudulent activity.
+        orders, or using the site for any unlawful purpose. Vokr reserves
+        the right to blacklist accounts or numbers associated with repeated
+        refused deliveries or fraudulent activity.
       </p>
       <p>
         <strong>13. Limitation of Liability.</strong> To the maximum extent

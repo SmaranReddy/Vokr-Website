@@ -8,14 +8,10 @@ import {
   lineDiscountPaise as computeLineDiscount,
 } from "@/server/discounts/first-order";
 
-import {
-  FREE_SHIPPING_THRESHOLD_PAISE,
-  getCodHandlingFeePaise,
-  getFlatShippingFeePaise,
-  getSellerState,
-} from "./config";
+import { getSellerState } from "./config";
 
-export type CheckoutPaymentMethod = "prepaid" | "cod";
+/** Online payment only — Vokr does not offer cash on delivery (owner decision, 21 Oct 2026). */
+export type CheckoutPaymentMethod = "prepaid";
 
 export interface PricingLine {
   variantId: string;
@@ -141,6 +137,8 @@ function buildLine(
 export interface ComputePricingParams {
   cartId: string;
   shipToState: string;
+  /** Delivery PIN code: shipping is that PIN code's fee. */
+  shipToPincode: string;
   paymentMethod: CheckoutPaymentMethod;
   /** The ship-to phone has no first-order claim yet (`server/discounts/first-order.ts`); the caller decides. */
   firstOrderDiscount?: boolean;
@@ -159,20 +157,30 @@ export interface ComputePricingParams {
 export async function computePricing({
   cartId,
   shipToState,
+  shipToPincode,
   paymentMethod,
   firstOrderDiscount = false,
 }: ComputePricingParams): Promise<PricingSnapshot> {
-  const [items, catalog] = await Promise.all([
+  const [items, catalog, pincode] = await Promise.all([
     prisma.cartItem.findMany({
       where: { cartId },
       orderBy: { addedAt: "asc" },
       select: { variantId: true, quantity: true },
     }),
     listProducts(),
+    prisma.serviceablePincode.findUnique({
+      where: { pincode: shipToPincode },
+      select: { shippingFeePaise: true },
+    }),
   ]);
 
   if (items.length === 0) {
     throw new ValidationError("Cannot price an empty cart.");
+  }
+  // No fee on file (rate card not loaded, or a PIN code we don't deliver
+  // to) refuses pricing rather than charging a guessed amount.
+  if (pincode?.shippingFeePaise == null) {
+    throw new ValidationError("We can't calculate shipping to this PIN code yet.");
   }
 
   const sellerState = getSellerState();
@@ -201,10 +209,9 @@ export async function computePricing({
   const subtotalPaise = lines.reduce((sum, line) => sum + line.lineSubtotalPaise, 0);
   const discountPaise = lines.reduce((sum, line) => sum + (line.lineDiscountPaise ?? 0), 0);
   const taxPaise = lines.reduce((sum, line) => sum + line.lineTaxPaise, 0);
-  // Judged after the discount: the threshold is on what the goods cost.
-  const shippingPaise =
-    subtotalPaise - discountPaise > FREE_SHIPPING_THRESHOLD_PAISE ? 0 : getFlatShippingFeePaise();
-  const codFeePaise = paymentMethod === "cod" ? getCodHandlingFeePaise() : 0;
+  const shippingPaise = pincode.shippingFeePaise;
+  // Kept in the snapshot and on orders for their shape; always 0 without COD.
+  const codFeePaise = 0;
   const totalPaise = subtotalPaise - discountPaise + shippingPaise + codFeePaise;
 
   const computedAt = new Date();

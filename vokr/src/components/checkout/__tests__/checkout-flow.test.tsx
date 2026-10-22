@@ -140,13 +140,13 @@ describe("continuing to payment", () => {
     expect(screen.queryByRole("button", { name: /continue to payment/i })).toBeNull();
   });
 
-  it("does not offer to continue with Cash on Delivery, and says why", async () => {
-    routes.session = [{ status: 200, body: { checkoutSession: priced({ paymentMethod: "cod" }) } }];
+  it("offers online payment only: no Cash on Delivery option or fee", async () => {
+    routes.session = [{ status: 200, body: { checkoutSession: priced() } }];
     render(<CheckoutFlow />);
 
-    const button = await screen.findByRole("button", { name: /continue to payment/i });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/cash on delivery isn't available yet/i)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /continue to payment/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /cash on delivery/i })).toBeNull();
+    expect(screen.queryByText(/cod/i)).toBeNull();
   });
 });
 

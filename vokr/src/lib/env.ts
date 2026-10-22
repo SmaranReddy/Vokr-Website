@@ -61,13 +61,6 @@ const serverSchema = z.object({
   // `src/lib/gst-states.ts`'s names) — blocked on decision D3 (legal
   // entity + GST registration). Do not set a placeholder value.
   CHECKOUT_SELLER_STATE: optionalString,
-  // Flat shipping fee (paise) below the ₹4,999 free-shipping threshold,
-  // and the COD handling fee (paise) — published nowhere yet as an exact
-  // figure (terms.html and the cart/PDP copy state only the ₹4,999
-  // threshold and that a COD fee applies, never an amount). Recorded as
-  // decision D11, Vokr-Implementation-Plan.md §0.3.
-  CHECKOUT_FLAT_SHIPPING_FEE_PAISE: optionalString,
-  CHECKOUT_COD_HANDLING_FEE_PAISE: optionalString,
 
   // Phase 8: who may call `POST /api/jobs/maintenance` (Cloud Scheduler
   // job 3). Not secrets — the OIDC token's audience (the job's URL) and the

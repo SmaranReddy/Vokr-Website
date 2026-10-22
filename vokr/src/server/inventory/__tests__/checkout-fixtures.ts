@@ -114,6 +114,12 @@ export async function pricedSession(
   const totalPaise = input.totalPaise ?? 999_500;
   // Tests choose the total; shipping makes up any difference, as in real pricing.
   const subtotalPaise = Math.min(linesSubtotal, totalPaise);
+  // Pricing charges the delivery PIN code's fee and refuses one without it.
+  await prisma.serviceablePincode.upsert({
+    where: { pincode: "411001" },
+    create: { pincode: "411001", codEligible: false, estimatedDeliveryDays: 5, shippingFeePaise: 0 },
+    update: {},
+  });
   const address = await prisma.address.create({
     data: {
       nameEnc: encryptField(input.name ?? "Test Buyer"),

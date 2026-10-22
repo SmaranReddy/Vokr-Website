@@ -9,47 +9,11 @@ import { isValidGstState } from "@/lib/gst-states";
  * mis-charging a customer.
  */
 
-/**
- * Free-shipping threshold. The one figure Phase 6's shipping rule is
- * allowed to hard-code — it is already published, verbatim, in
- * `terms.html`, the PDP and the cart drawer ("Free shipping on orders
- * over ₹4,999"). The flat fee charged *below* that threshold is not
- * published anywhere and is not hard-coded here — see
- * {@link getFlatShippingFeePaise}.
+/*
+ * Shipping is charged on every order at the delivery PIN code's fee
+ * (`serviceable_pincodes.shipping_fee_paise`, from the courier's rate card)
+ * — no free-shipping threshold, and no COD (owner decisions, 21 Oct 2026).
  */
-export const FREE_SHIPPING_THRESHOLD_PAISE = 499_900;
-
-function readPositiveIntEnv(name: string, raw: string | undefined): number {
-  if (!raw) {
-    throw new Error(
-      `${name} is not set. This is decision D11 ` +
-        "(Vokr-Implementation-Plan.md §0.3) — a commercial amount this " +
-        "codebase must not invent. Checkout cannot price an order until " +
-        "it is set.",
-    );
-  }
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer (paise), got "${raw}".`);
-  }
-  return value;
-}
-
-/** Flat shipping fee (paise) for a subtotal at or below {@link FREE_SHIPPING_THRESHOLD_PAISE}. Throws if unset (D11). */
-export function getFlatShippingFeePaise(): number {
-  return readPositiveIntEnv(
-    "CHECKOUT_FLAT_SHIPPING_FEE_PAISE",
-    requireServerEnv().CHECKOUT_FLAT_SHIPPING_FEE_PAISE,
-  );
-}
-
-/** COD handling fee (paise), shown as its own line. Throws if unset (D11). */
-export function getCodHandlingFeePaise(): number {
-  return readPositiveIntEnv(
-    "CHECKOUT_COD_HANDLING_FEE_PAISE",
-    requireServerEnv().CHECKOUT_COD_HANDLING_FEE_PAISE,
-  );
-}
 
 /**
  * The seller's registered GST state, for the CGST+SGST vs IGST split.
