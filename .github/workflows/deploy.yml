@@ -150,7 +150,9 @@ jobs:
   build:
     name: Build and push image
     needs: verify
-    runs-on: ubuntu-latest
+    # Pinned: Docker on ubuntu-26.04 pushes an OCI index. Cloud Run records
+    # the inner manifest's digest, which fails the deploy's digest assertion.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: vokr
