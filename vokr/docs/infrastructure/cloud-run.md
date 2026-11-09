@@ -14,7 +14,7 @@ API rather than the console.
 | `max-instances`  | **3**                                                                    | PDF §1, **R4**                                    |
 | CPU / memory     | 1 vCPU / 512 MiB                                                         | PDF §1                                            |
 | Concurrency      | 80                                                                       | PDF §1                                            |
-| Request timeout  | 300 s                                                                    | Phase 20 task 1                                   |
+| Request timeout  | 120 s (above the 90 s scheduler deadline and Cloudflare's 100 s limit)   | Phase 20 task 1                                   |
 | Container port   | 3000                                                                     | `Dockerfile`                                      |
 | Runtime identity | `vokr-cloud-run@vokr-website.iam.gserviceaccount.com`                    | Phase 20 security: **not** the default compute SA |
 | Ingress          | `all`                                                                    | see "Origin exposure" below                       |
