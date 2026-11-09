@@ -30,6 +30,61 @@ async function withFetch(handler, fn) {
   }
 }
 
+async function withCache(fn) {
+  const store = new Map();
+  const pending = [];
+  const real = globalThis.caches;
+  globalThis.caches = {
+    default: {
+      match: async (key) => store.get(key.url)?.clone(),
+      put: async (key, response) => void store.set(key.url, response),
+    },
+  };
+  try {
+    await fn({ store, ctx: { waitUntil: (p) => pending.push(p) }, settle: () => Promise.all(pending) });
+  } finally {
+    globalThis.caches = real;
+  }
+}
+
+const IMMUTABLE = { "cache-control": "public, max-age=31536000, immutable" };
+
+test("serves a repeat request for a hashed asset from the edge cache", () =>
+  withCache(({ store, ctx, settle }) =>
+    withFetch(
+      () => new Response("asset", { headers: IMMUTABLE }),
+      async (calls) => {
+        for (const path of ["/_next/static/chunks/a.js", "/img/a-480.avif"]) {
+          const url = `https://vokr.shop${path}`;
+          assert.equal(await (await worker.fetch(new Request(url), ENV, ctx)).text(), "asset");
+          await settle();
+          assert.ok(store.has(url));
+          const again = await worker.fetch(new Request(url), ENV, ctx);
+          assert.equal(await again.text(), "asset");
+        }
+        assert.equal(calls.length, 2, "each asset reaches the origin once");
+      },
+    ),
+  ));
+
+test("never caches HTML, non-GETs, errors, or responses that set a cookie", () =>
+  withCache(async ({ store, ctx, settle }) => {
+    const cases = [
+      ["https://vokr.shop/", {}, () => new Response("<html>", { headers: IMMUTABLE })],
+      ["https://vokr.shop/img/a.avif", { method: "HEAD" }, () => new Response(null, { headers: IMMUTABLE })],
+      ["https://vokr.shop/img/a.avif", {}, () => new Response("gone", { status: 404, headers: IMMUTABLE })],
+      ["https://vokr.shop/img/a.avif", {}, () => new Response("x", { headers: { "cache-control": "no-store" } })],
+      ["https://vokr.shop/img/a.avif", {}, () => new Response("x", { headers: { ...IMMUTABLE, "set-cookie": "a=b" } })],
+    ];
+    for (const [url, init, handler] of cases) {
+      await withFetch(handler, async () => {
+        await worker.fetch(new Request(url, init), ENV, ctx);
+      });
+    }
+    await settle();
+    assert.equal(store.size, 0);
+  }));
+
 test("fails closed with 503 when either setting is missing", async () => {
   for (const env of [{}, { ORIGIN_HOST: "x" }, { ORIGIN_AUTH_SECRET: "y" }]) {
     const res = await worker.fetch(new Request("https://vokr.shop/"), env);

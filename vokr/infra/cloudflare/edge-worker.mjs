@@ -14,8 +14,22 @@
 
 export const ORIGIN_AUTH_HEADER = "x-vokr-origin-auth";
 
+// Build output and content-hashed images: the only responses shared between
+// visitors. A subrequest to the run.app host does not pass through this
+// zone's cache, so without this every file reaches Cloud Run. HTML is never
+// cached here: it carries a per-request CSP nonce.
+const SHARED_ASSET_PATH = /^\/(?:_next\/static|img)\//;
+
+function isSharedAsset(response) {
+  return (
+    response.status === 200 &&
+    /\bimmutable\b/i.test(response.headers.get("cache-control") ?? "") &&
+    !response.headers.has("set-cookie")
+  );
+}
+
 const worker = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const originHost = env.ORIGIN_HOST;
     const originSecret = env.ORIGIN_AUTH_SECRET;
     if (!originHost || !originSecret) {
@@ -26,6 +40,17 @@ const worker = {
     }
 
     const publicUrl = new URL(request.url);
+
+    // Keyed on the URL alone, so a visitor's cookies never reach the cache.
+    const cacheKey =
+      ctx && request.method === "GET" && SHARED_ASSET_PATH.test(publicUrl.pathname)
+        ? new Request(publicUrl.toString())
+        : null;
+    if (cacheKey) {
+      const cached = await caches.default.match(cacheKey);
+      if (cached) return cached;
+    }
+
     const upstreamUrl = new URL(
       publicUrl.pathname + publicUrl.search,
       `https://${originHost}`,
@@ -60,6 +85,9 @@ const worker = {
         response.headers.set("location", target.toString());
         return response;
       }
+    }
+    if (cacheKey && isSharedAsset(upstream)) {
+      ctx.waitUntil(caches.default.put(cacheKey, upstream.clone()));
     }
     return upstream;
   },
