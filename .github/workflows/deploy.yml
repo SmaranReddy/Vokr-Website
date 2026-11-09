@@ -385,7 +385,7 @@ jobs:
             --cpu=1 \
             --memory=512Mi \
             --concurrency=80 \
-            --timeout=300 \
+            --timeout=120 \
             --port=3000 \
             --startup-probe=httpGet.path=/api/health,httpGet.port=3000,initialDelaySeconds=5,timeoutSeconds=5,periodSeconds=10,failureThreshold=12 \
             --allow-unauthenticated \
